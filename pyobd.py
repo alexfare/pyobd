@@ -24,53 +24,25 @@
 # Foundation, Inc., 59 Temple Place, Suite 330, Boston, MA  02111-1307  USA
 ############################################################################
 
-#import pint
-#from mem_top import mem_top
-#import logging
 import numpy as np
-#import multiprocessing
-#from multiprocessing import Queue, Process
-# import wxversion
-# wxversion.select("2.6")
-#import matplotlib
 from wx.lib import plot as wxplot
-#from matplotlib.backends.backend_wxagg import FigureCanvasWxAgg as FigureCanvas
-
-#from matplotlib.figure import Figure
-#import matplotlib.pyplot as plt
-#matplotlib.use('wxAgg')
-#from matplotlib.animation import FuncAnimation
-#from matplotlib import style
-#import numpy.oldnumeric as _Numeric
-
-#from wxplot import PlotCanvas, PlotGraphics, PolyLine, PolyMarker, PolySpline
 import gc
-#from pympler.tracker import SummaryTracker
-#tracker = SummaryTracker()
 import traceback
 import wx
-#import pdb
 import obd_io  # OBD2 funcs
 import os  # os.environ
-#import decimal
-#import glob
 import datetime
 import threading
 import sys
 import serial
-#import platform
 import time
 import configparser  # safe application configuration
 import webbrowser  # open browser from python
-#from multiprocessing import Process
-#from multiprocessing import Queue
 
 from obd2_codes import pcodes
-#from obd2_codes import ptest
 
 from wx.lib.mixins.listctrl import ListCtrlAutoWidthMixin
 import obd
-#from obd import OBDStatus
 
 from obd.utils import OBDStatus
 
@@ -151,146 +123,129 @@ def EVT_RESULT(win, func, id):
     """Define Result Event."""
     win.Connect(-1, -1, id, func)
 
-"""
-class MyPanel(wx.Panel):
-    def __init__(self, parent):
-        super(MyPanel, self).__init__(parent)
-
-        self.label = wx.StaticText(self, label="What Programming Language You Like?", pos=(50, 30))
-
-        languages = ['Java', 'C++', 'C#', 'Python', 'Erlang', 'PHP', 'Ruby']
-        self.combobox = wx.ComboBox(self, choices=languages, pos=(50, 50))
-
-        self.label2 = wx.StaticText(self, label="", pos=(50, 80))
-
-        self.Bind(wx.EVT_COMBOBOX, self.OnCombo)
-
-    def OnCombo(self, event):
-        self.label2.SetLabel("You Like " + self.combobox.GetValue())
-"""
 # event pro akutalizaci Trace tabu
-class ResultEvent(wx.PyEvent):
-    """Simple event to carry arbitrary result data."""
 
+class ResultEvent(wx.PyEvent):
+    """Event to carry arbitrary result data for sensor results."""
     def __init__(self, data):
-        """Init Result Event."""
+        """Initialize ResultEvent with data."""
         wx.PyEvent.__init__(self)
         self.SetEventType(EVT_RESULT_ID)
         self.data = data
 
-class FreezeframeResultEvent(wx.PyEvent):
-    """Simple event to carry arbitrary result data."""
 
+class FreezeframeResultEvent(wx.PyEvent):
+    """Event to carry arbitrary result data for freeze frame results."""
     def __init__(self, data):
-        """Init Result Event."""
+        """Initialize FreezeframeResultEvent with data."""
         wx.PyEvent.__init__(self)
         self.SetEventType(EVT_FREEZEFRAME_RESULT_ID)
         self.data = data
 
-class InsertSensorRowEvent(wx.PyEvent):
-    """Simple event to carry arbitrary result data."""
 
+class InsertSensorRowEvent(wx.PyEvent):
+    """Event to insert a sensor row in the UI."""
     def __init__(self, data):
-        """Init Result Event."""
+        """Initialize InsertSensorRowEvent with data."""
         wx.PyEvent.__init__(self)
         self.SetEventType(EVT_INSERT_SENSOR_ROW_ID)
         self.data = data
 
-class InsertFreezeframeRowEvent(wx.PyEvent):
-    """Simple event to carry arbitrary result data."""
 
+class InsertFreezeframeRowEvent(wx.PyEvent):
+    """Event to insert a freeze frame row in the UI."""
     def __init__(self, data):
-        """Init Result Event."""
+        """Initialize InsertFreezeframeRowEvent with data."""
         wx.PyEvent.__init__(self)
         self.SetEventType(EVT_INSERT_FREEZEFRAME_ROW_ID)
         self.data = data
 
-class BuildComboBoxGraphEvent(wx.PyEvent):
-    """Simple event to carry arbitrary result data."""
 
+class BuildComboBoxGraphEvent(wx.PyEvent):
+    """Event to build a ComboBox for graph selection."""
     def __init__(self, data):
-        """Init Result Event."""
+        """Initialize BuildComboBoxGraphEvent with data."""
         wx.PyEvent.__init__(self)
         self.SetEventType(EVT_BUILD_COMBOBOXGRAPH_ID)
         self.data = data
 
-class BuildComboBoxGraphsEvent(wx.PyEvent):
-    """Simple event to carry arbitrary result data."""
 
+class BuildComboBoxGraphsEvent(wx.PyEvent):
+    """Event to build ComboBoxes for multiple graph selections."""
     def __init__(self, data):
-        """Init Result Event."""
+        """Initialize BuildComboBoxGraphsEvent with data."""
         wx.PyEvent.__init__(self)
         self.SetEventType(EVT_BUILD_COMBOBOXGRAPHS_ID)
         self.data = data
 
-class BuildComboBoxGraphs8Event(wx.PyEvent):
-    """Simple event to carry arbitrary result data."""
 
+class BuildComboBoxGraphs8Event(wx.PyEvent):
+    """Event to build ComboBoxes for 8-graph selection."""
     def __init__(self, data):
-        """Init Result Event."""
+        """Initialize BuildComboBoxGraphs8Event with data."""
         wx.PyEvent.__init__(self)
         self.SetEventType(EVT_BUILD_COMBOBOXGRAPHS8_ID)
         self.data = data
 
-class DestroyComboBoxEvent(wx.PyEvent):
-    """Simple event to carry arbitrary result data."""
 
+class DestroyComboBoxEvent(wx.PyEvent):
+    """Event to destroy ComboBox widgets in the UI."""
     def __init__(self, data):
-        """Init Result Event."""
+        """Initialize DestroyComboBoxEvent with data."""
         wx.PyEvent.__init__(self)
         self.SetEventType(EVT_DESTROY_COMBOBOX_ID)
         self.data = data
 
-class GetSelectionComboBoxGraphEvent(wx.PyEvent):
-    """Simple event to carry arbitrary result data."""
 
+class GetSelectionComboBoxGraphEvent(wx.PyEvent):
+    """Event to get selection from a graph ComboBox."""
     def __init__(self, data):
-        """Init Result Event."""
+        """Initialize GetSelectionComboBoxGraphEvent with data."""
         wx.PyEvent.__init__(self)
         self.SetEventType(EVT_COMBOBOXGRAPH_GETSELECTION_ID)
         self.data = data
 
-class GetSelectionComboBoxGraphsEvent(wx.PyEvent):
-    """Simple event to carry arbitrary result data."""
 
+class GetSelectionComboBoxGraphsEvent(wx.PyEvent):
+    """Event to get selection from multiple graph ComboBoxes."""
     def __init__(self, data):
-        """Init Result Event."""
+        """Initialize GetSelectionComboBoxGraphsEvent with data."""
         wx.PyEvent.__init__(self)
         self.SetEventType(EVT_COMBOBOXGRAPHS_GETSELECTION_ID)
         self.data = data
 
-class GetSelectionComboBoxGraphs8Event(wx.PyEvent):
-    """Simple event to carry arbitrary result data."""
 
+class GetSelectionComboBoxGraphs8Event(wx.PyEvent):
+    """Event to get selection from 8-graph ComboBoxes."""
     def __init__(self, data):
-        """Init Result Event."""
+        """Initialize GetSelectionComboBoxGraphs8Event with data."""
         wx.PyEvent.__init__(self)
         self.SetEventType(EVT_COMBOBOXGRAPHS8_GETSELECTION_ID)
         self.data = data
 
-class SetSelectionComboBoxGraphEvent(wx.PyEvent):
-    """Simple event to carry arbitrary result data."""
 
+class SetSelectionComboBoxGraphEvent(wx.PyEvent):
+    """Event to set selection in a graph ComboBox."""
     def __init__(self, data):
-        """Init Result Event."""
+        """Initialize SetSelectionComboBoxGraphEvent with data."""
         wx.PyEvent.__init__(self)
         self.SetEventType(EVT_COMBOBOXGRAPH_SETSELECTION_ID)
         self.data = data
 
-class SetSelectionComboBoxGraphsEvent(wx.PyEvent):
-    """Simple event to carry arbitrary result data."""
 
+class SetSelectionComboBoxGraphsEvent(wx.PyEvent):
+    """Event to set selection in multiple graph ComboBoxes."""
     def __init__(self, data):
-        """Init Result Event."""
+        """Initialize SetSelectionComboBoxGraphsEvent with data."""
         wx.PyEvent.__init__(self)
         self.SetEventType(EVT_COMBOBOXGRAPHS_SETSELECTION_ID)
         self.data = data
 
-class SetSelectionComboBoxGraphs8Event(wx.PyEvent):
-    """Simple event to carry arbitrary result data."""
 
+class SetSelectionComboBoxGraphs8Event(wx.PyEvent):
+    """Event to set selection in 8-graph ComboBoxes."""
     def __init__(self, data):
-        """Init Result Event."""
+        """Initialize SetSelectionComboBoxGraphs8Event with data."""
         wx.PyEvent.__init__(self)
         self.SetEventType(EVT_COMBOBOXGRAPHS8_SETSELECTION_ID)
         self.data = data
