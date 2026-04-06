@@ -66,6 +66,9 @@ class OBDConnection:
         else:
             FAST = False
 
+        # Translate logical adapter target (Wi-Fi/Bluetooth/Serial/AUTO) to a pyserial URL or port.
+        portnum = self._normalize_adapter_target(portnum)
+
         counter = 0
         while counter < RECONNATTEMPTS:
             counter = counter + 1
@@ -81,6 +84,40 @@ class OBDConnection:
             else:
                 self.connection.close()
             time.sleep(1)
+
+    def _normalize_adapter_target(self, portnum):
+        """Normalize config input into serial port or pyserial URL string."""
+        if portnum is None:
+            return None
+
+        if not isinstance(portnum, str):
+            return portnum
+
+        target = portnum.strip()
+        if target.upper() == 'AUTO' or target == '':
+            return None
+
+        # Already a pyserial URL (socket://, rfc2217://, loop://, etc.)
+        if '://' in target:
+            return target
+
+        # Wi-Fi adapters are commonly configured as host[:port] without scheme.
+        if target.startswith('WIFI:'):
+            host_port = target[5:].strip()
+            if host_port and ':' not in host_port:
+                host_port += ':35000'
+            return 'socket://' + host_port
+
+        # Bluetooth target may be an RFCOMM URL or COM port (on Windows SPP).
+        if target.startswith('BT:'):
+            bt_target = target[3:].strip()
+            if '://' in bt_target:
+                return bt_target
+            if bt_target.upper().startswith('COM'):
+                return bt_target
+            return 'rfcomm://' + bt_target + ':1'
+
+        return target
 
     def close(self):
         """ Resets device and closes all associated filehandles"""

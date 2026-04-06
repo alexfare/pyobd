@@ -2450,6 +2450,8 @@ class MyApp(wx.App):
             self.configfilepath = os.environ['HOME'] + '/.pyobdrc'
         if self.config.read(self.configfilepath) == []:
             self.COMPORT = "AUTO"
+            self.CONNECTION_TYPE = "AUTO"
+            self.CONNECTION_TARGET = ""
             self.RECONNATTEMPTS = 5
             self.SERTIMEOUT = 1
             self.BAUDRATE = "AUTO"
@@ -2457,6 +2459,8 @@ class MyApp(wx.App):
         else:
             try:
                 self.COMPORT = self.config.get("pyOBD", "COMPORT")
+                self.CONNECTION_TYPE = self.config.get("pyOBD", "CONNECTION_TYPE", fallback="")
+                self.CONNECTION_TARGET = self.config.get("pyOBD", "CONNECTION_TARGET", fallback="")
                 self.RECONNATTEMPTS = self.config.getint("pyOBD", "RECONNATTEMPTS")
                 self.SERTIMEOUT = self.config.get("pyOBD", "SERTIMEOUT")
                 self.BAUDRATE = self.config.get("pyOBD", "BAUDRATE")
@@ -2464,10 +2468,18 @@ class MyApp(wx.App):
             except Exception as e:
                 print(e)
                 self.COMPORT = "AUTO"
+                self.CONNECTION_TYPE = "AUTO"
+                self.CONNECTION_TARGET = ""
                 self.RECONNATTEMPTS = 5
                 self.SERTIMEOUT = 5
                 self.BAUDRATE = "AUTO"
                 self.FAST = "FAST"
+
+        self.CONNECTION_TYPE, self.CONNECTION_TARGET = self._infer_connection_from_comport(
+            self.CONNECTION_TYPE,
+            self.CONNECTION_TARGET,
+            self.COMPORT,
+        )
 
         self.frame = wx.Frame(None, -1, "pyOBD-II ver. 1.19")
         ico = wx.Icon(resource_path('pyobd.ico'), wx.BITMAP_TYPE_ICO)
@@ -3329,6 +3341,43 @@ the Free Software Foundation, Inc., 59 Temple Place, Suite 330, Boston, MA  0211
 
         return available
 
+    def _infer_connection_from_comport(self, connection_type, connection_target, comport):
+        if connection_type in ["AUTO", "SERIAL", "WIFI", "BLUETOOTH", "CUSTOM"]:
+            return connection_type, connection_target
+
+        if comport == "AUTO":
+            return "AUTO", ""
+
+        if isinstance(comport, str):
+            upper = comport.upper()
+            if upper.startswith("WIFI:"):
+                return "WIFI", comport[5:]
+            if upper.startswith("BT:"):
+                return "BLUETOOTH", comport[3:]
+            if comport.startswith("socket://"):
+                return "WIFI", comport[len("socket://"):]
+            if comport.startswith("rfcomm://"):
+                return "BLUETOOTH", comport[len("rfcomm://"):]
+            if "://" in comport:
+                return "CUSTOM", comport
+
+        return "SERIAL", comport
+
+    def _compose_comport(self, connection_type, serial_port, target):
+        target = (target or "").strip()
+
+        if connection_type == "AUTO":
+            return "AUTO"
+        if connection_type == "SERIAL":
+            return serial_port
+        if connection_type == "WIFI":
+            if target == "":
+                target = "192.168.0.10:35000"
+            return "WIFI:" + target
+        if connection_type == "BLUETOOTH":
+            return "BT:" + target
+        return target
+
     def Configure(self, e=None):
         id = 0
         diag = wx.Dialog(self.frame, id, title="Configure")
@@ -3344,11 +3393,26 @@ the Free Software Foundation, Inc., 59 Temple Place, Suite 330, Boston, MA  0211
         self.OpenLinkButton = wx.Button(diag, -1, "Click here to order ELM-USB interface", size=(260, 30))
         diag.Bind(wx.EVT_BUTTON, self.OnHelpOrder, self.OpenLinkButton)
         sizer.Add(self.OpenLinkButton)
+
+        connection_types = ["AUTO", "SERIAL", "WIFI", "BLUETOOTH", "CUSTOM"]
+        ctb = wx.RadioBox(diag, id, "Connection Type",
+                  choices=connection_types, style=wx.RA_SPECIFY_COLS,
+                  majorDimension=3)
+        sizer.Add(ctb, 0)
+
         rb = wx.RadioBox(diag, id, "Choose Serial Port",
                          choices=ports, style=wx.RA_SPECIFY_COLS,
                          majorDimension=2)
 
         sizer.Add(rb, 0)
+
+        targetPanel = wx.Panel(diag, -1)
+        targetCtrl = wx.TextCtrl(targetPanel, -1, '', pos=(160, 0), size=(220, 25))
+        targetStatic = wx.StaticText(targetPanel, -1, 'Wi-Fi/Bluetooth target:', pos=(3, 5), size=(160, 20))
+        targetHelp = wx.StaticText(diag, -1, 'Wi-Fi: 192.168.0.10:35000 | Bluetooth: COM5 or AA:BB:CC:DD:EE:FF:1 | Custom: socket://host:port')
+        sizer.Add(targetPanel, 0)
+        sizer.Add(targetHelp, 0)
+
         baudrates = ['AUTO', "38400", "9600",  "115200", "57600", "19200", "14400", "3000000", "2000000", "1000000", "250000", "230400", "128000", "500000", "460800", "500000", "576000", "921600", "1000000", "1152000", "1500000", "2000000", "2500000", "3000000", "3500000", "4000000"]
         brb = wx.RadioBox(diag, id, "Choose Baud Rate",
                          choices=baudrates, style=wx.RA_SPECIFY_COLS,
@@ -3377,6 +3441,15 @@ the Free Software Foundation, Inc., 59 Temple Place, Suite 330, Boston, MA  0211
         # set actual serial port choice
         if (self.COMPORT != 0) and (self.COMPORT in ports):
             rb.SetSelection(ports.index(self.COMPORT))
+
+        connection_type, connection_target = self._infer_connection_from_comport(
+            self.CONNECTION_TYPE,
+            self.CONNECTION_TARGET,
+            self.COMPORT,
+        )
+        ctb.SetSelection(connection_types.index(connection_type))
+        targetCtrl.SetValue(str(connection_target))
+
         baudrates = ['AUTO', "38400", "9600",  "115200", "57600", "19200", "14400", "3000000", "2000000", "1000000", "250000", "230400", "128000", "500000", "460800", "500000", "576000", "921600", "1000000", "1152000", "1500000", "2000000", "2500000", "3000000", "3500000", "4000000"]
         if (self.BAUDRATE != 0) and (self.BAUDRATE in baudrates):
             brb.SetSelection(baudrates.index(self.BAUDRATE))
@@ -3403,9 +3476,18 @@ the Free Software Foundation, Inc., 59 Temple Place, Suite 330, Boston, MA  0211
                 self.config.add_section("pyOBD")
             # set and save COMPORT
 
-            self.COMPORT = ports[rb.GetSelection()]
+            self.CONNECTION_TYPE = connection_types[ctb.GetSelection()]
+            self.CONNECTION_TARGET = targetCtrl.GetValue().strip()
+
+            self.COMPORT = self._compose_comport(
+                self.CONNECTION_TYPE,
+                ports[rb.GetSelection()],
+                self.CONNECTION_TARGET,
+            )
             COMPORT = self.COMPORT
             self.config.set("pyOBD", "COMPORT", self.COMPORT)
+            self.config.set("pyOBD", "CONNECTION_TYPE", self.CONNECTION_TYPE)
+            self.config.set("pyOBD", "CONNECTION_TARGET", self.CONNECTION_TARGET)
 
             self.BAUDRATE = baudrates[brb.GetSelection()]
             BAUDRATE = self.BAUDRATE
