@@ -439,6 +439,9 @@ class MyApp(wx.App):
     def _apply_touch_friendly_style(self):
         self.touch_font = wx.Font(11, wx.FONTFAMILY_SWISS, wx.FONTSTYLE_NORMAL, wx.FONTWEIGHT_NORMAL)
         self.touch_font_bold = wx.Font(11, wx.FONTFAMILY_SWISS, wx.FONTSTYLE_NORMAL, wx.FONTWEIGHT_BOLD)
+        self.home_title_font = wx.Font(17, wx.FONTFAMILY_SWISS, wx.FONTSTYLE_NORMAL, wx.FONTWEIGHT_BOLD)
+        self.home_subtitle_font = wx.Font(10, wx.FONTFAMILY_SWISS, wx.FONTSTYLE_NORMAL, wx.FONTWEIGHT_NORMAL)
+        self.home_tile_font = wx.Font(14, wx.FONTFAMILY_SWISS, wx.FONTSTYLE_NORMAL, wx.FONTWEIGHT_BOLD)
         self.frame.SetBackgroundColour(wx.Colour(241, 245, 250))
         self.frame.SetFont(self.touch_font)
 
@@ -466,6 +469,93 @@ class MyApp(wx.App):
         self.GetDTCButton.SetFont(self.touch_font_bold)
         self.ClearDTCButton.SetMinSize((140, 40))
         self.ClearDTCButton.SetFont(self.touch_font_bold)
+
+        if hasattr(self, "home_title"):
+            self.home_title.SetFont(self.home_title_font)
+            self.home_subtitle.SetFont(self.home_subtitle_font)
+
+        if hasattr(self, "home_scan_button"):
+            self.home_scan_button.SetFont(self.home_tile_font)
+            self.home_services_button.SetFont(self.home_tile_font)
+            self.home_graphs_button.SetFont(self.home_tile_font)
+
+    def _go_to_page(self, page):
+        page_index = wx.NOT_FOUND
+        for i in range(self.nb.GetPageCount()):
+            if self.nb.GetPage(i) is page:
+                page_index = i
+                break
+
+        if page_index != wx.NOT_FOUND:
+            self.nb.SetSelection(page_index)
+
+    def _create_home_tile(self, parent, label, bg_colour, fg_colour, handler):
+        button = wx.Button(parent, -1, label)
+        button.SetMinSize((260, 130))
+        button.SetBackgroundColour(bg_colour)
+        button.SetForegroundColour(fg_colour)
+        button.Bind(wx.EVT_BUTTON, handler)
+        return button
+
+    def build_home_page(self):
+        self.home_panel = wx.Panel(self.nb, -1)
+        self.home_panel.SetBackgroundColour(wx.Colour(236, 240, 245))
+
+        root_sizer = wx.BoxSizer(wx.VERTICAL)
+        header_sizer = wx.BoxSizer(wx.VERTICAL)
+        grid = wx.GridBagSizer(16, 16)
+
+        self.home_title = wx.StaticText(self.home_panel, -1, "pyOBD Home")
+        self.home_subtitle = wx.StaticText(self.home_panel, -1, "Quick access for scan, service, and live graphs")
+        self.home_subtitle.SetForegroundColour(wx.Colour(76, 88, 106))
+
+        self.home_scan_button = self._create_home_tile(
+            self.home_panel,
+            "SCAN\nDTC",
+            wx.Colour(25, 118, 210),
+            wx.Colour(255, 255, 255),
+            self.OnHomeScan,
+        )
+        self.home_services_button = self._create_home_tile(
+            self.home_panel,
+            "SERVICES",
+            wx.Colour(46, 125, 50),
+            wx.Colour(255, 255, 255),
+            self.OnHomeServices,
+        )
+        self.home_graphs_button = self._create_home_tile(
+            self.home_panel,
+            "GRAPHS",
+            wx.Colour(2, 136, 209),
+            wx.Colour(255, 255, 255),
+            self.OnHomeGraphs,
+        )
+
+        header_sizer.Add(self.home_title, 0, wx.BOTTOM, 4)
+        header_sizer.Add(self.home_subtitle, 0)
+
+        grid.Add(self.home_scan_button, (0, 0), span=(1, 1), flag=wx.EXPAND)
+        grid.Add(self.home_services_button, (0, 1), span=(1, 1), flag=wx.EXPAND)
+        grid.Add(self.home_graphs_button, (1, 0), span=(1, 2), flag=wx.EXPAND)
+        grid.AddGrowableCol(0, 1)
+        grid.AddGrowableCol(1, 1)
+        grid.AddGrowableRow(0, 1)
+        grid.AddGrowableRow(1, 1)
+
+        root_sizer.Add(header_sizer, 0, wx.ALL, 18)
+        root_sizer.Add(grid, 1, wx.EXPAND | wx.LEFT | wx.RIGHT | wx.BOTTOM, 18)
+        self.home_panel.SetSizer(root_sizer)
+
+        self.nb.AddPage(self.home_panel, "Home")
+
+    def OnHomeScan(self, event):
+        self.GetDTC(None)
+
+    def OnHomeServices(self, event):
+        self._go_to_page(self.status)
+
+    def OnHomeGraphs(self, event):
+        self._go_to_page(self.graph_panel)
 
     class sensorProducer(threading.Thread):
         def __init__(self, _notify_window, portName, SERTIMEOUT, RECONNATTEMPTS, BAUDRATE, FAST, _nb):
@@ -2676,6 +2766,7 @@ class MyApp(wx.App):
         self.trace.InsertColumn(1, "Message")
         self.nb.AddPage(self.trace, "Trace")
         self.TraceDebug(1, "Application started")
+        self.build_home_page()
 
         self._build_bottom_status_toolbar()
         self._set_bottom_status_defaults()
@@ -2736,6 +2827,7 @@ class MyApp(wx.App):
         self.frame.SetSize((1180, 900))
         self.frame.SetMinSize((960, 700))
         self.frame.Centre()
+        self._go_to_page(self.home_panel)
         self.frame.Show(True)
         self.sensor_control_off() # ??? JURE POLJSAK
 
