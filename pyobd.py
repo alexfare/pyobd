@@ -369,6 +369,104 @@ class MyApp(wx.App):
             wx.ListCtrl.__init__(self, parent, id, pos, size, style)
             ListCtrlAutoWidthMixin.__init__(self)
 
+    STATUS_TOOLBAR_MAP = {
+        0: "link",
+        1: "protocol",
+        2: "adapter",
+        3: "port",
+        4: "vin",
+        5: "voltage",
+    }
+
+    def _build_bottom_status_toolbar(self):
+        self.bottom_toolbar = wx.Panel(self.frame, -1)
+        self.bottom_toolbar.SetBackgroundColour(wx.Colour(24, 31, 42))
+        self.bottom_toolbar_values = {}
+
+        toolbar_sizer = wx.BoxSizer(wx.HORIZONTAL)
+        self.bottom_toolbar.SetSizer(toolbar_sizer)
+        self.bottom_toolbar.SetMinSize((-1, 82))
+
+        toolbar_fields = [
+            ("link", "Link", "Disconnected"),
+            ("protocol", "Protocol", "----"),
+            ("adapter", "Adapter", "----"),
+            ("port", "Port", "----"),
+            ("vin", "VIN", "----"),
+            ("voltage", "Voltage", "----"),
+        ]
+
+        for index, (key, label, value) in enumerate(toolbar_fields):
+            field_sizer = wx.BoxSizer(wx.VERTICAL)
+
+            title = wx.StaticText(self.bottom_toolbar, -1, label.upper())
+            title.SetForegroundColour(wx.Colour(155, 168, 186))
+            title.SetFont(wx.Font(8, wx.FONTFAMILY_SWISS, wx.FONTSTYLE_NORMAL, wx.FONTWEIGHT_NORMAL))
+
+            value_widget = wx.StaticText(self.bottom_toolbar, -1, value)
+            value_widget.SetForegroundColour(wx.Colour(236, 242, 255))
+            value_widget.SetFont(wx.Font(12, wx.FONTFAMILY_SWISS, wx.FONTSTYLE_NORMAL, wx.FONTWEIGHT_BOLD))
+
+            self.bottom_toolbar_values[key] = value_widget
+
+            field_sizer.Add(title, 0, wx.BOTTOM, 2)
+            field_sizer.Add(value_widget, 0)
+            toolbar_sizer.Add(field_sizer, 1, wx.ALIGN_CENTER_VERTICAL | wx.LEFT | wx.RIGHT, 10)
+
+            if index < len(toolbar_fields) - 1:
+                toolbar_sizer.Add(wx.StaticLine(self.bottom_toolbar, style=wx.LI_VERTICAL), 0, wx.EXPAND | wx.TOP | wx.BOTTOM, 10)
+
+    def _set_bottom_status_defaults(self):
+        defaults = {
+            "link": "Disconnected",
+            "protocol": "----",
+            "adapter": "----",
+            "port": "----",
+            "vin": "----",
+            "voltage": "----",
+        }
+        for key, value in defaults.items():
+            if key in self.bottom_toolbar_values:
+                self.bottom_toolbar_values[key].SetLabel(value)
+        self.bottom_toolbar.Layout()
+
+    def _update_bottom_status(self, status_index, value):
+        status_key = self.STATUS_TOOLBAR_MAP.get(status_index)
+        if status_key and status_key in self.bottom_toolbar_values:
+            self.bottom_toolbar_values[status_key].SetLabel(str(value))
+            self.bottom_toolbar.Layout()
+
+    def _apply_touch_friendly_style(self):
+        self.touch_font = wx.Font(11, wx.FONTFAMILY_SWISS, wx.FONTSTYLE_NORMAL, wx.FONTWEIGHT_NORMAL)
+        self.touch_font_bold = wx.Font(11, wx.FONTFAMILY_SWISS, wx.FONTSTYLE_NORMAL, wx.FONTWEIGHT_BOLD)
+        self.frame.SetBackgroundColour(wx.Colour(241, 245, 250))
+        self.frame.SetFont(self.touch_font)
+
+        try:
+            self.nb.SetPadding(wx.Size(20, 10))
+        except Exception:
+            pass
+        self.nb.SetFont(self.touch_font_bold)
+
+        controls = [
+            self.status,
+            self.OBDTests,
+            self.sensors,
+            self.freezeframe,
+            self.dtc,
+            self.trace,
+            self.graph_list_ctrl,
+            self.graphs_list_ctrl,
+            self.graphs8_list_ctrl,
+        ]
+        for control in controls:
+            control.SetFont(self.touch_font)
+
+        self.GetDTCButton.SetMinSize((140, 40))
+        self.GetDTCButton.SetFont(self.touch_font_bold)
+        self.ClearDTCButton.SetMinSize((140, 40))
+        self.ClearDTCButton.SetFont(self.touch_font_bold)
+
     class sensorProducer(threading.Thread):
         def __init__(self, _notify_window, portName, SERTIMEOUT, RECONNATTEMPTS, BAUDRATE, FAST, _nb):
             #from queue import Queue
@@ -2579,6 +2677,16 @@ class MyApp(wx.App):
         self.nb.AddPage(self.trace, "Trace")
         self.TraceDebug(1, "Application started")
 
+        self._build_bottom_status_toolbar()
+        self._set_bottom_status_defaults()
+
+        self.main_sizer = wx.BoxSizer(wx.VERTICAL)
+        self.main_sizer.Add(self.nb, 1, wx.EXPAND | wx.ALL, 8)
+        self.main_sizer.Add(self.bottom_toolbar, 0, wx.EXPAND | wx.LEFT | wx.RIGHT | wx.BOTTOM, 8)
+        self.frame.SetSizer(self.main_sizer)
+
+        self._apply_touch_friendly_style()
+
 
 
 
@@ -2625,8 +2733,10 @@ class MyApp(wx.App):
 
         self.SetTopWindow(self.frame)
 
+        self.frame.SetSize((1180, 900))
+        self.frame.SetMinSize((960, 700))
+        self.frame.Centre()
         self.frame.Show(True)
-        self.frame.SetSize((1024, 920))
         self.sensor_control_off() # ??? JURE POLJSAK
 
 
@@ -2685,8 +2795,10 @@ the Free Software Foundation, Inc., 59 Temple Place, Suite 330, Boston, MA  0211
     def OnStatus(self, event):
         if event.data[0] == 666:  # signal, that connection falied
             self.sensor_control_off()
+            self._set_bottom_status_defaults()
         else:
             self.status.SetItem(event.data[0], event.data[1], event.data[2])
+            self._update_bottom_status(event.data[0], event.data[2])
 
     def OnTests(self, event):
         self.OBDTests.SetItem(event.data[0], event.data[1], event.data[2])
@@ -2707,25 +2819,38 @@ the Free Software Foundation, Inc., 59 Temple Place, Suite 330, Boston, MA  0211
         self.freezeframe.InsertItem(counter, "")
 
     def BuildComboBoxGraph(self, event):
-        self.combobox = wx.ComboBox(self.graph_panel, choices=event.data, pos=(0, 65))
+        self.combobox = wx.ComboBox(self.graph_panel, choices=event.data, pos=(0, 65), size=(360, 42))
+        self.combobox.SetFont(self.touch_font)
         self.build_combobox_graph_event_finished=True
 
     def BuildComboBoxGraphs(self, event):
-        self.combobox1 = wx.ComboBox(self.graphs_panel, choices=event.data, pos=(0, 140))
-        self.combobox2 = wx.ComboBox(self.graphs_panel, choices=event.data, pos=(0, 190))
-        self.combobox3 = wx.ComboBox(self.graphs_panel, choices=event.data, pos=(330, 140))
-        self.combobox4 = wx.ComboBox(self.graphs_panel, choices=event.data, pos=(330, 190))
+        self.combobox1 = wx.ComboBox(self.graphs_panel, choices=event.data, pos=(0, 140), size=(310, 42))
+        self.combobox2 = wx.ComboBox(self.graphs_panel, choices=event.data, pos=(0, 190), size=(310, 42))
+        self.combobox3 = wx.ComboBox(self.graphs_panel, choices=event.data, pos=(330, 140), size=(310, 42))
+        self.combobox4 = wx.ComboBox(self.graphs_panel, choices=event.data, pos=(330, 190), size=(310, 42))
+        self.combobox1.SetFont(self.touch_font)
+        self.combobox2.SetFont(self.touch_font)
+        self.combobox3.SetFont(self.touch_font)
+        self.combobox4.SetFont(self.touch_font)
         self.build_combobox_graphs_event_finished=True
 
     def BuildComboBoxGraphs8(self, event):
-        self.combobox8_1 = wx.ComboBox(self.graphs8_panel, choices=event.data, pos=(0, 240))
-        self.combobox8_2 = wx.ComboBox(self.graphs8_panel, choices=event.data, pos=(0, 290))
-        self.combobox8_3 = wx.ComboBox(self.graphs8_panel, choices=event.data, pos=(330, 240))
-        self.combobox8_4 = wx.ComboBox(self.graphs8_panel, choices=event.data, pos=(330, 290))
-        self.combobox8_5 = wx.ComboBox(self.graphs8_panel, choices=event.data, pos=(660, 240))
-        self.combobox8_6 = wx.ComboBox(self.graphs8_panel, choices=event.data, pos=(660, 290))
-        self.combobox8_7 = wx.ComboBox(self.graphs8_panel, choices=event.data, pos=(990, 240))
-        self.combobox8_8 = wx.ComboBox(self.graphs8_panel, choices=event.data, pos=(990, 290))
+        self.combobox8_1 = wx.ComboBox(self.graphs8_panel, choices=event.data, pos=(0, 240), size=(300, 42))
+        self.combobox8_2 = wx.ComboBox(self.graphs8_panel, choices=event.data, pos=(0, 290), size=(300, 42))
+        self.combobox8_3 = wx.ComboBox(self.graphs8_panel, choices=event.data, pos=(330, 240), size=(300, 42))
+        self.combobox8_4 = wx.ComboBox(self.graphs8_panel, choices=event.data, pos=(330, 290), size=(300, 42))
+        self.combobox8_5 = wx.ComboBox(self.graphs8_panel, choices=event.data, pos=(660, 240), size=(300, 42))
+        self.combobox8_6 = wx.ComboBox(self.graphs8_panel, choices=event.data, pos=(660, 290), size=(300, 42))
+        self.combobox8_7 = wx.ComboBox(self.graphs8_panel, choices=event.data, pos=(990, 240), size=(300, 42))
+        self.combobox8_8 = wx.ComboBox(self.graphs8_panel, choices=event.data, pos=(990, 290), size=(300, 42))
+        self.combobox8_1.SetFont(self.touch_font)
+        self.combobox8_2.SetFont(self.touch_font)
+        self.combobox8_3.SetFont(self.touch_font)
+        self.combobox8_4.SetFont(self.touch_font)
+        self.combobox8_5.SetFont(self.touch_font)
+        self.combobox8_6.SetFont(self.touch_font)
+        self.combobox8_7.SetFont(self.touch_font)
+        self.combobox8_8.SetFont(self.touch_font)
         self.build_combobox_graphs8_event_finished=True
 
     def DestroyComboBox(self, event):
