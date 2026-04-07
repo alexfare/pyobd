@@ -496,6 +496,31 @@ class MyApp(wx.App):
         if page_index != wx.NOT_FOUND:
             self.nb.SetSelection(page_index)
 
+    def _swap_notebook_pages(self, title_a, title_b):
+        idx_a = wx.NOT_FOUND
+        idx_b = wx.NOT_FOUND
+        for i in range(self.nb.GetPageCount()):
+            page_title = self.nb.GetPageText(i)
+            if page_title == title_a:
+                idx_a = i
+            elif page_title == title_b:
+                idx_b = i
+
+        if idx_a == wx.NOT_FOUND or idx_b == wx.NOT_FOUND or idx_a == idx_b:
+            return
+
+        if idx_a > idx_b:
+            idx_a, idx_b = idx_b, idx_a
+            title_a, title_b = title_b, title_a
+
+        page_a = self.nb.GetPage(idx_a)
+        page_b = self.nb.GetPage(idx_b)
+
+        self.nb.RemovePage(idx_b)
+        self.nb.RemovePage(idx_a)
+        self.nb.InsertPage(idx_a, page_b, title_b)
+        self.nb.InsertPage(idx_b, page_a, title_a)
+
     def _create_home_tile(self, parent, label, bg_colour, fg_colour, handler):
         button = wx.Button(parent, -1, label)
         button.SetMinSize((260, 130))
@@ -2691,7 +2716,7 @@ class MyApp(wx.App):
             self.COMPORT,
         )
 
-        self.frame = wx.Frame(None, -1, "pyOBD-II ver. 1.19")
+        self.frame = wx.Frame(None, -1, "pyOBD-II v2.0")
         ico = wx.Icon(resource_path('pyobd.ico'), wx.BITMAP_TYPE_ICO)
         self.frame.SetIcon(ico)
 
@@ -2781,13 +2806,14 @@ class MyApp(wx.App):
 
 
         self.build_graph_page()
-        # Legacy 4-Graphs and 8-Graphs pages intentionally removed.
+        # Legacy 4-Graphs and 8-Graphs pages removed.
         self.trace = self.MyListCtrl(self.nb, tID, style=wx.LC_REPORT | wx.SUNKEN_BORDER)
         self.trace.InsertColumn(0, "Level", width=40)
         self.trace.InsertColumn(1, "Message")
         self.nb.AddPage(self.trace, "Trace")
         self.TraceDebug(1, "Application started")
         self.build_home_page()
+        self._swap_notebook_pages("Home", "Status")
 
         self._build_bottom_status_toolbar()
         self._set_bottom_status_defaults()
