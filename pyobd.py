@@ -459,9 +459,11 @@ class MyApp(wx.App):
             self.dtc,
             self.trace,
             self.graph_list_ctrl,
-            self.graphs_list_ctrl,
-            self.graphs8_list_ctrl,
         ]
+        if hasattr(self, "graphs_list_ctrl"):
+            controls.append(self.graphs_list_ctrl)
+        if hasattr(self, "graphs8_list_ctrl"):
+            controls.append(self.graphs8_list_ctrl)
         for control in controls:
             control.SetFont(self.touch_font)
 
@@ -469,6 +471,11 @@ class MyApp(wx.App):
         self.GetDTCButton.SetFont(self.touch_font_bold)
         self.ClearDTCButton.SetMinSize((140, 40))
         self.ClearDTCButton.SetFont(self.touch_font_bold)
+
+        if hasattr(self, "add_graph_pid_button"):
+            self.add_graph_pid_button.SetFont(self.touch_font_bold)
+            self.remove_graph_pid_button.SetFont(self.touch_font_bold)
+            self.graph_list_ctrl.SetFont(self.touch_font)
 
         if hasattr(self, "home_title"):
             self.home_title.SetFont(self.home_title_font)
@@ -496,6 +503,76 @@ class MyApp(wx.App):
         button.SetForegroundColour(fg_colour)
         button.Bind(wx.EVT_BUTTON, handler)
         return button
+
+    def _build_graph_command_catalog(self):
+        excluded = {b"0100", b"0101", b"0120", b"0140", b"0103", b"0102", b"011C", b"0113", b"0141", b"0151"}
+        catalog = []
+        for command in obd.commands[1]:
+            if command and command.command not in excluded:
+                catalog.append(command)
+        catalog.append(obd.commands.ELM_VOLTAGE)
+
+        self.graph_command_catalog = catalog
+        self.graph_command_labels = [f"{cmd.command.decode(errors='ignore')} - {cmd.desc}" for cmd in catalog]
+        self.selected_graph_commands = []
+
+    def _refresh_graph_selection_ui(self):
+        self.graph_list_ctrl.DeleteAllItems()
+        for idx, command in enumerate(self.selected_graph_commands):
+            self.graph_list_ctrl.InsertItem(idx, command.command.decode(errors='ignore'))
+            self.graph_list_ctrl.SetItem(idx, 1, command.desc)
+            self.graph_list_ctrl.SetItem(idx, 2, "---")
+
+        self._layout_graph_page()
+
+    def OnAddGraphPid(self, event):
+        dialog = wx.SingleChoiceDialog(self.frame, "Select PID to add to the graph", "Add PID", self.graph_command_labels)
+        if dialog.ShowModal() == wx.ID_OK:
+            selection = dialog.GetSelection()
+            if selection != wx.NOT_FOUND:
+                selected_command = self.graph_command_catalog[selection]
+                if selected_command not in self.selected_graph_commands:
+                    self.selected_graph_commands.append(selected_command)
+                    self._refresh_graph_selection_ui()
+        dialog.Destroy()
+
+    def OnRemoveGraphPid(self, event):
+        selected_index = self.graph_list_ctrl.GetFirstSelected()
+        if selected_index != wx.NOT_FOUND:
+            del self.selected_graph_commands[selected_index]
+            self._refresh_graph_selection_ui()
+            if self.graph_list_ctrl.GetItemCount() > 0:
+                self.graph_list_ctrl.Select(min(selected_index, self.graph_list_ctrl.GetItemCount() - 1))
+
+    def _layout_graph_page(self):
+        if not hasattr(self, "graph_panel"):
+            return
+
+        width, height = self.graph_panel.GetClientSize()
+        if width <= 0 or height <= 0:
+            return
+
+        top_padding = 10
+        button_height = 42
+        list_top = top_padding + button_height + 12
+        row_count = max(1, len(self.selected_graph_commands))
+        desired_list_height = 36 * (row_count + 1)
+        list_height = min(max(120, desired_list_height), max(150, int(height * 0.45)))
+
+        self.add_graph_pid_button.SetPosition((10, top_padding))
+        self.add_graph_pid_button.SetSize((150, button_height))
+        self.remove_graph_pid_button.SetPosition((170, top_padding))
+        self.remove_graph_pid_button.SetSize((160, button_height))
+        self.graph_list_ctrl.SetSize(10, list_top, max(300, width - 20), list_height)
+
+        plot_top = list_top + list_height + 8
+        plot_height = max(120, height - plot_top - 10)
+        if hasattr(self, "panel"):
+            self.panel.SetSize(10, plot_top, max(300, width - 20), plot_height)
+
+    def OnGraphPanelResize(self, event):
+        self._layout_graph_page()
+        event.Skip()
 
     def build_home_page(self):
         self.home_panel = wx.Panel(self.nb, -1)
@@ -727,28 +804,15 @@ class MyApp(wx.App):
 
 
                 if curstate != 5 and self.graph_counter != 0:
-                    self.graph_x_vals = np.array([])
-                    self.graph_y_vals = np.array([])
+                    self.graph_series = {}
                     self.graph_counter = 0
                     self.first_time_graph_plot = True
-                    if self.first_time_graph_plot:
-                        self.unit = 'unit'
-                    if self.current_command == None:
-                        desc = 'None'
-                    else:
-                        desc = self.current_command.desc
-                    wx.PostEvent(self._notify_window,
-                                 GraphEvent(
-                                     [(self.graph_x_vals, self.graph_y_vals, self.unit, desc, self.graph_counter),
-                                      (self.first_time_graph_plot)
-                                      ]))
+                    wx.PostEvent(self._notify_window, GraphEvent([[], self.graph_counter, self.first_time_graph_plot]))
                     self.first_time_graph_plot = False
-                    wx.PostEvent(self._notify_window, GraphValueEvent([0, 0, self.current_command.command]))
-                    wx.PostEvent(self._notify_window, GraphValueEvent([0, 1, self.current_command.desc]))
 
 
 
-                if curstate != 6 and self.graph_counter1 != 0:
+                if hasattr(self._notify_window, "graphs_panel") and curstate != 6 and self.graph_counter1 != 0:
                     self.graph_x_vals1 = np.array([])
                     self.graph_y_vals1 = np.array([])
                     self.graph_x_vals2 = np.array([])
@@ -781,7 +845,7 @@ class MyApp(wx.App):
                     wx.PostEvent(self._notify_window, GraphsValueEvent([3, 0, self.current_command4.command]))
                     wx.PostEvent(self._notify_window, GraphsValueEvent([3, 1, self.current_command4.desc]))
 
-                if curstate != 7 and self.graph_counter8_1 != 0:
+                if hasattr(self._notify_window, "graphs8_panel") and curstate != 7 and self.graph_counter8_1 != 0:
                     self.graph_x_vals8_1 = np.array([])
                     self.graph_y_vals8_1 = np.array([])
                     self.graph_x_vals8_2 = np.array([])
@@ -1197,116 +1261,66 @@ class MyApp(wx.App):
 
                 elif curstate == 5:  # show Graph tab
                     if first_time_graph:
-                        print("First time graph")
-                        #wx.PostEvent(self._notify_window, DestroyComboBoxEvent([]))
-                        self.graph_x_vals = np.array([])
-                        self.graph_y_vals = np.array([])
                         self.graph_counter = 0
-                        self.current_command = None
-
-
-                        graph_commands = []
-
-                        #wx.PostEvent(self._notify_window, GraphEvent((self.current_command, [], [])))
-                        prev_command = None
-
+                        self.graph_series = {}
                         first_time_graph = False
-                        for command in obd.commands[1]:
-                            if command:
-                                if command.command not in (b"0100" , b"0101", b"0120", b"0140", b"0103", b"0102", b"011C", b"0113", b"0141", b"0151"):
-                                    r = self.connection.connection.query(command)
-                                    if r.value == None:
-                                        continue
-                                    else:
-                                        graph_commands.append(command)
-                        graph_commands.append(obd.commands.ELM_VOLTAGE)
-                        sensor_descriptions = []
-                        #sensor_descriptions.append("None")
-                        for command in graph_commands:
-                            sensor_descriptions.append(command.desc)
-                        app.build_combobox_graph_event_finished = False
-                        wx.PostEvent(self._notify_window, BuildComboBoxGraphEvent(sensor_descriptions))
-                        while not app.build_combobox_graph_event_finished:
-                            time.sleep(0.01)
-                        app.combobox_graph_set_sel_finished=False
-                        wx.PostEvent(self._notify_window, SetSelectionComboBoxGraphEvent([]))
-                        while not app.combobox_graph_set_sel_finished:
-                            time.sleep(0.01)
-                    else:
 
-                        app.combobox_graph_get_sel_finished = False
-                        wx.PostEvent(self._notify_window, GetSelectionComboBoxGraphEvent([]))
-                        while not app.combobox_graph_get_sel_finished:
-                            time.sleep(0.01)
-                        curr_selection = app.combobox_selection
+                    selected_commands = list(self._notify_window.selected_graph_commands)
+                    selected_keys = {command.command for command in selected_commands}
 
-                        if sensor_descriptions[curr_selection] == "None":
-                            curr_selection = -1
-                        if curr_selection != -1:
-                            prev_command = self.current_command
-                            self.current_command = graph_commands[curr_selection]
-                        else:
-                            self.current_command = None
+                    for stale_key in list(self.graph_series.keys()):
+                        if stale_key not in selected_keys:
+                            del self.graph_series[stale_key]
 
-                        if self.current_command != None:
-                            if (prev_command == None) or (prev_command != self.current_command):
-                                self.graph_x_vals = np.array([])
-                                self.graph_y_vals = np.array([])
-                                self.graph_counter = 0
-                                wx.PostEvent(self._notify_window, GraphValueEvent([0, 0, self.current_command.command]))
-                                wx.PostEvent(self._notify_window, GraphValueEvent([0, 1, self.current_command.desc]))
-                            else:
+                    plot_series = []
+                    for row, command in enumerate(selected_commands):
+                        command_key = command.command
+                        if command_key not in self.graph_series:
+                            self.graph_series[command_key] = {
+                                "x": np.array([]),
+                                "y": np.array([]),
+                                "unit": "value",
+                                "desc": command.desc,
+                            }
 
-                                r = self.connection.connection.query(self.current_command)
-                                if r.value == None:
-                                    reconnect()
-                                    continue
+                        r = self.connection.connection.query(command)
+                        if r.value is None:
+                            wx.PostEvent(self._notify_window, GraphValueEvent([row, 0, command.command.decode(errors='ignore')]))
+                            wx.PostEvent(self._notify_window, GraphValueEvent([row, 1, command.desc]))
+                            wx.PostEvent(self._notify_window, GraphValueEvent([row, 2, "No data"]))
+                            continue
 
-                                self.graph_x_vals = np.append(self.graph_x_vals, self.graph_counter)
-                                try:
-                                    self.graph_y_vals = np.append(self.graph_y_vals, float(r.value.magnitude))
-                                except AttributeError:
-                                    self.graph_y_vals = np.append(self.graph_y_vals, float(0))
-                                if len(self.graph_x_vals) > 450:
-                                    self.graph_x_vals = np.delete(self.graph_x_vals, (0))
-                                    self.graph_y_vals = np.delete(self.graph_y_vals, (0))
+                        series = self.graph_series[command_key]
+                        series["x"] = np.append(series["x"], self.graph_counter)
+                        try:
+                            series["y"] = np.append(series["y"], float(r.value.magnitude))
+                        except AttributeError:
+                            series["y"] = np.append(series["y"], 0.0)
 
-                                self.graph_counter = self.graph_counter + 1
-                                prev_command = self.current_command
+                        if len(series["x"]) > 450:
+                            series["x"] = np.delete(series["x"], 0)
+                            series["y"] = np.delete(series["y"], 0)
 
+                        value_text = str(r.value)
+                        try:
+                            unit = value_text.split(' ')[1]
+                        except IndexError:
+                            unit = "value"
 
-                                if r.value == None:
-                                    wx.PostEvent(self._notify_window, GraphValueEvent([0, 2, str(0)]))
-                                    self.unit = "unit"
-                                else:
-                                    wx.PostEvent(self._notify_window, GraphValueEvent([0, 2, str(r.value)]))
-                                    try:
-                                        self.unit = str(r.value).split(' ')[1]
-                                    except IndexError:
-                                        self.unit = "unit"
+                        series["unit"] = unit
+                        series["desc"] = command.desc
 
+                        wx.PostEvent(self._notify_window, GraphValueEvent([row, 0, command.command.decode(errors='ignore')]))
+                        wx.PostEvent(self._notify_window, GraphValueEvent([row, 1, command.desc]))
+                        wx.PostEvent(self._notify_window, GraphValueEvent([row, 2, value_text]))
 
-                        else:
-                            self.graph_x_vals = np.array([])
-                            self.graph_y_vals = np.array([])
-                            self.graph_counter = 0
+                        plot_series.append((series["x"], series["y"], series["unit"], series["desc"]))
 
+                    wx.PostEvent(self._notify_window, GraphEvent([plot_series, self.graph_counter, self.first_time_graph_plot]))
+                    self.graph_counter = self.graph_counter + 1
+                    self.first_time_graph_plot = False
 
-                        if self.first_time_graph_plot:
-                            self.unit = 'unit'
-
-                        if self.current_command == None:
-                            desc = 'None'
-                        else:
-                            desc = self.current_command.desc
-
-                        wx.PostEvent(self._notify_window, GraphEvent([(self.graph_x_vals,self.graph_y_vals, self.unit, desc, self.graph_counter),
-                                                                      (self.first_time_graph_plot)
-                                                                      ]))
-                        self.first_time_graph_plot = False
-                        #time.sleep(0.2)
-
-                elif curstate == 6:  # show 4Graphs tab
+                elif hasattr(self._notify_window, "graphs_panel") and curstate == 6:  # show 4Graphs tab
                     if first_time_graphs:
                         print("First time graph")
                         #wx.PostEvent(self._notify_window, DestroyComboBoxEvent([]))
@@ -1620,7 +1634,7 @@ class MyApp(wx.App):
                                                                       ]))
                         self.first_time_graphs_plot = False
                         #time.sleep(0.2)
-                elif curstate == 7:  # show 8Graphs tab
+                elif hasattr(self._notify_window, "graphs8_panel") and curstate == 7:  # show 8Graphs tab
                     if first_time_8graphs:
                         print("First time 8graphs")
                         # wx.PostEvent(self._notify_window, DestroyComboBoxEvent([]))
@@ -2421,9 +2435,17 @@ class MyApp(wx.App):
         self.graph_list_ctrl.InsertColumn(1, "Sensor", format=wx.LIST_FORMAT_LEFT, width=320)
         self.graph_list_ctrl.InsertColumn(2, "Value")
 
-        self.graph_list_ctrl.InsertItem(0, "")
+        self._build_graph_command_catalog()
+
+        self.add_graph_pid_button = wx.Button(self.graph_panel, -1, "Add PID", pos=(10, 10), size=(150, 42))
+        self.remove_graph_pid_button = wx.Button(self.graph_panel, -1, "Remove PID", pos=(170, 10), size=(160, 42))
+
+        self.graph_panel.Bind(wx.EVT_BUTTON, self.OnAddGraphPid, self.add_graph_pid_button)
+        self.graph_panel.Bind(wx.EVT_BUTTON, self.OnRemoveGraphPid, self.remove_graph_pid_button)
+        self.graph_panel.Bind(wx.EVT_SIZE, self.OnGraphPanelResize)
+
         self.nb.AddPage(self.graph_panel, "Graph")
-        self.graph_list_ctrl.SetSize(0, 0, 800, 48)
+        self._layout_graph_page()
         """
         ####################################################################
         # This little bit of magic keeps the list the same size as the frame
@@ -2759,8 +2781,7 @@ class MyApp(wx.App):
 
 
         self.build_graph_page()
-        self.build_graphs_page()
-        self.build_graphs8_page()
+        # Legacy 4-Graphs and 8-Graphs pages intentionally removed.
         self.trace = self.MyListCtrl(self.nb, tID, style=wx.LC_REPORT | wx.SUNKEN_BORDER)
         self.trace.InsertColumn(0, "Level", width=40)
         self.trace.InsertColumn(1, "Message")
@@ -3150,32 +3171,37 @@ the Free Software Foundation, Inc., 59 Temple Place, Suite 330, Boston, MA  0211
             traceback.print_exc()
 
     def OnGraph(self, event):
-        xy_data = list(zip(event.data[0][0],event.data[0][1]))
-        unit = event.data[0][2]
-        command_desc = event.data[0][3]
-        graph_counter = event.data[0][4]
-        first_time_graph_plot = event.data[1]
-
-        def animate():
-            if not first_time_graph_plot:
-                self.line = wxplot.PolySpline(xy_data, colour = 'blue', width = 1, style=wx.PENSTYLE_SOLID)
-                self.graphics = wxplot.PlotGraphics([self.line], command_desc, 'frame', unit)
-                if sys.platform.startswith("linux"):
-                    if os.environ.get("DESKTOP_SESSION") == "gnome" or os.environ.get("DESKTOP_SESSION") == "ubuntu":
-                        self.panel.Destroy()
-                        self.panel = wxplot.PlotCanvas(self.graph_panel, pos=(0, 100))
-                        self.panel.SetInitialSize(size=wx.Size(900, 400))
-                self.panel.Draw(self.graphics, xAxis=(graph_counter - 450, graph_counter))
+        plot_series = event.data[0]
+        graph_counter = event.data[1]
+        first_time_graph_plot = event.data[2]
 
         if first_time_graph_plot:
             try:
                 self.panel.Destroy()
             except:
                 pass
-            self.panel = wxplot.PlotCanvas(self.graph_panel, pos=(0, 100))
+            self.panel = wxplot.PlotCanvas(self.graph_panel, pos=(10, 200))
             self.panel.SetInitialSize(size=wx.Size(900, 400))
+            self._layout_graph_page()
+
+        colours = ["blue", "red", "green", "orange", "purple", "brown", "black", "cyan"]
+        lines = []
+        labels = []
+        for idx, series in enumerate(plot_series):
+            xy_data = list(zip(series[0], series[1]))
+            if len(xy_data) < 2:
+                continue
+            lines.append(wxplot.PolySpline(xy_data, colour=colours[idx % len(colours)], width=2, style=wx.PENSTYLE_SOLID))
+            labels.append(series[3])
+
+        if len(lines) == 0:
+            graphics = wxplot.PlotGraphics([], "Live Graphs", "frame", "value")
         else:
-            animate()
+            graphics = wxplot.PlotGraphics(lines, "Live Graphs", "frame", "value")
+
+        x_min = max(0, graph_counter - 450)
+        self._layout_graph_page()
+        self.panel.Draw(graphics, xAxis=(x_min, max(1, graph_counter)))
 
     def OnGraphs(self, event):
         xy_data1 = list(zip(event.data[0][0],event.data[0][1]))
