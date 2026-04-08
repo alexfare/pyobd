@@ -35,6 +35,10 @@ import datetime
 import threading
 import sys
 import serial
+import re
+import json
+import subprocess
+from serial.tools import list_ports
 import time
 import configparser  # safe application configuration
 import webbrowser  # open browser from python
@@ -3605,10 +3609,132 @@ the Free Software Foundation, Inc., 59 Temple Place, Suite 330, Boston, MA  0211
     def scanSerial(self):  # NEW
 
         """scan for available ports. return a list of serial names"""
-        available = []
-        available = obd.scan_serial()
+        available = self._get_connected_port_names()
 
         return available
+
+    def _get_connected_port_infos(self):
+        try:
+            return sorted(list(list_ports.comports()), key=lambda p: p.device or "")
+        except Exception:
+            traceback.print_exc()
+            return []
+
+    def _get_connected_port_names(self):
+        names = [p.device for p in self._get_connected_port_infos() if p.device]
+        if "AUTO" not in names:
+            names.append("AUTO")
+        if not names:
+            names = ["AUTO"]
+        return names
+
+    def _get_bluetooth_adapter_choices(self):
+        def _windows_bt_name_by_mac():
+            if os.name != "nt":
+                return {}
+
+            command = (
+                "Get-PnpDevice -Class Bluetooth | "
+                "Select-Object FriendlyName,InstanceId | ConvertTo-Json -Compress"
+            )
+            try:
+                result = subprocess.run(
+                    ["powershell", "-NoProfile", "-Command", command],
+                    capture_output=True,
+                    text=True,
+                    timeout=4,
+                )
+            except Exception:
+                return {}
+
+            if result.returncode != 0 or result.stdout.strip() == "":
+                return {}
+
+            try:
+                parsed = json.loads(result.stdout)
+            except Exception:
+                return {}
+
+            entries = parsed if isinstance(parsed, list) else [parsed]
+            name_by_mac = {}
+            for entry in entries:
+                if not isinstance(entry, dict):
+                    continue
+
+                friendly_name = str(entry.get("FriendlyName") or "").strip()
+                instance_id = str(entry.get("InstanceId") or "")
+
+                if friendly_name == "" or friendly_name.lower().startswith("standard serial over bluetooth"):
+                    continue
+
+                matches = re.findall(r"(?<![0-9A-Fa-f])[0-9A-Fa-f]{12}(?![0-9A-Fa-f])", instance_id)
+                for mac12 in matches:
+                    mac = ":".join(mac12[i:i + 2] for i in range(0, 12, 2)).upper()
+                    name_by_mac[mac] = friendly_name
+
+            return name_by_mac
+
+        def _first_mac_like(text):
+            if not text:
+                return ""
+            match = re.search(r"(?:[0-9A-Fa-f]{2}[:-]){5}[0-9A-Fa-f]{2}", text)
+            return match.group(0).upper() if match else ""
+
+        def _compact_name(text):
+            name = (text or "Bluetooth Adapter").strip()
+            name = re.sub(r"\s*\(COM\d+\)\s*$", "", name, flags=re.IGNORECASE)
+            return name or "Bluetooth Adapter"
+
+        def _compact_label(name, adapter_id, max_len=44):
+            label = f"{name} ({adapter_id})"
+            if len(label) <= max_len:
+                return label
+            reserve = len(adapter_id) + 5
+            short_name_len = max(10, max_len - reserve)
+            return f"{name[:short_name_len].rstrip()}... ({adapter_id})"
+
+        bt_name_by_mac = _windows_bt_name_by_mac()
+        choices = []
+        fallback_choices = []
+
+        for port_info in self._get_connected_port_infos():
+            device = (port_info.device or "").strip()
+            if device == "":
+                continue
+
+            description = _compact_name(port_info.description or port_info.product or "")
+            candidates = [
+                getattr(port_info, "serial_number", "") or "",
+                port_info.description or "",
+                port_info.hwid or "",
+                getattr(port_info, "location", "") or "",
+                getattr(port_info, "manufacturer", "") or "",
+            ]
+
+            adapter_id = ""
+            for candidate in candidates:
+                adapter_id = _first_mac_like(candidate)
+                if adapter_id:
+                    break
+
+            if adapter_id == "":
+                adapter_id = device
+
+            if adapter_id in bt_name_by_mac:
+                description = _compact_name(bt_name_by_mac[adapter_id])
+
+            label = _compact_label(description, adapter_id)
+            lower = label.lower()
+
+            if "bluetooth" in lower or " bt" in lower or lower.startswith("bt"):
+                choices.append((label, device))
+            fallback_choices.append((label, device))
+
+        if not choices:
+            choices = fallback_choices
+
+        choices.insert(0, ("AUTO", "AUTO"))
+        return choices
 
     def _infer_connection_from_comport(self, connection_type, connection_target, comport):
         if connection_type in ["AUTO", "SERIAL", "WIFI", "BLUETOOTH", "CUSTOM"]:
@@ -3652,91 +3778,171 @@ the Free Software Foundation, Inc., 59 Temple Place, Suite 330, Boston, MA  0211
         diag = wx.Dialog(self.frame, id, title="Configure")
         sizer = wx.BoxSizer(wx.VERTICAL)
 
-        ports = obd.scan_serial()
-        if ports == []:
-            ports = ["AUTO"]
-        else:
-            ports.append("AUTO")
-
-        # web open link button
-        self.OpenLinkButton = wx.Button(diag, -1, "Click here to order ELM-USB interface", size=(260, 30))
-        diag.Bind(wx.EVT_BUTTON, self.OnHelpOrder, self.OpenLinkButton)
-        sizer.Add(self.OpenLinkButton)
+        ports = self._get_connected_port_names()
+        bt_choices = self._get_bluetooth_adapter_choices()
+        bt_labels = [label for (label, _value) in bt_choices]
+        bt_value_by_label = dict(bt_choices)
 
         connection_types = ["AUTO", "SERIAL", "WIFI", "BLUETOOTH", "CUSTOM"]
-        ctb = wx.RadioBox(diag, id, "Connection Type",
-                  choices=connection_types, style=wx.RA_SPECIFY_COLS,
-                  majorDimension=3)
-        sizer.Add(ctb, 0)
-
-        rb = wx.RadioBox(diag, id, "Choose Serial Port",
-                         choices=ports, style=wx.RA_SPECIFY_COLS,
-                         majorDimension=2)
-
-        sizer.Add(rb, 0)
-
-        targetPanel = wx.Panel(diag, -1)
-        targetCtrl = wx.TextCtrl(targetPanel, -1, '', pos=(160, 0), size=(220, 25))
-        targetStatic = wx.StaticText(targetPanel, -1, 'Wi-Fi/Bluetooth target:', pos=(3, 5), size=(160, 20))
-        targetHelp = wx.StaticText(diag, -1, 'Wi-Fi: 192.168.0.10:35000 | Bluetooth: COM5 or AA:BB:CC:DD:EE:FF:1 | Custom: socket://host:port')
-        sizer.Add(targetPanel, 0)
-        sizer.Add(targetHelp, 0)
-
-        baudrates = ['AUTO', "38400", "9600",  "115200", "57600", "19200", "14400", "3000000", "2000000", "1000000", "250000", "230400", "128000", "500000", "460800", "500000", "576000", "921600", "1000000", "1152000", "1500000", "2000000", "2500000", "3000000", "3500000", "4000000"]
-        brb = wx.RadioBox(diag, id, "Choose Baud Rate",
-                         choices=baudrates, style=wx.RA_SPECIFY_COLS,
-                         majorDimension=2)
-
-        sizer.Add(brb, 0)
-        fb = wx.RadioBox(diag, id, "FAST or NORMAL:",
-                         choices=["FAST","NORMAL"], style=wx.RA_SPECIFY_COLS,
-                         majorDimension=2)
-
-        sizer.Add(fb, 0)
-        # timeOut input control
-        timeoutPanel = wx.Panel(diag, -1)
-        timeoutCtrl = wx.TextCtrl(timeoutPanel, -1, '', pos=(140, 0), size=(40, 25))
-        timeoutStatic = wx.StaticText(timeoutPanel, -1, 'Timeout:', pos=(3, 5), size=(140, 20))
-        timeoutCtrl.SetValue(str(self.SERTIMEOUT))
-
-        # reconnect attempt input control
-        reconnectPanel = wx.Panel(diag, -1)
-        reconnectCtrl = wx.TextCtrl(reconnectPanel, -1, '', pos=(140, 0), size=(40, 25))
-        reconnectStatic = wx.StaticText(reconnectPanel, -1, 'Reconnect attempts:', pos=(3, 5), size=(140, 20))
-        reconnectCtrl.SetValue(str(self.RECONNATTEMPTS))
-
-
-
-        # set actual serial port choice
-        if (self.COMPORT != 0) and (self.COMPORT in ports):
-            rb.SetSelection(ports.index(self.COMPORT))
+        baudrates = [
+            "AUTO", "38400", "9600", "115200", "57600", "19200", "14400", "3000000", "2000000",
+            "1000000", "250000", "230400", "128000", "500000", "460800", "576000", "921600",
+            "1152000", "1500000", "2500000", "3500000", "4000000",
+        ]
 
         connection_type, connection_target = self._infer_connection_from_comport(
             self.CONNECTION_TYPE,
             self.CONNECTION_TARGET,
             self.COMPORT,
         )
-        ctb.SetSelection(connection_types.index(connection_type))
-        targetCtrl.SetValue(str(connection_target))
 
-        baudrates = ['AUTO', "38400", "9600",  "115200", "57600", "19200", "14400", "3000000", "2000000", "1000000", "250000", "230400", "128000", "500000", "460800", "500000", "576000", "921600", "1000000", "1152000", "1500000", "2000000", "2500000", "3000000", "3500000", "4000000"]
+        header_box = wx.StaticBoxSizer(wx.VERTICAL, diag, "Connection")
+        top_row = wx.BoxSizer(wx.HORIZONTAL)
+
+        type_label = wx.StaticText(diag, -1, "Connection type:")
+        connection_type_choice = wx.Choice(diag, -1, choices=connection_types)
+        connection_type_choice.SetSelection(connection_types.index(connection_type))
+        auto_connect_check = wx.CheckBox(diag, -1, "Auto-connect")
+        auto_connect_check.Disable()
+
+        top_row.Add(type_label, 0, wx.ALIGN_CENTER_VERTICAL | wx.RIGHT, 6)
+        top_row.Add(connection_type_choice, 0, wx.RIGHT, 10)
+        top_row.Add(auto_connect_check, 0, wx.ALIGN_CENTER_VERTICAL)
+        header_box.Add(top_row, 0, wx.ALL, 6)
+        sizer.Add(header_box, 0, wx.EXPAND | wx.LEFT | wx.RIGHT | wx.TOP, 6)
+
+        transport_row = wx.BoxSizer(wx.HORIZONTAL)
+
+        bt_box = wx.StaticBoxSizer(wx.VERTICAL, diag, "Bluetooth Adapter")
+        bluetooth_combo = wx.ComboBox(diag, -1, choices=bt_labels, style=wx.CB_DROPDOWN)
+        bt_box.Add(bluetooth_combo, 0, wx.EXPAND | wx.ALL, 6)
+
+        wifi_box = wx.StaticBoxSizer(wx.VERTICAL, diag, "WiFi settings")
+        wifi_grid = wx.FlexGridSizer(rows=3, cols=2, vgap=4, hgap=6)
+        wifi_grid.Add(wx.StaticText(diag, -1, "IP:"), 0, wx.ALIGN_CENTER_VERTICAL)
+        wifi_ip_ctrl = wx.TextCtrl(diag, -1, "192.168.0.10", size=(130, -1))
+        wifi_grid.Add(wifi_ip_ctrl, 0, wx.EXPAND)
+        wifi_grid.Add(wx.StaticText(diag, -1, "Port:"), 0, wx.ALIGN_CENTER_VERTICAL)
+        wifi_port_ctrl = wx.TextCtrl(diag, -1, "35000", size=(130, -1))
+        wifi_grid.Add(wifi_port_ctrl, 0, wx.EXPAND)
+        wifi_grid.Add(wx.StaticText(diag, -1, "Timeout:"), 0, wx.ALIGN_CENTER_VERTICAL)
+        timeoutCtrl = wx.TextCtrl(diag, -1, "5", size=(80, -1))
+        wifi_grid.Add(timeoutCtrl, 0, wx.EXPAND)
+        wifi_box.Add(wifi_grid, 0, wx.ALL, 6)
+
+        com_box = wx.StaticBoxSizer(wx.VERTICAL, diag, "COM settings")
+        com_grid = wx.FlexGridSizer(rows=3, cols=2, vgap=4, hgap=6)
+        com_grid.Add(wx.StaticText(diag, -1, "COM port:"), 0, wx.ALIGN_CENTER_VERTICAL)
+        com_choice = wx.Choice(diag, -1, choices=ports)
+        com_grid.Add(com_choice, 0, wx.EXPAND)
+        com_grid.Add(wx.StaticText(diag, -1, "Baud rate:"), 0, wx.ALIGN_CENTER_VERTICAL)
+        baud_choice = wx.Choice(diag, -1, choices=baudrates)
+        com_grid.Add(baud_choice, 0, wx.EXPAND)
+        auto_increase_check = wx.CheckBox(diag, -1, "Auto-increase")
+        auto_increase_check.Disable()
+        com_grid.Add(auto_increase_check, 0, wx.ALIGN_CENTER_VERTICAL)
+        com_grid.Add((1, 1), 0)
+        com_grid.AddGrowableCol(1, 1)
+        com_box.Add(com_grid, 1, wx.EXPAND | wx.ALL, 6)
+
+        transport_row.Add(bt_box, 1, wx.EXPAND | wx.ALL, 3)
+        transport_row.Add(wifi_box, 0, wx.EXPAND | wx.ALL, 3)
+        transport_row.Add(com_box, 0, wx.EXPAND | wx.ALL, 3)
+        sizer.Add(transport_row, 0, wx.EXPAND | wx.LEFT | wx.RIGHT | wx.TOP, 4)
+
+        advanced_row = wx.BoxSizer(wx.HORIZONTAL)
+
+        custom_box = wx.StaticBoxSizer(wx.VERTICAL, diag, "Custom target")
+        custom_target_ctrl = wx.TextCtrl(diag, -1, "", size=(280, -1))
+        custom_help = wx.StaticText(diag, -1, "Examples: socket://192.168.0.10:35000 or rfc2217://host:port")
+        custom_box.Add(custom_target_ctrl, 0, wx.EXPAND | wx.LEFT | wx.RIGHT | wx.TOP, 6)
+        custom_box.Add(custom_help, 0, wx.LEFT | wx.RIGHT | wx.BOTTOM, 6)
+
+        protocol_box = wx.StaticBoxSizer(wx.VERTICAL, diag, "Protocol")
+        mode_choice = wx.Choice(diag, -1, choices=["FAST", "NORMAL"])
+        reconnect_row = wx.BoxSizer(wx.HORIZONTAL)
+        reconnect_row.Add(wx.StaticText(diag, -1, "Reconnect attempts:"), 0, wx.ALIGN_CENTER_VERTICAL | wx.RIGHT, 6)
+        reconnectCtrl = wx.TextCtrl(diag, -1, str(self.RECONNATTEMPTS), size=(70, -1))
+        reconnect_row.Add(reconnectCtrl, 0)
+        protocol_box.Add(wx.StaticText(diag, -1, "Send mode:"), 0, wx.LEFT | wx.RIGHT | wx.TOP, 6)
+        protocol_box.Add(mode_choice, 0, wx.EXPAND | wx.LEFT | wx.RIGHT, 6)
+        protocol_box.Add(reconnect_row, 0, wx.LEFT | wx.RIGHT | wx.TOP | wx.BOTTOM, 6)
+
+        advanced_row.Add(custom_box, 1, wx.EXPAND | wx.ALL, 3)
+        advanced_row.Add(protocol_box, 0, wx.EXPAND | wx.ALL, 3)
+        sizer.Add(advanced_row, 0, wx.EXPAND | wx.LEFT | wx.RIGHT | wx.TOP, 4)
+
+        note_text = wx.StaticText(diag, -1, "Note: these changes will be applied on the next connect to vehicle")
+        sizer.Add(note_text, 0, wx.LEFT | wx.RIGHT | wx.TOP, 8)
+
+        link_and_buttons = wx.BoxSizer(wx.HORIZONTAL)
+        self.OpenLinkButton = wx.Button(diag, -1, "Order OBD adapter", size=(160, 30))
+        diag.Bind(wx.EVT_BUTTON, self.OnHelpOrder, self.OpenLinkButton)
+        link_and_buttons.Add(self.OpenLinkButton, 0, wx.RIGHT, 10)
+        link_and_buttons.AddStretchSpacer(1)
+        link_and_buttons.Add(wx.Button(diag, wx.ID_OK), 0, wx.RIGHT, 6)
+        link_and_buttons.Add(wx.Button(diag, wx.ID_CANCEL), 0)
+        sizer.Add(link_and_buttons, 0, wx.EXPAND | wx.ALL, 8)
+
+        if (self.COMPORT != 0) and (self.COMPORT in ports):
+            com_choice.SetSelection(ports.index(self.COMPORT))
+        else:
+            com_choice.SetSelection(ports.index("AUTO") if "AUTO" in ports else 0)
+
         if (self.BAUDRATE != 0) and (self.BAUDRATE in baudrates):
-            brb.SetSelection(baudrates.index(self.BAUDRATE))
+            baud_choice.SetSelection(baudrates.index(self.BAUDRATE))
+        else:
+            baud_choice.SetSelection(baudrates.index("AUTO"))
+
         if (self.FAST == "FAST") or (self.FAST == "NORMAL"):
-            fb.SetSelection(["FAST","NORMAL"].index(self.FAST))
+            mode_choice.SetSelection(["FAST", "NORMAL"].index(self.FAST))
+        else:
+            mode_choice.SetSelection(0)
 
+        timeoutCtrl.SetValue(str(self.SERTIMEOUT or "5"))
 
-        sizer.Add(timeoutPanel, 0)
-        sizer.Add(reconnectPanel, 0)
+        wifi_target = str(connection_target or "")
+        if connection_type == "WIFI":
+            if wifi_target.startswith("socket://"):
+                wifi_target = wifi_target[len("socket://"):]
+            if ":" in wifi_target:
+                wifi_host, wifi_port = wifi_target.rsplit(":", 1)
+            else:
+                wifi_host, wifi_port = wifi_target, "35000"
+            if wifi_host.strip() != "":
+                wifi_ip_ctrl.SetValue(wifi_host.strip())
+            if wifi_port.strip() != "":
+                wifi_port_ctrl.SetValue(wifi_port.strip())
 
-        box = wx.BoxSizer(wx.HORIZONTAL)
-        box.Add(wx.Button(diag, wx.ID_OK), 0)
-        box.Add(wx.Button(diag, wx.ID_CANCEL), 1)
+        bt_target = str(connection_target or "").strip()
+        if connection_type == "BLUETOOTH" and bt_target != "":
+            selected_label = None
+            for label, value in bt_choices:
+                if value == bt_target:
+                    selected_label = label
+                    break
+            if selected_label is not None:
+                bluetooth_combo.SetValue(selected_label)
+            else:
+                bluetooth_combo.SetValue(bt_target)
+        else:
+            bluetooth_combo.SetValue(bt_labels[0] if bt_labels else "AUTO")
 
-        sizer.Add(box, 0)
+        if connection_type == "CUSTOM":
+            custom_target_ctrl.SetValue(str(connection_target or ""))
+
+        # Keep all sections editable; selected connection type only determines which target is used on save.
+        com_choice.Enable(True)
+        baud_choice.Enable(True)
+        bluetooth_combo.Enable(True)
+        wifi_ip_ctrl.Enable(True)
+        wifi_port_ctrl.Enable(True)
+        custom_target_ctrl.Enable(True)
+
         diag.SetSizer(sizer)
         diag.SetAutoLayout(True)
         sizer.Fit(diag)
+        diag.SetMinSize((840, 500))
         r = diag.ShowModal()
         if r == wx.ID_OK:
 
@@ -3745,12 +3951,24 @@ the Free Software Foundation, Inc., 59 Temple Place, Suite 330, Boston, MA  0211
                 self.config.add_section("pyOBD")
             # set and save COMPORT
 
-            self.CONNECTION_TYPE = connection_types[ctb.GetSelection()]
-            self.CONNECTION_TARGET = targetCtrl.GetValue().strip()
+            self.CONNECTION_TYPE = connection_types[connection_type_choice.GetSelection()]
+
+            selected_port = ports[com_choice.GetSelection()]
+            if self.CONNECTION_TYPE == "WIFI":
+                wifi_host = wifi_ip_ctrl.GetValue().strip() or "192.168.0.10"
+                wifi_port = wifi_port_ctrl.GetValue().strip() or "35000"
+                self.CONNECTION_TARGET = wifi_host + ":" + wifi_port
+            elif self.CONNECTION_TYPE == "BLUETOOTH":
+                bt_value = bluetooth_combo.GetValue().strip() or "AUTO"
+                self.CONNECTION_TARGET = bt_value_by_label.get(bt_value, bt_value)
+            elif self.CONNECTION_TYPE == "CUSTOM":
+                self.CONNECTION_TARGET = custom_target_ctrl.GetValue().strip()
+            else:
+                self.CONNECTION_TARGET = ""
 
             self.COMPORT = self._compose_comport(
                 self.CONNECTION_TYPE,
-                ports[rb.GetSelection()],
+                selected_port,
                 self.CONNECTION_TARGET,
             )
             COMPORT = self.COMPORT
@@ -3758,11 +3976,11 @@ the Free Software Foundation, Inc., 59 Temple Place, Suite 330, Boston, MA  0211
             self.config.set("pyOBD", "CONNECTION_TYPE", self.CONNECTION_TYPE)
             self.config.set("pyOBD", "CONNECTION_TARGET", self.CONNECTION_TARGET)
 
-            self.BAUDRATE = baudrates[brb.GetSelection()]
+            self.BAUDRATE = baudrates[baud_choice.GetSelection()]
             BAUDRATE = self.BAUDRATE
             self.config.set("pyOBD", "BAUDRATE", self.BAUDRATE)
 
-            self.FAST = ["FAST","NORMAL"][fb.GetSelection()]
+            self.FAST = ["FAST", "NORMAL"][mode_choice.GetSelection()]
             self.config.set("pyOBD", "FAST", self.FAST)
 
             # set and save SERTIMEOUT
@@ -3771,7 +3989,10 @@ the Free Software Foundation, Inc., 59 Temple Place, Suite 330, Boston, MA  0211
 
 
             # set and save RECONNATTEMPTS
-            self.RECONNATTEMPTS = int(reconnectCtrl.GetValue())
+            try:
+                self.RECONNATTEMPTS = max(1, int(reconnectCtrl.GetValue()))
+            except ValueError:
+                self.RECONNATTEMPTS = 5
             self.config.set("pyOBD", "RECONNATTEMPTS", self.RECONNATTEMPTS)
 
             # write configuration to cfg file

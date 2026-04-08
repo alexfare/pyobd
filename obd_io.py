@@ -25,6 +25,7 @@
 
 from pdb import set_trace as bp
 import serial
+from serial.tools import list_ports
 import string
 import time
 from math import ceil
@@ -69,21 +70,62 @@ class OBDConnection:
         # Translate logical adapter target (Wi-Fi/Bluetooth/Serial/AUTO) to a pyserial URL or port.
         portnum = self._normalize_adapter_target(portnum)
 
-        counter = 0
-        while counter < RECONNATTEMPTS:
-            counter = counter + 1
-            wx.PostEvent(self._notify_window, DebugEvent([2, "Connection attempt:" + str(counter)]))
+        class _DisconnectedConnection:
+            def __init__(self, status_text="Disconnected"):
+                self._status_text = status_text
+
+            def status(self):
+                return self._status_text
+
+            def close(self):
+                return None
+
+            def port_name(self):
+                return "----"
+
+        self.connection = _DisconnectedConnection("Disconnected")
+
+        if portnum is None:
+            candidate_ports = [p.device for p in list_ports.comports() if p.device]
+            candidate_ports = sorted(candidate_ports)
+            if not candidate_ports:
+                wx.PostEvent(self._notify_window, DebugEvent([1, "No connected serial ports detected."]))
+                self.connection = _DisconnectedConnection("Not Connected")
+                return
+            port_attempts = candidate_ports
+        else:
+            max_attempts = max(1, int(RECONNATTEMPTS))
+            port_attempts = [portnum] * max_attempts
+
+        for counter, candidate_port in enumerate(port_attempts, start=1):
+            wx.PostEvent(self._notify_window, DebugEvent([2, "Connection attempt:" + str(counter) + " (" + str(candidate_port) + ")"]))
             try:
                 self.connection.close()
             except:
                 pass
-            self.connection = obd.OBD(portstr=portnum, baudrate=baud, protocol=None, fast=FAST, timeout=truncate(float(SERTIMEOUT),1), check_voltage=False, start_low_power=False)
+
+            try:
+                self.connection = obd.OBD(
+                    portstr=candidate_port,
+                    baudrate=baud,
+                    protocol=None,
+                    fast=FAST,
+                    timeout=truncate(float(SERTIMEOUT), 1),
+                    check_voltage=False,
+                    start_low_power=False,
+                )
+            except Exception as ex:
+                wx.PostEvent(self._notify_window, DebugEvent([1, "Open failed on " + str(candidate_port) + ": " + str(ex)]))
+                self.connection = _DisconnectedConnection("Not Connected")
+                continue
+
             if self.connection.status() == "Car Connected":
-                wx.PostEvent(self._notify_window, DebugEvent([2, "Connected to: "+ str(self.connection.port_name())]))
+                wx.PostEvent(self._notify_window, DebugEvent([2, "Connected to: " + str(self.connection.port_name())]))
                 break
-            else:
-                self.connection.close()
-            time.sleep(1)
+
+            self.connection.close()
+            self.connection = _DisconnectedConnection("Not Connected")
+            time.sleep(0.2)
 
     def _normalize_adapter_target(self, portnum):
         """Normalize config input into serial port or pyserial URL string."""
