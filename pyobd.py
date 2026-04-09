@@ -1297,6 +1297,7 @@ class MyApp(wx.App):
                     if first_time_graph:
                         self.graph_counter = 0
                         self.graph_series = {}
+                        self.graph_emit_counter = 0
                         first_time_graph = False
 
                     selected_commands = list(self._notify_window.selected_graph_commands)
@@ -1319,9 +1320,10 @@ class MyApp(wx.App):
 
                         r = self.connection.connection.query(command)
                         if r.value is None:
-                            wx.PostEvent(self._notify_window, GraphValueEvent([row, 0, command.command.decode(errors='ignore')]))
-                            wx.PostEvent(self._notify_window, GraphValueEvent([row, 1, command.desc]))
-                            wx.PostEvent(self._notify_window, GraphValueEvent([row, 2, "No data"]))
+                            if self.graph_emit_counter < 2 or (self.graph_emit_counter % 3) == 0:
+                                wx.PostEvent(self._notify_window, GraphValueEvent([row, 0, command.command.decode(errors='ignore')]))
+                                wx.PostEvent(self._notify_window, GraphValueEvent([row, 1, command.desc]))
+                                wx.PostEvent(self._notify_window, GraphValueEvent([row, 2, "No data"]))
                             continue
 
                         series = self.graph_series[command_key]
@@ -1344,15 +1346,18 @@ class MyApp(wx.App):
                         series["unit"] = unit
                         series["desc"] = command.desc
 
-                        wx.PostEvent(self._notify_window, GraphValueEvent([row, 0, command.command.decode(errors='ignore')]))
-                        wx.PostEvent(self._notify_window, GraphValueEvent([row, 1, command.desc]))
-                        wx.PostEvent(self._notify_window, GraphValueEvent([row, 2, value_text]))
+                        if self.graph_emit_counter < 2 or (self.graph_emit_counter % 3) == 0:
+                            wx.PostEvent(self._notify_window, GraphValueEvent([row, 0, command.command.decode(errors='ignore')]))
+                            wx.PostEvent(self._notify_window, GraphValueEvent([row, 1, command.desc]))
+                            wx.PostEvent(self._notify_window, GraphValueEvent([row, 2, value_text]))
 
                         plot_series.append((series["x"], series["y"], series["unit"], series["desc"]))
 
-                    wx.PostEvent(self._notify_window, GraphEvent([plot_series, self.graph_counter, self.first_time_graph_plot]))
+                    if self.graph_emit_counter < 2 or (self.graph_emit_counter % 2) == 0:
+                        wx.PostEvent(self._notify_window, GraphEvent([plot_series, self.graph_counter, self.first_time_graph_plot]))
+                        self.first_time_graph_plot = False
+                    self.graph_emit_counter = self.graph_emit_counter + 1
                     self.graph_counter = self.graph_counter + 1
-                    self.first_time_graph_plot = False
 
                 elif hasattr(self._notify_window, "graphs_panel") and curstate == 6:  # show 4Graphs tab
                     if first_time_graphs:
@@ -3240,7 +3245,6 @@ the Free Software Foundation, Inc., 59 Temple Place, Suite 330, Boston, MA  0211
 
         # wx.lib.plot cannot render an empty PlotGraphics object list.
         if len(lines) == 0:
-            self._layout_graph_page()
             try:
                 self.panel.Clear()
             except Exception:
@@ -3250,7 +3254,6 @@ the Free Software Foundation, Inc., 59 Temple Place, Suite 330, Boston, MA  0211
         graphics = wxplot.PlotGraphics(lines, "Live Graphs", "frame", "value")
 
         x_min = max(0, graph_counter - 450)
-        self._layout_graph_page()
         try:
             self.panel.Draw(graphics, xAxis=(x_min, max(1, graph_counter)))
         except Exception:
