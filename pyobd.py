@@ -677,6 +677,10 @@ class MyApp(wx.App):
             threading.Thread.__init__(self)
             self.state = "started"
 
+        @staticmethod
+        def _is_connected_status(status):
+            return status in ("Car Connected", OBDStatus.CAR_CONNECTED)
+
         def initCommunication(self):
             try:
                 self.connection.close()
@@ -684,14 +688,15 @@ class MyApp(wx.App):
                 pass
             wx.PostEvent(self._notify_window, StatusEvent([0, 1, "Connecting...."]))
             self.connection = obd_io.OBDConnection(self.portName, self._notify_window, self.baudrate, self.SERTIMEOUT,self.RECONNATTEMPTS, self.FAST)
-            if self.connection.connection.status() != 'Car Connected':  # Cant open serial port
-                print(self.connection.connection.status())
+            current_status = self.connection.connection.status()
+            if not self._is_connected_status(current_status):  # Cant open serial port
+                print(current_status)
                 #wx.PostEvent(self._notify_window, StatusEvent([666]))  # signal apl, that communication was disconnected
                 #wx.PostEvent(self._notify_window, StatusEvent([0, 1, "Error cant connect..."]))
                 #self.state="finished"
                 self.stop()
                 return None
-            elif self.connection.connection.status() == 'Car Connected':
+            elif self._is_connected_status(current_status):
                 wx.PostEvent(self._notify_window, DebugEvent([1, "Communication initialized..."]))
                 wx.PostEvent(self._notify_window, StatusEvent([0, 1, "Car connected!"]))
 
@@ -813,7 +818,7 @@ class MyApp(wx.App):
 
             while self._notify_window.ThreadControl != 666:
                 print (self._notify_window.ThreadControl)
-                if self.connection.connection.status() != OBDStatus.CAR_CONNECTED:
+                if not self._is_connected_status(self.connection.connection.status()):
                     reconnect()
                     continue
                 prevstate = curstate
@@ -2942,6 +2947,13 @@ the Free Software Foundation, Inc., 59 Temple Place, Suite 330, Boston, MA  0211
         else:
             self.status.SetItem(event.data[0], event.data[1], event.data[2])
             self._update_bottom_status(event.data[0], event.data[2])
+            # Drive UI control state from actual connection state notifications.
+            if event.data[0] == 0:
+                state_text = str(event.data[2])
+                if state_text == "Car connected!":
+                    self.sensor_control_on()
+                elif state_text == "Disconnected":
+                    self.sensor_control_off()
 
     def OnTests(self, event):
         self.OBDTests.SetItem(event.data[0], event.data[1], event.data[2])
@@ -3532,10 +3544,13 @@ the Free Software Foundation, Inc., 59 Temple Place, Suite 330, Boston, MA  0211
                 self.senprod.stop()
         self.ThreadControl = 0
 
+        # Prevent reconfigure/reconnect clicks while connection attempt is in progress.
+        self.settingmenu.Enable(ID_CONFIG, False)
+        self.settingmenu.Enable(ID_RESET, False)
+        self.settingmenu.Enable(ID_DISCONNECT, False)
+
         self.senprod = self.sensorProducer(self, self.COMPORT, self.SERTIMEOUT, self.RECONNATTEMPTS, self.BAUDRATE, self.FAST, self.nb)
         self.senprod.start()
-
-        self.sensor_control_on()
 
     def GetDTC(self, e):
         self.nb.SetSelection(3)
@@ -3737,11 +3752,13 @@ the Free Software Foundation, Inc., 59 Temple Place, Suite 330, Boston, MA  0211
         return choices
 
     def _infer_connection_from_comport(self, connection_type, connection_target, comport):
-        if connection_type in ["AUTO", "SERIAL", "WIFI", "BLUETOOTH", "CUSTOM"]:
+        if connection_type in ["AUTO", "SERIAL", "WIFI", "BLUETOOTH", "CUSTOM", "DEMO"]:
             return connection_type, connection_target
 
         if comport == "AUTO":
             return "AUTO", ""
+        if comport == "DEMO":
+            return "DEMO", ""
 
         if isinstance(comport, str):
             upper = comport.upper()
@@ -3763,6 +3780,8 @@ the Free Software Foundation, Inc., 59 Temple Place, Suite 330, Boston, MA  0211
 
         if connection_type == "AUTO":
             return "AUTO"
+        if connection_type == "DEMO":
+            return "DEMO"
         if connection_type == "SERIAL":
             return serial_port
         if connection_type == "WIFI":
@@ -3783,7 +3802,7 @@ the Free Software Foundation, Inc., 59 Temple Place, Suite 330, Boston, MA  0211
         bt_labels = [label for (label, _value) in bt_choices]
         bt_value_by_label = dict(bt_choices)
 
-        connection_types = ["AUTO", "SERIAL", "WIFI", "BLUETOOTH", "CUSTOM"]
+        connection_types = ["AUTO", "DEMO", "SERIAL", "WIFI", "BLUETOOTH", "CUSTOM"]
         baudrates = [
             "AUTO", "38400", "9600", "115200", "57600", "19200", "14400", "3000000", "2000000",
             "1000000", "250000", "230400", "128000", "500000", "460800", "576000", "921600",

@@ -86,6 +86,7 @@ For bluetooth adapters, you will need to pair the adapter once and then connect 
 
 Run the executable or the script, connect the ELM327 to the computer and the car's OBD port, set the iginition on the car to on(you don't have to start the engine) and click CONNECT in the app. To connect, go to Configure, choose the Connection Type and then configure the adapter target:
 
+- DEMO: runs built-in simulated vehicle data so you can test UI features without a car or adapter.
 - SERIAL: choose the COM/tty port and baud rate.
 - WIFI: enter host:port (for many ELM327 Wi-Fi adapters this is 192.168.0.10:35000).
 - BLUETOOTH: enter COMx (Windows SPP) or MAC:channel (for example AA:BB:CC:DD:EE:FF:1).
