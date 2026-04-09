@@ -479,6 +479,7 @@ class MyApp(wx.App):
         if hasattr(self, "add_graph_pid_button"):
             self.add_graph_pid_button.SetFont(self.touch_font_bold)
             self.remove_graph_pid_button.SetFont(self.touch_font_bold)
+            self.graph_play_button.SetFont(self.touch_font_bold)
             self.graph_list_ctrl.SetFont(self.touch_font)
 
         if hasattr(self, "home_title"):
@@ -545,6 +546,37 @@ class MyApp(wx.App):
         self.graph_command_labels = [f"{cmd.command.decode(errors='ignore')} - {cmd.desc}" for cmd in catalog]
         self.selected_graph_commands = []
 
+    def _set_graph_streaming(self, enabled):
+        self.graph_streaming_enabled = bool(enabled)
+        if hasattr(self, "graph_play_button"):
+            self.graph_play_button.SetLabel("Stop" if self.graph_streaming_enabled else "Play")
+        if hasattr(self, "add_graph_pid_button"):
+            self.add_graph_pid_button.Enable(not self.graph_streaming_enabled)
+        if hasattr(self, "remove_graph_pid_button"):
+            self.remove_graph_pid_button.Enable(not self.graph_streaming_enabled)
+
+        if not self.graph_streaming_enabled:
+            for row in range(self.graph_list_ctrl.GetItemCount()):
+                self.graph_list_ctrl.SetItem(row, 2, "---")
+            if hasattr(self, "panel"):
+                try:
+                    self.panel.Clear()
+                except Exception:
+                    pass
+
+    def OnToggleGraphStreaming(self, event):
+        if not self.graph_streaming_enabled:
+            if len(self.selected_graph_commands) == 0:
+                wx.MessageBox(
+                    "Add at least one PID before starting the graph.",
+                    "Graph",
+                    wx.OK | wx.ICON_INFORMATION,
+                )
+                return
+            self._set_graph_streaming(True)
+        else:
+            self._set_graph_streaming(False)
+
     def _refresh_graph_selection_ui(self):
         self.graph_list_ctrl.DeleteAllItems()
         for idx, command in enumerate(self.selected_graph_commands):
@@ -555,6 +587,8 @@ class MyApp(wx.App):
         self._layout_graph_page()
 
     def OnAddGraphPid(self, event):
+        if self.graph_streaming_enabled:
+            return
         dialog = wx.SingleChoiceDialog(self.frame, "Select PID to add to the graph", "Add PID", self.graph_command_labels)
         if dialog.ShowModal() == wx.ID_OK:
             selection = dialog.GetSelection()
@@ -566,6 +600,8 @@ class MyApp(wx.App):
         dialog.Destroy()
 
     def OnRemoveGraphPid(self, event):
+        if self.graph_streaming_enabled:
+            return
         selected_index = self.graph_list_ctrl.GetFirstSelected()
         if selected_index != wx.NOT_FOUND:
             del self.selected_graph_commands[selected_index]
@@ -592,6 +628,8 @@ class MyApp(wx.App):
         self.add_graph_pid_button.SetSize((150, button_height))
         self.remove_graph_pid_button.SetPosition((170, top_padding))
         self.remove_graph_pid_button.SetSize((160, button_height))
+        self.graph_play_button.SetPosition((340, top_padding))
+        self.graph_play_button.SetSize((120, button_height))
         self.graph_list_ctrl.SetSize(10, list_top, max(300, width - 20), list_height)
 
         plot_top = list_top + list_height + 8
@@ -1298,7 +1336,20 @@ class MyApp(wx.App):
                         self.graph_counter = 0
                         self.graph_series = {}
                         self.graph_emit_counter = 0
+                        self.graph_stream_active_last = False
                         first_time_graph = False
+
+                    if not self._notify_window.graph_streaming_enabled:
+                        if self.graph_stream_active_last:
+                            self.graph_counter = 0
+                            self.graph_emit_counter = 0
+                            self.graph_series = {}
+                            self.first_time_graph_plot = True
+                            wx.PostEvent(self._notify_window, GraphEvent([[], 0, self.first_time_graph_plot]))
+                        self.graph_stream_active_last = False
+                        continue
+
+                    self.graph_stream_active_last = True
 
                     selected_commands = list(self._notify_window.selected_graph_commands)
                     selected_keys = {command.command for command in selected_commands}
@@ -2478,12 +2529,16 @@ class MyApp(wx.App):
 
         self.add_graph_pid_button = wx.Button(self.graph_panel, -1, "Add PID", pos=(10, 10), size=(150, 42))
         self.remove_graph_pid_button = wx.Button(self.graph_panel, -1, "Remove PID", pos=(170, 10), size=(160, 42))
+        self.graph_play_button = wx.Button(self.graph_panel, -1, "Play", pos=(340, 10), size=(120, 42))
+        self.graph_streaming_enabled = False
 
         self.graph_panel.Bind(wx.EVT_BUTTON, self.OnAddGraphPid, self.add_graph_pid_button)
         self.graph_panel.Bind(wx.EVT_BUTTON, self.OnRemoveGraphPid, self.remove_graph_pid_button)
+        self.graph_panel.Bind(wx.EVT_BUTTON, self.OnToggleGraphStreaming, self.graph_play_button)
         self.graph_panel.Bind(wx.EVT_SIZE, self.OnGraphPanelResize)
 
         self.nb.AddPage(self.graph_panel, "Graph")
+        self._set_graph_streaming(False)
         self._layout_graph_page()
         """
         ####################################################################
@@ -2959,6 +3014,7 @@ the Free Software Foundation, Inc., 59 Temple Place, Suite 330, Boston, MA  0211
                     self.sensor_control_on()
                 elif state_text == "Disconnected":
                     self.sensor_control_off()
+                    self._set_graph_streaming(False)
 
     def OnTests(self, event):
         self.OBDTests.SetItem(event.data[0], event.data[1], event.data[2])
