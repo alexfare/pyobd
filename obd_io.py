@@ -39,6 +39,196 @@ from obd_sensors import hex_to_int
 
 import obd
 import decimal
+import math
+
+
+class _FakeMonitorStatus:
+    def __init__(self, available=True, complete=True):
+        self.available = available
+        self.complete = complete
+
+
+class _FakeStatusValue:
+    def __init__(self):
+        monitor_names = [
+            "MISFIRE_MONITORING",
+            "FUEL_SYSTEM_MONITORING",
+            "COMPONENT_MONITORING",
+            "CATALYST_MONITORING",
+            "HEATED_CATALYST_MONITORING",
+            "EVAPORATIVE_SYSTEM_MONITORING",
+            "SECONDARY_AIR_SYSTEM_MONITORING",
+            "OXYGEN_SENSOR_MONITORING",
+            "OXYGEN_SENSOR_HEATER_MONITORING",
+            "EGR_VVT_SYSTEM_MONITORING",
+            "NMHC_CATALYST_MONITORING",
+            "NOX_SCR_AFTERTREATMENT_MONITORING",
+            "BOOST_PRESSURE_MONITORING",
+            "EXHAUST_GAS_SENSOR_MONITORING",
+            "PM_FILTER_MONITORING",
+        ]
+        for name in monitor_names:
+            setattr(self, name, _FakeMonitorStatus(True, True))
+
+        self.MIL = False
+        self.DTC_count = 0
+        self.ignition_type = "spark"
+
+    def __str__(self):
+        return "MIL OFF, DTC Count: 0"
+
+
+class _FakeMisfireValue:
+    def __init__(self, count):
+        self.MISFIRE_COUNT = count
+
+
+class _FakeQuantity:
+    def __init__(self, magnitude, unit=""):
+        self.magnitude = float(magnitude)
+        self.unit = unit
+
+    def __str__(self):
+        if self.unit:
+            return f"{self.magnitude:.2f} {self.unit}"
+        return f"{self.magnitude:.2f}"
+
+
+class _FakeResponse:
+    def __init__(self, value=None):
+        self.value = value
+
+    def is_null(self):
+        return self.value is None
+
+
+class _FakeInterface:
+    def __init__(self, baudrate):
+        try:
+            self._baudrate = int(baudrate)
+        except Exception:
+            self._baudrate = 38400
+
+    def baudrate(self):
+        return self._baudrate
+
+
+class _DemoConnection:
+    def __init__(self, baudrate=None):
+        self._start = time.time()
+        self._dtc_active = [("P0301", "Cylinder 1 Misfire Detected")]
+        self._freeze_dtc = ("P0301", "Cylinder 1 Misfire Detected")
+        self.interface = _FakeInterface(baudrate)
+
+    def status(self):
+        return "Car Connected"
+
+    def close(self):
+        return None
+
+    def port_name(self):
+        return "DEMO"
+
+    def protocol_name(self):
+        return "SAE J1979 (Demo)"
+
+    def _seconds(self):
+        return max(0.0, time.time() - self._start)
+
+    def _wave(self, period=6.0):
+        s = self._seconds()
+        return math.sin((2.0 * math.pi * s) / max(period, 0.2))
+
+    def _command_code(self, command):
+        code = getattr(command, "command", b"")
+        if isinstance(code, bytes):
+            return code
+        if isinstance(code, str):
+            return code.encode("ascii", errors="ignore")
+        return b""
+
+    def query(self, command):
+        code = self._command_code(command)
+
+        # Adapter info
+        if command == obd.commands.ELM_VERSION:
+            return _FakeResponse("ELM327 v2.1 (Demo)")
+        if command == obd.commands.ELM_VOLTAGE:
+            volts = 13.8 + 0.3 * self._wave(9.0)
+            return _FakeResponse(_FakeQuantity(volts, "V"))
+        if command == obd.commands.VIN:
+            return _FakeResponse(b"DEMO0000000000001")
+
+        # Keepalive
+        if command == obd.commands.RPM:
+            rpm = 900 + 350 * self._wave(5.0)
+            return _FakeResponse(_FakeQuantity(max(700, rpm), "rpm"))
+
+        # Readiness/monitor status (0101)
+        if code in (b"0101", b"0141"):
+            return _FakeResponse(_FakeStatusValue())
+
+        # Fuel system status (0103)
+        if code in (b"0103", b"0203"):
+            return _FakeResponse(("Closed loop", "Closed loop"))
+
+        # O2 sensor location (0113)
+        if code in (b"0113", b"0213"):
+            return _FakeResponse({1: [True, True, False, False], 2: [False, False, False, False]})
+
+        # Mode 03/07/04 DTC handling
+        if command == obd.commands.GET_DTC:
+            return _FakeResponse(list(self._dtc_active))
+        if command == obd.commands.FREEZE_DTC:
+            return _FakeResponse(self._freeze_dtc)
+        if command == obd.commands["CLEAR_DTC"]:
+            self._dtc_active = []
+            self._freeze_dtc = ("P0000", "No stored freeze code")
+            return _FakeResponse("OK")
+
+        # Misfire monitor commands used in tests tab.
+        monitor_names = [
+            "MONITOR_MISFIRE_CYLINDER_1",
+            "MONITOR_MISFIRE_CYLINDER_2",
+            "MONITOR_MISFIRE_CYLINDER_3",
+            "MONITOR_MISFIRE_CYLINDER_4",
+            "MONITOR_MISFIRE_CYLINDER_5",
+            "MONITOR_MISFIRE_CYLINDER_6",
+            "MONITOR_MISFIRE_CYLINDER_7",
+            "MONITOR_MISFIRE_CYLINDER_8",
+            "MONITOR_MISFIRE_CYLINDER_9",
+            "MONITOR_MISFIRE_CYLINDER_10",
+            "MONITOR_MISFIRE_CYLINDER_11",
+            "MONITOR_MISFIRE_CYLINDER_12",
+        ]
+        for idx, name in enumerate(monitor_names, start=1):
+            if hasattr(obd.commands, name) and command == getattr(obd.commands, name):
+                count = int(abs(self._wave(7.0 + idx * 0.2)) * 3)
+                return _FakeResponse(_FakeMisfireValue(count))
+
+        # Common live PID values for sensors and graphs.
+        if code in (b"0105", b"0205"):
+            return _FakeResponse(_FakeQuantity(87 + 6 * self._wave(14.0), "C"))
+        if code in (b"010B", b"020B"):
+            return _FakeResponse(_FakeQuantity(12 + 2 * self._wave(8.0), "psi"))
+        if code in (b"010D", b"020D"):
+            return _FakeResponse(_FakeQuantity(35 + 10 * self._wave(6.0), "mph"))
+        if code in (b"010F", b"020F"):
+            return _FakeResponse(_FakeQuantity(30 + 4 * self._wave(10.0), "C"))
+        if code in (b"0110", b"0210"):
+            return _FakeResponse(_FakeQuantity(1.9 + 0.4 * self._wave(5.0), "lb/min"))
+        if code in (b"0111", b"0211"):
+            return _FakeResponse(_FakeQuantity(22 + 9 * self._wave(4.5), "%"))
+        if code in (b"011F", b"021F"):
+            minutes = self._seconds() / 60.0
+            return _FakeResponse(_FakeQuantity(minutes, "min"))
+
+        # Fallback: return a generic value for most mode 01/02 PIDs.
+        if code.startswith(b"01") or code.startswith(b"02"):
+            baseline = 20.0 + ((sum(code) % 40) / 2.0)
+            return _FakeResponse(_FakeQuantity(baseline + 5.0 * self._wave(8.0), "u"))
+
+        return _FakeResponse(None)
 
 
 def truncate(num, n):
@@ -60,6 +250,7 @@ class OBDConnection:
         self._notify_window = _notify_window
         if baud == 'AUTO':
             baud = None
+        original_baud = baud
         if portnum == 'AUTO':
             portnum = None
         if FAST == 'FAST':
@@ -84,6 +275,11 @@ class OBDConnection:
                 return "----"
 
         self.connection = _DisconnectedConnection("Disconnected")
+
+        if portnum == 'DEMO':
+            self.connection = _DemoConnection(original_baud)
+            wx.PostEvent(self._notify_window, DebugEvent([1, "Demo mode active (simulated vehicle data)."] ))
+            return
 
         if portnum is None:
             candidate_ports = [p.device for p in list_ports.comports() if p.device]
@@ -138,6 +334,9 @@ class OBDConnection:
         target = portnum.strip()
         if target.upper() == 'AUTO' or target == '':
             return None
+
+        if target.upper() == 'DEMO':
+            return 'DEMO'
 
         # Already a pyserial URL (socket://, rfc2217://, loop://, etc.)
         if '://' in target:
