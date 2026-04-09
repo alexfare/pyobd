@@ -3228,18 +3228,22 @@ the Free Software Foundation, Inc., 59 Temple Place, Suite 330, Boston, MA  0211
 
         colours = ["blue", "red", "green", "orange", "purple", "brown", "black", "cyan"]
         lines = []
-        labels = []
         for idx, series in enumerate(plot_series):
             xy_data = list(zip(series[0], series[1]))
             if len(xy_data) < 2:
                 continue
             lines.append(wxplot.PolySpline(xy_data, colour=colours[idx % len(colours)], width=2, style=wx.PENSTYLE_SOLID))
-            labels.append(series[3])
 
+        # wx.lib.plot cannot render an empty PlotGraphics object list.
         if len(lines) == 0:
-            graphics = wxplot.PlotGraphics([], "Live Graphs", "frame", "value")
-        else:
-            graphics = wxplot.PlotGraphics(lines, "Live Graphs", "frame", "value")
+            self._layout_graph_page()
+            try:
+                self.panel.Clear()
+            except Exception:
+                pass
+            return
+
+        graphics = wxplot.PlotGraphics(lines, "Live Graphs", "frame", "value")
 
         x_min = max(0, graph_counter - 450)
         self._layout_graph_page()
