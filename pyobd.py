@@ -2947,6 +2947,13 @@ the Free Software Foundation, Inc., 59 Temple Place, Suite 330, Boston, MA  0211
         else:
             self.status.SetItem(event.data[0], event.data[1], event.data[2])
             self._update_bottom_status(event.data[0], event.data[2])
+            # Drive UI control state from actual connection state notifications.
+            if event.data[0] == 0:
+                state_text = str(event.data[2])
+                if state_text == "Car connected!":
+                    self.sensor_control_on()
+                elif state_text == "Disconnected":
+                    self.sensor_control_off()
 
     def OnTests(self, event):
         self.OBDTests.SetItem(event.data[0], event.data[1], event.data[2])
@@ -3537,10 +3544,13 @@ the Free Software Foundation, Inc., 59 Temple Place, Suite 330, Boston, MA  0211
                 self.senprod.stop()
         self.ThreadControl = 0
 
+        # Prevent reconfigure/reconnect clicks while connection attempt is in progress.
+        self.settingmenu.Enable(ID_CONFIG, False)
+        self.settingmenu.Enable(ID_RESET, False)
+        self.settingmenu.Enable(ID_DISCONNECT, False)
+
         self.senprod = self.sensorProducer(self, self.COMPORT, self.SERTIMEOUT, self.RECONNATTEMPTS, self.BAUDRATE, self.FAST, self.nb)
         self.senprod.start()
-
-        self.sensor_control_on()
 
     def GetDTC(self, e):
         self.nb.SetSelection(3)
