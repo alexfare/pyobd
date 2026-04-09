@@ -3232,7 +3232,11 @@ the Free Software Foundation, Inc., 59 Temple Place, Suite 330, Boston, MA  0211
             xy_data = list(zip(series[0], series[1]))
             if len(xy_data) < 2:
                 continue
-            lines.append(wxplot.PolySpline(xy_data, colour=colours[idx % len(colours)], width=2, style=wx.PENSTYLE_SOLID))
+            # PolySpline can be unstable for short traces; use PolyLine until 3+ points exist.
+            if len(xy_data) >= 3:
+                lines.append(wxplot.PolySpline(xy_data, colour=colours[idx % len(colours)], width=2, style=wx.PENSTYLE_SOLID))
+            else:
+                lines.append(wxplot.PolyLine(xy_data, colour=colours[idx % len(colours)], width=2, style=wx.PENSTYLE_SOLID))
 
         # wx.lib.plot cannot render an empty PlotGraphics object list.
         if len(lines) == 0:
@@ -3247,7 +3251,14 @@ the Free Software Foundation, Inc., 59 Temple Place, Suite 330, Boston, MA  0211
 
         x_min = max(0, graph_counter - 450)
         self._layout_graph_page()
-        self.panel.Draw(graphics, xAxis=(x_min, max(1, graph_counter)))
+        try:
+            self.panel.Draw(graphics, xAxis=(x_min, max(1, graph_counter)))
+        except Exception:
+            # Keep UI responsive if wxplot rejects a transient frame.
+            try:
+                self.panel.Clear()
+            except Exception:
+                pass
 
     def OnGraphs(self, event):
         xy_data1 = list(zip(event.data[0][0],event.data[0][1]))
