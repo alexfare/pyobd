@@ -586,18 +586,105 @@ class MyApp(wx.App):
 
         self._layout_graph_page()
 
+    def _add_graph_commands_by_catalog_indices(self, catalog_indices):
+        added_count = 0
+        for index in catalog_indices:
+            if index < 0 or index >= len(self.graph_command_catalog):
+                continue
+            selected_command = self.graph_command_catalog[index]
+            if selected_command not in self.selected_graph_commands:
+                self.selected_graph_commands.append(selected_command)
+                added_count += 1
+
+        if added_count > 0:
+            self._refresh_graph_selection_ui()
+        return added_count
+
+    def _show_add_graph_pid_dialog(self):
+        dialog = wx.Dialog(self.frame, -1, "Add PID", size=(680, 540))
+        root = wx.BoxSizer(wx.VERTICAL)
+
+        info_text = wx.StaticText(dialog, -1, "Search (contains):")
+        search_ctrl = wx.TextCtrl(dialog, -1, "")
+        list_box = wx.ListBox(dialog, -1, style=wx.LB_EXTENDED)
+
+        button_row = wx.BoxSizer(wx.HORIZONTAL)
+        add_selected_button = wx.Button(dialog, wx.ID_ANY, "Add Selected")
+        done_button = wx.Button(dialog, wx.ID_CANCEL, "Done")
+        button_row.Add(add_selected_button, 0)
+        button_row.AddStretchSpacer(1)
+        button_row.Add(done_button, 0)
+
+        helper_text = wx.StaticText(dialog, -1, "Tip: use Ctrl/Shift to select multiple PIDs.")
+
+        root.Add(info_text, 0, wx.LEFT | wx.RIGHT | wx.TOP, 10)
+        root.Add(search_ctrl, 0, wx.EXPAND | wx.LEFT | wx.RIGHT | wx.TOP, 6)
+        root.Add(list_box, 1, wx.EXPAND | wx.ALL, 10)
+        root.Add(helper_text, 0, wx.LEFT | wx.RIGHT, 10)
+        root.Add(button_row, 0, wx.EXPAND | wx.ALL, 10)
+
+        dialog.SetSizer(root)
+
+        filtered_indices = []
+        selected_catalog_indices = set()
+
+        def current_catalog_indices_from_list_selection():
+            selected_indices = list_box.GetSelections()
+            result = []
+            for selected_index in selected_indices:
+                if 0 <= selected_index < len(filtered_indices):
+                    result.append(filtered_indices[selected_index])
+            return result
+
+        def update_filter(_evt=None):
+            for catalog_index in current_catalog_indices_from_list_selection():
+                selected_catalog_indices.add(catalog_index)
+
+            query = search_ctrl.GetValue().strip().lower()
+
+            list_box.Clear()
+            filtered_indices.clear()
+
+            for idx, label in enumerate(self.graph_command_labels):
+                if query == "" or query in label.lower():
+                    filtered_indices.append(idx)
+                    list_box.Append(label)
+
+            for view_index, catalog_index in enumerate(filtered_indices):
+                if catalog_index in selected_catalog_indices:
+                    list_box.SetSelection(view_index)
+
+            add_selected_button.Enable(bool(filtered_indices))
+
+        def on_add_selected(_evt=None):
+            for catalog_index in current_catalog_indices_from_list_selection():
+                selected_catalog_indices.add(catalog_index)
+
+            if not selected_catalog_indices:
+                wx.MessageBox("Select at least one PID to add.", "Graph", wx.OK | wx.ICON_INFORMATION)
+                return
+
+            self._add_graph_commands_by_catalog_indices(sorted(selected_catalog_indices))
+            selected_catalog_indices.clear()
+            update_filter()
+            search_ctrl.SetFocus()
+
+        def on_double_click(_evt):
+            on_add_selected()
+
+        search_ctrl.Bind(wx.EVT_TEXT, update_filter)
+        add_selected_button.Bind(wx.EVT_BUTTON, on_add_selected)
+        list_box.Bind(wx.EVT_LISTBOX_DCLICK, on_double_click)
+
+        update_filter()
+        search_ctrl.SetFocus()
+        dialog.ShowModal()
+        dialog.Destroy()
+
     def OnAddGraphPid(self, event):
         if self.graph_streaming_enabled:
             return
-        dialog = wx.SingleChoiceDialog(self.frame, "Select PID to add to the graph", "Add PID", self.graph_command_labels)
-        if dialog.ShowModal() == wx.ID_OK:
-            selection = dialog.GetSelection()
-            if selection != wx.NOT_FOUND:
-                selected_command = self.graph_command_catalog[selection]
-                if selected_command not in self.selected_graph_commands:
-                    self.selected_graph_commands.append(selected_command)
-                    self._refresh_graph_selection_ui()
-        dialog.Destroy()
+        self._show_add_graph_pid_dialog()
 
     def OnRemoveGraphPid(self, event):
         if self.graph_streaming_enabled:
@@ -1206,7 +1293,7 @@ class MyApp(wx.App):
                                         elif command.command == b"0103" and r.value != None:
                                             wx.PostEvent(self._notify_window, ResultEvent([counter, 2, str(r.value[0])]))
                                         else:
-                                            wx.PostEvent(self._notify_window, ResultEvent([counter, 2, str(r.value)]))
+                                            wx.PostEvent(self._notify_window, ResultEvent([counter, 2, self._notify_window.format_measurement_value(r.value)]))
                                         counter = counter + 1
                         #r = self.connection.connection.query(obd.commands.ELM_VOLTAGE)
                         #sensor_list.append([obd.commands.ELM_VOLTAGE, obd.commands.ELM_VOLTAGE.desc, str(r.value)])
@@ -1237,7 +1324,7 @@ class MyApp(wx.App):
                             elif sens[0].command == b"0103" and r.value != None:
                                 wx.PostEvent(self._notify_window, ResultEvent([counter, 2, str(r.value[0])]))
                             else:
-                                wx.PostEvent(self._notify_window, ResultEvent([counter, 2, str(r.value)]))
+                                wx.PostEvent(self._notify_window, ResultEvent([counter, 2, self._notify_window.format_measurement_value(r.value)]))
 
                             counter = counter + 1
 
@@ -1305,11 +1392,11 @@ class MyApp(wx.App):
                                     if r.value == None:
                                         continue
                                     else:
-                                        freezeframe_list.append([command.command, command.desc, str(r.value)])
+                                        freezeframe_list.append([command.command, command.desc, self._notify_window.format_measurement_value(r.value)])
                                         wx.PostEvent(self._notify_window, InsertFreezeframeRowEvent(counter))
                                         wx.PostEvent(self._notify_window, FreezeframeResultEvent([counter, 0, command.command]))
                                         wx.PostEvent(self._notify_window, FreezeframeResultEvent([counter, 1, str(command.desc)]))
-                                        wx.PostEvent(self._notify_window, FreezeframeResultEvent([counter, 2, str(r.value)]))
+                                        wx.PostEvent(self._notify_window, FreezeframeResultEvent([counter, 2, self._notify_window.format_measurement_value(r.value)]))
                                         counter = counter + 1
                     else:
                         counter = 0
@@ -1320,7 +1407,7 @@ class MyApp(wx.App):
                                     if r.value == None:
                                         #reconnect()
                                         continue
-                                    freezeframe_list[counter] = [command.command, command.desc, str(r.value)]
+                                    freezeframe_list[counter] = [command.command, command.desc, self._notify_window.format_measurement_value(r.value)]
                                     counter = counter + 1
                         counter = 0
                         for sens in freezeframe_list:
@@ -1379,20 +1466,17 @@ class MyApp(wx.App):
 
                         series = self.graph_series[command_key]
                         series["x"] = np.append(series["x"], self.graph_counter)
+                        converted_magnitude, converted_unit, value_text = self._notify_window.get_measurement_components(r.value)
                         try:
-                            series["y"] = np.append(series["y"], float(r.value.magnitude))
-                        except AttributeError:
+                            series["y"] = np.append(series["y"], float(converted_magnitude))
+                        except (AttributeError, TypeError, ValueError):
                             series["y"] = np.append(series["y"], 0.0)
 
                         if len(series["x"]) > 450:
                             series["x"] = np.delete(series["x"], 0)
                             series["y"] = np.delete(series["y"], 0)
 
-                        value_text = str(r.value)
-                        try:
-                            unit = value_text.split(' ')[1]
-                        except IndexError:
-                            unit = "value"
+                        unit = converted_unit if converted_unit else "value"
 
                         series["unit"] = unit
                         series["desc"] = command.desc
@@ -2760,6 +2844,7 @@ class MyApp(wx.App):
             self.SERTIMEOUT = 1
             self.BAUDRATE = "AUTO"
             self.FAST = "NORMAL"
+            self.MEASUREMENT_SYSTEM = "IMPERIAL"
         else:
             try:
                 self.COMPORT = self.config.get("pyOBD", "COMPORT")
@@ -2769,6 +2854,7 @@ class MyApp(wx.App):
                 self.SERTIMEOUT = self.config.get("pyOBD", "SERTIMEOUT")
                 self.BAUDRATE = self.config.get("pyOBD", "BAUDRATE")
                 self.FAST = self.config.get("pyOBD", "FAST")
+                self.MEASUREMENT_SYSTEM = self.config.get("pyOBD", "MEASUREMENT_SYSTEM", fallback="IMPERIAL").upper()
             except Exception as e:
                 print(e)
                 self.COMPORT = "AUTO"
@@ -2778,6 +2864,10 @@ class MyApp(wx.App):
                 self.SERTIMEOUT = 5
                 self.BAUDRATE = "AUTO"
                 self.FAST = "FAST"
+                self.MEASUREMENT_SYSTEM = "IMPERIAL"
+
+        if self.MEASUREMENT_SYSTEM not in ["IMPERIAL", "METRIC"]:
+            self.MEASUREMENT_SYSTEM = "IMPERIAL"
 
         self.CONNECTION_TYPE, self.CONNECTION_TARGET = self._infer_connection_from_comport(
             self.CONNECTION_TYPE,
@@ -3866,6 +3956,135 @@ the Free Software Foundation, Inc., 59 Temple Place, Suite 330, Boston, MA  0211
             return "BT:" + target
         return target
 
+    @staticmethod
+    def _normalize_unit_label(unit_label):
+        return str(unit_label or "").strip().lower().replace(" ", "")
+
+    @staticmethod
+    def _canonical_unit_label(unit_label):
+        normalized = MyApp._normalize_unit_label(unit_label)
+        aliases = {
+            "mph": "mph",
+            "mi/h": "mph",
+            "mile/hour": "mph",
+            "miles/hour": "mph",
+            "kph": "kph",
+            "km/h": "kph",
+            "kilometer/hour": "kph",
+            "kilometers/hour": "kph",
+            "psi": "psi",
+            "kpa": "kPa",
+            "kilopascal": "kPa",
+            "kilopascals": "kPa",
+            "c": "C",
+            "degc": "C",
+            "celsius": "C",
+            "f": "F",
+            "degf": "F",
+            "fahrenheit": "F",
+            "lb/min": "lb/min",
+            "lbs/min": "lb/min",
+            "g/s": "g/s",
+            "gram/second": "g/s",
+            "grams/second": "g/s",
+        }
+        return aliases.get(normalized, str(unit_label or "").strip())
+
+    def _target_unit_for_measurement_system(self, unit_label):
+        normalized = self._normalize_unit_label(unit_label)
+        if self.MEASUREMENT_SYSTEM == "METRIC":
+            metric_map = {
+                "mph": "kph",
+                "mi/h": "kph",
+                "mile/hour": "kph",
+                "miles/hour": "kph",
+                "psi": "kPa",
+                "f": "degC",
+                "degf": "degC",
+                "fahrenheit": "degC",
+                "lb/min": "g/s",
+                "lbs/min": "g/s",
+            }
+            return metric_map.get(normalized)
+
+        imperial_map = {
+            "kph": "mph",
+            "km/h": "mph",
+            "kilometer/hour": "mph",
+            "kilometers/hour": "mph",
+            "kpa": "psi",
+            "kilopascal": "psi",
+            "kilopascals": "psi",
+            "c": "degF",
+            "degc": "degF",
+            "celsius": "degF",
+            "g/s": "lb/min",
+            "gram/second": "lb/min",
+            "grams/second": "lb/min",
+        }
+        return imperial_map.get(normalized)
+
+    def _manual_convert_quantity(self, magnitude, unit_label):
+        normalized = self._normalize_unit_label(unit_label)
+        if self.MEASUREMENT_SYSTEM == "METRIC":
+            if normalized in ("mph", "mi/h", "mile/hour", "miles/hour"):
+                return magnitude * 1.609344, "kph"
+            if normalized == "psi":
+                return magnitude * 6.894757293168361, "kPa"
+            if normalized in ("f", "degf", "fahrenheit"):
+                return ((magnitude - 32.0) * 5.0 / 9.0), "C"
+            if normalized in ("lb/min", "lbs/min"):
+                return magnitude * 7.559872833333334, "g/s"
+            return magnitude, self._canonical_unit_label(unit_label)
+
+        if normalized in ("kph", "km/h", "kilometer/hour", "kilometers/hour"):
+            return magnitude * 0.621371192237334, "mph"
+        if normalized in ("kpa", "kilopascal", "kilopascals"):
+            return magnitude * 0.14503773773020923, "psi"
+        if normalized in ("c", "degc", "celsius"):
+            return ((magnitude * 9.0 / 5.0) + 32.0), "F"
+        if normalized in ("g/s", "gram/second", "grams/second"):
+            return magnitude * 0.13227735731092652, "lb/min"
+        return magnitude, self._canonical_unit_label(unit_label)
+
+    @staticmethod
+    def _format_quantity_text(magnitude, unit_label):
+        if unit_label:
+            return f"{magnitude:.2f} {unit_label}"
+        return f"{magnitude:.2f}"
+
+    def get_measurement_components(self, value):
+        if value is None:
+            return None, "value", "No data"
+
+        if hasattr(value, "magnitude"):
+            try:
+                magnitude = float(value.magnitude)
+            except Exception:
+                return None, "value", str(value)
+
+            unit_obj = getattr(value, "units", None)
+            unit_label = str(unit_obj) if unit_obj is not None else str(getattr(value, "unit", ""))
+            target_unit = self._target_unit_for_measurement_system(unit_label)
+
+            if target_unit and hasattr(value, "to"):
+                try:
+                    converted = value.to(target_unit)
+                    magnitude = float(converted.magnitude)
+                    unit_label = str(getattr(converted, "units", target_unit))
+                except Exception:
+                    magnitude, unit_label = self._manual_convert_quantity(magnitude, unit_label)
+            else:
+                magnitude, unit_label = self._manual_convert_quantity(magnitude, unit_label)
+
+            display_unit = self._canonical_unit_label(unit_label)
+            return magnitude, display_unit or "value", self._format_quantity_text(magnitude, display_unit)
+
+        return None, "value", str(value)
+
+    def format_measurement_value(self, value):
+        return self.get_measurement_components(value)[2]
+
     def Configure(self, e=None):
         id = 0
         diag = wx.Dialog(self.frame, id, title="Configure")
@@ -3953,12 +4172,15 @@ the Free Software Foundation, Inc., 59 Temple Place, Suite 330, Boston, MA  0211
 
         protocol_box = wx.StaticBoxSizer(wx.VERTICAL, diag, "Protocol")
         mode_choice = wx.Choice(diag, -1, choices=["FAST", "NORMAL"])
+        measurement_choice = wx.Choice(diag, -1, choices=["IMPERIAL", "METRIC"])
         reconnect_row = wx.BoxSizer(wx.HORIZONTAL)
         reconnect_row.Add(wx.StaticText(diag, -1, "Reconnect attempts:"), 0, wx.ALIGN_CENTER_VERTICAL | wx.RIGHT, 6)
         reconnectCtrl = wx.TextCtrl(diag, -1, str(self.RECONNATTEMPTS), size=(70, -1))
         reconnect_row.Add(reconnectCtrl, 0)
         protocol_box.Add(wx.StaticText(diag, -1, "Send mode:"), 0, wx.LEFT | wx.RIGHT | wx.TOP, 6)
         protocol_box.Add(mode_choice, 0, wx.EXPAND | wx.LEFT | wx.RIGHT, 6)
+        protocol_box.Add(wx.StaticText(diag, -1, "Measurements:"), 0, wx.LEFT | wx.RIGHT | wx.TOP, 6)
+        protocol_box.Add(measurement_choice, 0, wx.EXPAND | wx.LEFT | wx.RIGHT, 6)
         protocol_box.Add(reconnect_row, 0, wx.LEFT | wx.RIGHT | wx.TOP | wx.BOTTOM, 6)
 
         advanced_row.Add(custom_box, 1, wx.EXPAND | wx.ALL, 3)
@@ -3991,6 +4213,11 @@ the Free Software Foundation, Inc., 59 Temple Place, Suite 330, Boston, MA  0211
             mode_choice.SetSelection(["FAST", "NORMAL"].index(self.FAST))
         else:
             mode_choice.SetSelection(0)
+
+        if self.MEASUREMENT_SYSTEM in ["IMPERIAL", "METRIC"]:
+            measurement_choice.SetSelection(["IMPERIAL", "METRIC"].index(self.MEASUREMENT_SYSTEM))
+        else:
+            measurement_choice.SetSelection(0)
 
         timeoutCtrl.SetValue(str(self.SERTIMEOUT or "5"))
 
@@ -4075,6 +4302,9 @@ the Free Software Foundation, Inc., 59 Temple Place, Suite 330, Boston, MA  0211
 
             self.FAST = ["FAST", "NORMAL"][mode_choice.GetSelection()]
             self.config.set("pyOBD", "FAST", self.FAST)
+
+            self.MEASUREMENT_SYSTEM = ["IMPERIAL", "METRIC"][measurement_choice.GetSelection()]
+            self.config.set("pyOBD", "MEASUREMENT_SYSTEM", self.MEASUREMENT_SYSTEM)
 
             # set and save SERTIMEOUT
             self.SERTIMEOUT = timeoutCtrl.GetValue()
