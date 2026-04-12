@@ -207,18 +207,56 @@ class _DemoConnection:
                 return _FakeResponse(_FakeMisfireValue(count))
 
         # Common live PID values for sensors and graphs.
+        if code in (b"0104", b"0204"):
+            return _FakeResponse(_FakeQuantity(32 + 8 * self._wave(7.0), "%"))
         if code in (b"0105", b"0205"):
             return _FakeResponse(_FakeQuantity(87 + 6 * self._wave(14.0), "C"))
+        if code in (b"0106", b"0206"):
+            return _FakeResponse(_FakeQuantity(1.5 + 4.0 * self._wave(9.0), "%"))
+        if code in (b"0107", b"0207"):
+            return _FakeResponse(_FakeQuantity(0.7 + 3.0 * self._wave(10.0), "%"))
+        if code in (b"0108", b"0208"):
+            return _FakeResponse(_FakeQuantity(1.0 + 4.0 * self._wave(8.5), "%"))
+        if code in (b"0109", b"0209"):
+            return _FakeResponse(_FakeQuantity(0.3 + 3.0 * self._wave(9.5), "%"))
+        if code in (b"010A", b"020A"):
+            return _FakeResponse(_FakeQuantity(42 + 3 * self._wave(6.5), "psi"))
         if code in (b"010B", b"020B"):
             return _FakeResponse(_FakeQuantity(12 + 2 * self._wave(8.0), "psi"))
         if code in (b"010D", b"020D"):
             return _FakeResponse(_FakeQuantity(35 + 10 * self._wave(6.0), "mph"))
+        if code in (b"010E", b"020E"):
+            return _FakeResponse(_FakeQuantity(18 + 6 * self._wave(7.5), "degrees"))
         if code in (b"010F", b"020F"):
             return _FakeResponse(_FakeQuantity(30 + 4 * self._wave(10.0), "C"))
         if code in (b"0110", b"0210"):
             return _FakeResponse(_FakeQuantity(1.9 + 0.4 * self._wave(5.0), "lb/min"))
         if code in (b"0111", b"0211"):
             return _FakeResponse(_FakeQuantity(22 + 9 * self._wave(4.5), "%"))
+        if code in (b"0112", b"0212"):
+            return _FakeResponse("Upstream")
+        if code in (b"0114", b"0214"):
+            return _FakeResponse(_FakeQuantity(0.18 + 0.07 * self._wave(8.0), "V"))
+        if code in (b"0115", b"0215"):
+            return _FakeResponse(_FakeQuantity(0.20 + 0.08 * self._wave(8.5), "V"))
+        if code in (b"0116", b"0216"):
+            return _FakeResponse(_FakeQuantity(0.19 + 0.06 * self._wave(9.0), "V"))
+        if code in (b"0117", b"0217"):
+            return _FakeResponse(_FakeQuantity(0.17 + 0.08 * self._wave(7.5), "V"))
+        if code in (b"0118", b"0218"):
+            return _FakeResponse(_FakeQuantity(0.16 + 0.07 * self._wave(8.2), "V"))
+        if code in (b"0119", b"0219"):
+            return _FakeResponse(_FakeQuantity(0.19 + 0.06 * self._wave(9.2), "V"))
+        if code in (b"011A", b"021A"):
+            return _FakeResponse(_FakeQuantity(0.21 + 0.07 * self._wave(8.7), "V"))
+        if code in (b"011B", b"021B"):
+            return _FakeResponse(_FakeQuantity(0.18 + 0.07 * self._wave(7.7), "V"))
+        if code in (b"011C", b"021C"):
+            return _FakeResponse("OBD II")
+        if code in (b"011D", b"021D"):
+            return _FakeResponse("2 banks")
+        if code in (b"011E", b"021E"):
+            return _FakeResponse("PTO off")
         if code in (b"011F", b"021F"):
             minutes = self._seconds() / 60.0
             return _FakeResponse(_FakeQuantity(minutes, "min"))
