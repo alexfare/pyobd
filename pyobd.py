@@ -3249,6 +3249,28 @@ the Free Software Foundation, Inc., 59 Temple Place, Suite 330, Boston, MA  0211
         #while self.senprod.state != "finished":
         #    time.sleep(0.1)
         print("on close!")
+
+        def reset_list_if_present(name, row_count):
+            list_ctrl = getattr(self, name, None)
+            if list_ctrl is None:
+                return
+            try:
+                list_ctrl.DeleteAllItems()
+                for idx in range(row_count):
+                    list_ctrl.InsertItem(idx, "")
+            except Exception:
+                pass
+
+        def destroy_if_present(*names):
+            for name in names:
+                control = getattr(self, name, None)
+                if control is None:
+                    continue
+                try:
+                    control.Destroy()
+                except Exception:
+                    pass
+
         self.sensors.DeleteAllItems()
         self.freezeframe.DeleteAllItems()
         self.OBDTests.DeleteAllItems()
@@ -3281,74 +3303,23 @@ the Free Software Foundation, Inc., 59 Temple Place, Suite 330, Boston, MA  0211
         self.OBDTests.Append(["MISFIRE CYLINDER 12", "---", "---"])
         self.dtc.DeleteAllItems()
 
+        reset_list_if_present("graphs_list_ctrl", 4)
+        reset_list_if_present("graphs8_list_ctrl", 8)
+        reset_list_if_present("graph_list_ctrl", 1)
 
-        self.graphs_list_ctrl.DeleteAllItems()
-        self.graphs_list_ctrl.InsertItem(0, "")
-        self.graphs_list_ctrl.InsertItem(1, "")
-        self.graphs_list_ctrl.InsertItem(2, "")
-        self.graphs_list_ctrl.InsertItem(3, "")
-        self.graphs8_list_ctrl.DeleteAllItems()
-        self.graphs8_list_ctrl.InsertItem(0, "")
-        self.graphs8_list_ctrl.InsertItem(1, "")
-        self.graphs8_list_ctrl.InsertItem(2, "")
-        self.graphs8_list_ctrl.InsertItem(3, "")
-        self.graphs8_list_ctrl.InsertItem(4, "")
-        self.graphs8_list_ctrl.InsertItem(5, "")
-        self.graphs8_list_ctrl.InsertItem(6, "")
-        self.graphs8_list_ctrl.InsertItem(7, "")
+        destroy_if_present("combobox")
+        destroy_if_present("combobox1", "combobox2", "combobox3", "combobox4")
+        destroy_if_present(
+            "combobox8_1", "combobox8_2", "combobox8_3", "combobox8_4",
+            "combobox8_5", "combobox8_6", "combobox8_7", "combobox8_8"
+        )
 
-        try:
-            self.combobox.Destroy()
-        except:
-            pass
-        try:
-            self.combobox1.Destroy()
-            self.combobox2.Destroy()
-            self.combobox3.Destroy()
-            self.combobox4.Destroy()
-        except:
-            pass
-        try:
-            self.combobox8_1.Destroy()
-            self.combobox8_2.Destroy()
-            self.combobox8_3.Destroy()
-            self.combobox8_4.Destroy()
-            self.combobox8_5.Destroy()
-            self.combobox8_6.Destroy()
-            self.combobox8_7.Destroy()
-            self.combobox8_8.Destroy()
-        except:
-            pass
-
-
-        try:
-            self.panel.Destroy()
-        except:
-            traceback.print_exc()
-        try:
-            self.graph_list_ctrl.DeleteAllItems()
-            self.graph_list_ctrl.InsertItem(0, "")
-        except:
-            traceback.print_exc()
-        try:
-            self.panel1.Destroy()
-            self.panel2.Destroy()
-            self.panel3.Destroy()
-            self.panel4.Destroy()
-
-        except:
-            traceback.print_exc()
-        try:
-            self.panel8_1.Destroy()
-            self.panel8_2.Destroy()
-            self.panel8_3.Destroy()
-            self.panel8_4.Destroy()
-            self.panel8_5.Destroy()
-            self.panel8_6.Destroy()
-            self.panel8_7.Destroy()
-            self.panel8_8.Destroy()
-        except:
-            pass
+        destroy_if_present("panel")
+        destroy_if_present("panel1", "panel2", "panel3", "panel4")
+        destroy_if_present(
+            "panel8_1", "panel8_2", "panel8_3", "panel8_4",
+            "panel8_5", "panel8_6", "panel8_7", "panel8_8"
+        )
         try:
             self.ThreadControl = 666
 
