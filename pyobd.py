@@ -444,7 +444,6 @@ class MyApp(wx.App):
         self.touch_font = wx.Font(11, wx.FONTFAMILY_SWISS, wx.FONTSTYLE_NORMAL, wx.FONTWEIGHT_NORMAL)
         self.touch_font_bold = wx.Font(11, wx.FONTFAMILY_SWISS, wx.FONTSTYLE_NORMAL, wx.FONTWEIGHT_BOLD)
         self.home_title_font = wx.Font(17, wx.FONTFAMILY_SWISS, wx.FONTSTYLE_NORMAL, wx.FONTWEIGHT_BOLD)
-        self.home_subtitle_font = wx.Font(10, wx.FONTFAMILY_SWISS, wx.FONTSTYLE_NORMAL, wx.FONTWEIGHT_NORMAL)
         self.home_tile_font = wx.Font(14, wx.FONTFAMILY_SWISS, wx.FONTSTYLE_NORMAL, wx.FONTWEIGHT_BOLD)
         self.frame.SetBackgroundColour(wx.Colour(241, 245, 250))
         self.frame.SetFont(self.touch_font)
@@ -484,7 +483,6 @@ class MyApp(wx.App):
 
         if hasattr(self, "home_title"):
             self.home_title.SetFont(self.home_title_font)
-            self.home_subtitle.SetFont(self.home_subtitle_font)
 
         if hasattr(self, "home_scan_button"):
             self.home_scan_button.SetFont(self.home_tile_font)
@@ -737,8 +735,6 @@ class MyApp(wx.App):
         grid = wx.GridBagSizer(16, 16)
 
         self.home_title = wx.StaticText(self.home_panel, -1, "pyOBD Home")
-        self.home_subtitle = wx.StaticText(self.home_panel, -1, "Quick access for scan, service, and live graphs")
-        self.home_subtitle.SetForegroundColour(wx.Colour(76, 88, 106))
 
         self.home_scan_button = self._create_home_tile(
             self.home_panel,
@@ -763,7 +759,6 @@ class MyApp(wx.App):
         )
 
         header_sizer.Add(self.home_title, 0, wx.BOTTOM, 4)
-        header_sizer.Add(self.home_subtitle, 0)
 
         grid.Add(self.home_scan_button, (0, 0), span=(1, 1), flag=wx.EXPAND)
         grid.Add(self.home_services_button, (0, 1), span=(1, 1), flag=wx.EXPAND)
