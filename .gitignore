@@ -1,0 +1,4 @@
+/__pycache__
+/obd/__pycache__
+/obd/protocols/__pycache__
+*.ini

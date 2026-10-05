@@ -84,7 +84,15 @@ sudo usermod -a -G tty $USER
 ## Usage
 For bluetooth adapters, you will need to pair the adapter once and then connect to it(for some reason on Linux I had to connect to it manually via command line).
 
-Run the executable or the script, connect the ELM327 to the computer and the car's OBD port, set the iginition on the car to on(you don't have to start the engine) and click CONNECT in the app. To connect, go to Configure, select the right port and the right baudrate and click connect. You can leave it at AUTO and connect, but it will take longer to connect and in some cases it will not connect. Manual is safest and fastest, but AUTO works in most cases.\
+Run the executable or the script, connect the ELM327 to the computer and the car's OBD port, set the iginition on the car to on(you don't have to start the engine) and click CONNECT in the app. To connect, go to Configure, choose the Connection Type and then configure the adapter target:
+
+- DEMO: runs built-in simulated vehicle data so you can test UI features without a car or adapter.
+- SERIAL: choose the COM/tty port and baud rate.
+- WIFI: enter host:port (for many ELM327 Wi-Fi adapters this is 192.168.0.10:35000).
+- BLUETOOTH: enter COMx (Windows SPP) or MAC:channel (for example AA:BB:CC:DD:EE:FF:1).
+- CUSTOM: enter a full pyserial URL (for example socket://192.168.0.10:35000).
+
+AUTO mode keeps auto-detection of serial ports and baud rates.\
 **UPDATE: automatic port and baud detection should now work every time!**
 
 The data will display once you are connected, although most of the sensors display data only when the engine is running. If you connected and then turn the engine on, you have to wait a bit so that the program reconnects.
