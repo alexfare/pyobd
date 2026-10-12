@@ -47,6 +47,90 @@ class AppTheme:
         control.SetForegroundColour(self.text)
 
 
+class ActionCard(wx.Panel):
+    def __init__(self, parent, theme, title, description, handler):
+        super().__init__(parent, style=wx.WANTS_CHARS | wx.BORDER_NONE)
+        self.theme = theme
+        self.handler = handler
+        self.hovered = False
+        self.SetMinSize((260, 110))
+        self.SetName(title)
+        self.SetBackgroundColour(theme.surface)
+        self.SetBackgroundStyle(wx.BG_STYLE_PAINT)
+
+        self.title = wx.StaticText(self, label=title)
+        self.title.SetFont(theme.font(15, bold=True))
+        self.title.SetForegroundColour(theme.text)
+        self.title.SetBackgroundColour(theme.surface)
+        self.description = wx.StaticText(self, label=description)
+        self.description.SetFont(theme.font(10))
+        self.description.SetForegroundColour(theme.muted)
+        self.description.SetBackgroundColour(theme.surface)
+
+        content = wx.BoxSizer(wx.VERTICAL)
+        content.AddStretchSpacer()
+        content.Add(self.title, 0, wx.LEFT | wx.RIGHT, 24)
+        content.Add(self.description, 0, wx.LEFT | wx.RIGHT | wx.TOP, 24)
+        content.AddStretchSpacer()
+        self.SetSizer(content)
+
+        for control in (self, self.title, self.description):
+            control.SetCursor(wx.Cursor(wx.CURSOR_HAND))
+            control.Bind(wx.EVT_ENTER_WINDOW, self._on_enter)
+            control.Bind(wx.EVT_LEAVE_WINDOW, self._on_leave)
+            control.Bind(wx.EVT_LEFT_UP, self._on_activate)
+
+        self.Bind(wx.EVT_PAINT, self._on_paint)
+        self.Bind(wx.EVT_SET_FOCUS, self._on_focus)
+        self.Bind(wx.EVT_KILL_FOCUS, self._on_focus)
+        self.Bind(wx.EVT_KEY_DOWN, self._on_key_down)
+
+    def _on_paint(self, event):
+        dc = wx.AutoBufferedPaintDC(self)
+        dc.SetBackground(wx.Brush(self.GetParent().GetBackgroundColour()))
+        dc.Clear()
+        background = self.theme.surface_alt if self.hovered else self.theme.surface
+        border = self.theme.accent if self.hovered or self.HasFocus() else self.theme.border
+        dc.SetBrush(wx.Brush(background))
+        dc.SetPen(wx.Pen(border, 2 if self.HasFocus() else 1))
+        width, height = self.GetClientSize()
+        dc.DrawRoundedRectangle(1, 1, max(0, width - 2), max(0, height - 2), 10)
+
+    def _set_hovered(self, hovered):
+        if self.hovered == hovered:
+            return
+        self.hovered = hovered
+        background = self.theme.surface_alt if hovered else self.theme.surface
+        self.title.SetBackgroundColour(background)
+        self.description.SetBackgroundColour(background)
+        self.Refresh()
+
+    def _on_enter(self, event):
+        self._set_hovered(True)
+        event.Skip()
+
+    def _on_leave(self, event):
+        wx.CallAfter(self._sync_hover)
+        event.Skip()
+
+    def _sync_hover(self):
+        self._set_hovered(self.GetScreenRect().Contains(wx.GetMousePosition()))
+
+    def _on_activate(self, event):
+        self.SetFocus()
+        self.handler(event)
+
+    def _on_focus(self, event):
+        self.Refresh()
+        event.Skip()
+
+    def _on_key_down(self, event):
+        if event.GetKeyCode() in (wx.WXK_RETURN, wx.WXK_NUMPAD_ENTER, wx.WXK_SPACE):
+            self.handler(event)
+            return
+        event.Skip()
+
+
 def build_card(parent, theme):
     card = wx.Panel(parent, style=wx.BORDER_SIMPLE)
     card.SetBackgroundColour(theme.surface)

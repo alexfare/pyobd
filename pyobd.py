@@ -49,7 +49,7 @@ from debugEvent import *
 from graph_ui import GraphUIMixin
 from sensor_worker import SensorProducer
 from obd2_codes import pcodes
-from ui_theme import AppTheme
+from ui_theme import ActionCard, AppTheme
 
 from wx.lib.mixins.listctrl import ListCtrlAutoWidthMixin
 import obd
@@ -381,11 +381,8 @@ class MyApp(GraphUIMixin, wx.App):
                 self.page_title.SetLabel(title)
             self._refresh_sidebar_selection(page)
 
-    def _create_home_tile(self, parent, label, handler):
-        button = wx.Button(parent, -1, label)
-        button.SetMinSize((260, 110))
-        button.Bind(wx.EVT_BUTTON, handler)
-        return button
+    def _create_home_tile(self, parent, label, description, handler):
+        return ActionCard(parent, self.theme, label, description, handler)
 
     def build_home_page(self):
         self.home_panel = wx.Panel(self.nb, -1)
@@ -401,16 +398,19 @@ class MyApp(GraphUIMixin, wx.App):
         self.home_scan_button = self._create_home_tile(
             self.home_panel,
             "Scan trouble codes",
+            "Read and manage diagnostic trouble codes.",
             self.OnHomeScan,
         )
         self.home_services_button = self._create_home_tile(
             self.home_panel,
             "View live data",
+            "Monitor real-time vehicle sensor readings.",
             self.OnHomeSensors,
         )
         self.home_graphs_button = self._create_home_tile(
             self.home_panel,
             "Open graphs",
+            "Visualize selected sensor readings over time.",
             self.OnHomeGraphs,
         )
         actions.Add(self.home_scan_button, pos=(0, 0), flag=wx.EXPAND)
