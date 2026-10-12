@@ -811,7 +811,7 @@ class MyApp(GraphUIMixin, wx.App):
         )
 
         self.theme = AppTheme()
-        self.frame = wx.Frame(None, -1, "pyOBD-II v2.0")
+        self.frame = wx.Frame(None, -1, "pyOBD v2.2 - Modified by Fare Brothers")
         ico = wx.Icon(resource_path('pyobd.ico'), wx.BITMAP_TYPE_ICO)
         self.frame.SetIcon(ico)
 
