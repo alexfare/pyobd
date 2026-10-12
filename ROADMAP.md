@@ -22,8 +22,9 @@ project requirements. Publish self-contained installers from automated builds:
 - Python source installation retained for contributors and unsupported systems
 - demo mode available immediately after first launch
 
-Sign the Windows installer and sign/notarize the macOS app before advertising a
-release to general users. The release page should present one obvious download
+Sign the Windows installer before advertising a release to general users. The
+macOS workflow requires Developer ID signing and Apple notarization before it
+will produce an artifact. The release page should present one obvious download
 for each operating system and keep developer setup instructions secondary.
 
 **Exit condition:** a new user can download one file, install pyOBD, launch it,
