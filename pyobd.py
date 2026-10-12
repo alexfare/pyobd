@@ -217,6 +217,12 @@ class MyApp(GraphUIMixin, wx.App):
         self.content_header.SetMinSize((-1, 64))
         header_sizer = wx.BoxSizer(wx.HORIZONTAL)
 
+        self.header_menu_button = wx.Button(self.content_header, label="☰")
+        self.header_menu_button.SetMinSize((44, 38))
+        self.header_menu_button.SetFont(self.theme.font(16))
+        self.header_menu_button.SetToolTip("Open navigation")
+        self.header_menu_button.Bind(wx.EVT_BUTTON, self._toggle_sidebar)
+
         self.page_title = wx.StaticText(self.content_header, label="Overview")
         self.page_title.SetForegroundColour(self.theme.text)
         self.page_title.SetFont(self.theme.font(20, bold=True))
@@ -233,12 +239,21 @@ class MyApp(GraphUIMixin, wx.App):
         self.header_configure_button.SetMinSize((110, 38))
         self.header_configure_button.Bind(wx.EVT_BUTTON, self.Configure)
 
-        header_sizer.Add(self.page_title, 0, wx.ALIGN_CENTER_VERTICAL | wx.LEFT, 16)
+        header_sizer.Add(self.header_menu_button, 0, wx.ALIGN_CENTER_VERTICAL | wx.LEFT, 16)
+        header_sizer.Add(self.page_title, 0, wx.ALIGN_CENTER_VERTICAL | wx.LEFT, 12)
         header_sizer.AddStretchSpacer()
         header_sizer.Add(self.header_connection_status, 0, wx.ALIGN_CENTER_VERTICAL | wx.RIGHT, 16)
         header_sizer.Add(self.header_configure_button, 0, wx.ALIGN_CENTER_VERTICAL | wx.RIGHT, 8)
         header_sizer.Add(self.header_connect_button, 0, wx.ALIGN_CENTER_VERTICAL | wx.RIGHT, 16)
         self.content_header.SetSizer(header_sizer)
+
+    def _toggle_sidebar(self, event=None):
+        self._sidebar_open = not self._sidebar_open
+        self.sidebar_panel.Show(self._sidebar_open)
+        self.header_menu_button.SetToolTip(
+            "Close navigation" if self._sidebar_open else "Open navigation"
+        )
+        self.shell_panel.Layout()
 
     def _on_header_connection_action(self, event):
         if self.senprod and self.senprod.is_alive():
@@ -727,6 +742,7 @@ class MyApp(GraphUIMixin, wx.App):
     def OnInit(self):
         self.ThreadControl = 0  # say thread what to do
         self._shutdown_started = False
+        self._sidebar_open = False
         self.COMPORT = 0
         self.senprod = None
         self.DEBUGLEVEL = 0  # debug everything
@@ -898,6 +914,7 @@ class MyApp(GraphUIMixin, wx.App):
         shell_sizer = wx.BoxSizer(wx.HORIZONTAL)
         shell_sizer.Add(self.sidebar_panel, 0, wx.EXPAND)
         shell_sizer.Add(self.content_panel, 1, wx.EXPAND)
+        self.sidebar_panel.Show(self._sidebar_open)
         self.shell_panel.SetSizer(shell_sizer)
 
         self.main_sizer = wx.BoxSizer(wx.VERTICAL)
