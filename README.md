@@ -23,9 +23,10 @@ and [Google Play](https://play.google.com/store/apps/developer?id=FareBrothers).
 
 ## Download
 
-For the easiest setup, download the latest Windows installer or macOS disk
-image from [Releases](https://github.com/alexfare/pyobd/releases/latest). These
-packages include Python and all required libraries. No terminal, Python, or pip
+For the easiest setup, download the latest Windows installer, Apple Silicon
+macOS disk image, or Ubuntu/Debian package from
+[Releases](https://github.com/alexfare/pyobd/releases/latest). These packages
+include Python and the application libraries. No terminal, Python, or pip
 installation is required.
 
 Open pyOBD and select **DEMO** to try every main screen without an adapter or

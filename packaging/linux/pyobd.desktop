@@ -1,0 +1,8 @@
+[Desktop Entry]
+Type=Application
+Name=pyOBD
+Comment=OBD-II vehicle diagnostics
+Exec=pyobd
+Icon=/usr/share/pixmaps/pyobd.ico
+Terminal=false
+Categories=Utility;

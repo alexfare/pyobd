@@ -32,21 +32,14 @@ jobs:
           choco install innosetup --no-progress -y
           $version = python -c "import tomllib; print(tomllib.load(open('pyproject.toml', 'rb'))['project']['version'])"
           & "${env:ProgramFiles(x86)}\Inno Setup 6\ISCC.exe" "/DAppVersion=$version" "packaging\windows\pyobd.iss"
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v7
         with:
           name: pyOBD-Windows-x64
           path: installer-dist/*.exe
           if-no-files-found: error
 
   macos:
-    strategy:
-      matrix:
-        include:
-          - runner: macos-15
-            architecture: Apple-Silicon
-          - runner: macos-15-intel
-            architecture: Intel
-    runs-on: ${{ matrix.runner }}
+    runs-on: macos-15
     steps:
       - uses: actions/checkout@v7
       - uses: actions/setup-python@v7
@@ -68,19 +61,47 @@ jobs:
           mkdir dmg-root
           cp -R dist/pyOBD.app dmg-root/
           ln -s /Applications dmg-root/Applications
-          hdiutil create -volname "pyOBD" -srcfolder dmg-root -ov -format UDZO "pyOBD-${version}-macOS-${{ matrix.architecture }}.dmg"
-      - uses: actions/upload-artifact@v4
+          hdiutil create -volname "pyOBD" -srcfolder dmg-root -ov -format UDZO "pyOBD-${version}-macOS-Apple-Silicon.dmg"
+      - uses: actions/upload-artifact@v7
         with:
-          name: pyOBD-macOS-${{ matrix.architecture }}
+          name: pyOBD-macOS-Apple-Silicon
           path: pyOBD-*.dmg
+          if-no-files-found: error
+
+  linux:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v7
+      - name: Install system dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install --yes python3-venv python3-wxgtk4.0
+      - name: Install build dependencies
+        run: |
+          /usr/bin/python3 -m venv --system-site-packages .venv-build
+          .venv-build/bin/python -m pip install -r requirements/requirements-ubuntu.txt -r requirements/requirements-build.txt
+      - name: Build application
+        run: >-
+          .venv-build/bin/pyinstaller --noconfirm --clean --windowed --onedir
+          --name pyOBD --icon pyobd.ico
+          --add-data "pyobd.ico:." --add-data "COPYING:."
+          pyobd.py
+      - name: Build installer
+        run: |
+          version=$(.venv-build/bin/python -c "import tomllib; print(tomllib.load(open('pyproject.toml', 'rb'))['project']['version'])")
+          bash packaging/linux/build-deb.sh "$version"
+      - uses: actions/upload-artifact@v7
+        with:
+          name: pyOBD-Linux-amd64
+          path: installer-dist/*.deb
           if-no-files-found: error
 
   release:
     if: startsWith(github.ref, 'refs/tags/')
-    needs: [windows, macos]
+    needs: [windows, macos, linux]
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/download-artifact@v5
+      - uses: actions/download-artifact@v7
         with:
           path: release-assets
           merge-multiple: true

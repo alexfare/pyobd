@@ -17,7 +17,8 @@ The primary distribution must not require users to install Python, pip, or
 project requirements. Publish self-contained installers from automated builds:
 
 - Windows x64 installer with Start Menu and optional desktop shortcuts
-- macOS Apple Silicon and Intel disk images
+- macOS Apple Silicon disk image
+- Ubuntu/Debian installer with an application-menu entry
 - Python source installation retained for contributors and unsupported systems
 - demo mode available immediately after first launch
 
