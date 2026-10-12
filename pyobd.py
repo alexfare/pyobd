@@ -970,7 +970,7 @@ class MyApp(GraphUIMixin, wx.App):
 
         self.frame.SetMenuBar(self.menuBar)  # Adding the MenuBar to the Frame content.
 
-        self.frame.Bind(wx.EVT_MENU, self.OnExit, id=ID_EXIT)  # attach the menu-event ID_EXIT to the
+        self.frame.Bind(wx.EVT_MENU, self.OnExitMenu, id=ID_EXIT)
         self.frame.Bind(wx.EVT_MENU, self.QueryClear, id=ID_CLEAR)
         self.frame.Bind(wx.EVT_MENU, self.Configure, id=ID_CONFIG)
         self.frame.Bind(wx.EVT_MENU, self.OpenPort, id=ID_RESET)
@@ -2183,7 +2183,7 @@ class MyApp(GraphUIMixin, wx.App):
             # write configuration to cfg file
             self.config.write(open(self.configfilepath, 'w'))
 
-    def OnExit(self, e=None):
+    def OnExitMenu(self, event=None):
         self.frame.Close()
 
     def OnWindowClose(self, event):
