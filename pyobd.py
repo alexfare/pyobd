@@ -49,6 +49,7 @@ from debugEvent import *
 from graph_ui import GraphUIMixin
 from sensor_worker import SensorProducer
 from obd2_codes import pcodes
+from ui_theme import AppTheme, build_card
 
 from wx.lib.mixins.listctrl import ListCtrlAutoWidthMixin
 import obd
@@ -127,13 +128,13 @@ class MyApp(GraphUIMixin, wx.App):
     }
 
     def _build_bottom_status_toolbar(self):
-        self.bottom_toolbar = wx.Panel(self.frame, -1)
-        self.bottom_toolbar.SetBackgroundColour(wx.Colour(24, 31, 42))
+        self.bottom_toolbar = wx.Panel(self.content_panel, -1)
+        self.bottom_toolbar.SetBackgroundColour(self.theme.sidebar)
         self.bottom_toolbar_values = {}
 
         toolbar_sizer = wx.BoxSizer(wx.HORIZONTAL)
         self.bottom_toolbar.SetSizer(toolbar_sizer)
-        self.bottom_toolbar.SetMinSize((-1, 82))
+        self.bottom_toolbar.SetMinSize((-1, 64))
 
         toolbar_fields = [
             ("link", "Link", "Disconnected"),
@@ -148,11 +149,11 @@ class MyApp(GraphUIMixin, wx.App):
             field_sizer = wx.BoxSizer(wx.VERTICAL)
 
             title = wx.StaticText(self.bottom_toolbar, -1, label.upper())
-            title.SetForegroundColour(wx.Colour(155, 168, 186))
+            title.SetForegroundColour(self.theme.sidebar_muted)
             title.SetFont(wx.Font(8, wx.FONTFAMILY_SWISS, wx.FONTSTYLE_NORMAL, wx.FONTWEIGHT_NORMAL))
 
             value_widget = wx.StaticText(self.bottom_toolbar, -1, value)
-            value_widget.SetForegroundColour(wx.Colour(236, 242, 255))
+            value_widget.SetForegroundColour(self.theme.sidebar_text)
             value_widget.SetFont(wx.Font(12, wx.FONTFAMILY_SWISS, wx.FONTSTYLE_NORMAL, wx.FONTWEIGHT_BOLD))
 
             self.bottom_toolbar_values[key] = value_widget
@@ -177,12 +178,124 @@ class MyApp(GraphUIMixin, wx.App):
             if key in self.bottom_toolbar_values:
                 self.bottom_toolbar_values[key].SetLabel(value)
         self.bottom_toolbar.Layout()
+        self._update_connection_visuals("Disconnected")
 
     def _update_bottom_status(self, status_index, value):
         status_key = self.STATUS_TOOLBAR_MAP.get(status_index)
         if status_key and status_key in self.bottom_toolbar_values:
             self.bottom_toolbar_values[status_key].SetLabel(str(value))
             self.bottom_toolbar.Layout()
+
+    def _update_connection_visuals(self, state_text):
+        state = str(state_text).strip()
+        normalized = state.lower()
+        if "connected" in normalized and "disconnected" not in normalized:
+            label = "●  Connected"
+            colour = self.theme.success
+        elif "connecting" in normalized:
+            label = "●  Connecting"
+            colour = self.theme.warning
+        elif "fail" in normalized or "error" in normalized:
+            label = "●  Connection failed"
+            colour = self.theme.danger
+        else:
+            label = "●  Disconnected"
+            colour = self.theme.muted
+
+        for control_name in ("header_connection_status", "home_connection_status"):
+            control = getattr(self, control_name, None)
+            if control is not None:
+                control.SetLabel(label)
+                control.SetForegroundColour(colour)
+
+        if hasattr(self, "header_connect_button"):
+            self.header_connect_button.SetLabel("Disconnect" if label == "●  Connected" else "Connect")
+
+    def _build_content_header(self):
+        self.content_header = wx.Panel(self.content_panel)
+        self.content_header.SetBackgroundColour(self.theme.surface)
+        self.content_header.SetMinSize((-1, 64))
+        header_sizer = wx.BoxSizer(wx.HORIZONTAL)
+
+        self.page_title = wx.StaticText(self.content_header, label="Overview")
+        self.page_title.SetForegroundColour(self.theme.text)
+        self.page_title.SetFont(self.theme.font(20, bold=True))
+
+        self.header_connection_status = wx.StaticText(self.content_header, label="●  Disconnected")
+        self.header_connection_status.SetForegroundColour(self.theme.muted)
+        self.header_connection_status.SetFont(self.theme.font(10, bold=True))
+
+        self.header_connect_button = wx.Button(self.content_header, label="Connect")
+        self.header_connect_button.SetMinSize((110, 38))
+        self.header_connect_button.Bind(wx.EVT_BUTTON, self._on_header_connection_action)
+
+        header_sizer.Add(self.page_title, 0, wx.ALIGN_CENTER_VERTICAL | wx.LEFT, 16)
+        header_sizer.AddStretchSpacer()
+        header_sizer.Add(self.header_connection_status, 0, wx.ALIGN_CENTER_VERTICAL | wx.RIGHT, 16)
+        header_sizer.Add(self.header_connect_button, 0, wx.ALIGN_CENTER_VERTICAL | wx.RIGHT, 16)
+        self.content_header.SetSizer(header_sizer)
+
+    def _on_header_connection_action(self, event):
+        if self.senprod and self.senprod.is_alive():
+            self.OnDisconnect(event)
+        else:
+            self.OpenPort(event)
+
+    def _build_sidebar(self):
+        self.sidebar_panel = wx.Panel(self.shell_panel)
+        self.sidebar_panel.SetBackgroundColour(self.theme.sidebar)
+        self.sidebar_panel.SetMinSize((220, -1))
+        sidebar_sizer = wx.BoxSizer(wx.VERTICAL)
+
+        brand = wx.StaticText(self.sidebar_panel, label="pyOBD")
+        brand.SetForegroundColour(self.theme.sidebar_text)
+        brand.SetFont(self.theme.font(21, bold=True))
+        subtitle = wx.StaticText(self.sidebar_panel, label="VEHICLE DIAGNOSTICS")
+        subtitle.SetForegroundColour(self.theme.sidebar_muted)
+        subtitle.SetFont(self.theme.font(8, bold=True))
+        sidebar_sizer.Add(brand, 0, wx.LEFT | wx.RIGHT | wx.TOP, 22)
+        sidebar_sizer.Add(subtitle, 0, wx.LEFT | wx.RIGHT | wx.TOP | wx.BOTTOM, 22)
+
+        primary_items = [
+            ("Overview", self.home_panel),
+            ("Live Data", self.sensors),
+            ("Diagnostics", self.DTCpanel),
+            ("Readiness", self.OBDTests),
+            ("Freeze Frame", self.freezeframe),
+            ("Graphs", self.graph_panel),
+            ("Vehicle", self.status),
+        ]
+        secondary_items = [
+            ("Activity Log", self.trace),
+            ("About", self.about_panel),
+        ]
+        self.sidebar_buttons = {}
+
+        def add_item(label, page):
+            button = wx.Button(self.sidebar_panel, label=label, style=wx.BORDER_NONE | wx.BU_LEFT)
+            button.SetMinSize((-1, 44))
+            button.SetBackgroundColour(self.theme.sidebar)
+            button.SetForegroundColour(self.theme.sidebar_text)
+            button.SetFont(self.theme.font(11, bold=label == "Overview"))
+            button.Bind(wx.EVT_BUTTON, lambda _event, target=page, title=label: self._go_to_page(target, title))
+            sidebar_sizer.Add(button, 0, wx.EXPAND | wx.LEFT | wx.RIGHT | wx.BOTTOM, 10)
+            self.sidebar_buttons[page] = button
+
+        for label, page in primary_items:
+            add_item(label, page)
+        sidebar_sizer.AddStretchSpacer()
+        for label, page in secondary_items:
+            add_item(label, page)
+        sidebar_sizer.AddSpacer(12)
+        self.sidebar_panel.SetSizer(sidebar_sizer)
+
+    def _refresh_sidebar_selection(self, selected_page):
+        for page, button in getattr(self, "sidebar_buttons", {}).items():
+            selected = page is selected_page
+            button.SetBackgroundColour(self.theme.accent if selected else self.theme.sidebar)
+            button.SetForegroundColour(wx.WHITE if selected else self.theme.sidebar_text)
+            button.SetFont(self.theme.font(11, bold=selected))
+            button.Refresh()
 
     def _apply_touch_friendly_style(self):
         self.touch_font = wx.Font(11, wx.FONTFAMILY_SWISS, wx.FONTSTYLE_NORMAL, wx.FONTWEIGHT_NORMAL)
@@ -191,11 +304,9 @@ class MyApp(GraphUIMixin, wx.App):
         self.home_tile_font = wx.Font(14, wx.FONTFAMILY_SWISS, wx.FONTSTYLE_NORMAL, wx.FONTWEIGHT_BOLD)
         # Keep native tabs and their labels on the same system theme, including
         # dark themes where a fixed light background hides the tab text.
-        tab_background = wx.SystemSettings.GetColour(wx.SYS_COLOUR_BTNFACE)
-        tab_foreground = wx.SystemSettings.GetColour(wx.SYS_COLOUR_BTNTEXT)
-        self.frame.SetBackgroundColour(tab_background)
-        self.nb.SetBackgroundColour(tab_background)
-        self.nb.SetForegroundColour(tab_foreground)
+        self.frame.SetBackgroundColour(self.theme.window)
+        self.nb.SetBackgroundColour(self.theme.window)
+        self.nb.SetForegroundColour(self.theme.text)
         self.frame.SetFont(self.touch_font)
 
         try:
@@ -219,6 +330,7 @@ class MyApp(GraphUIMixin, wx.App):
             controls.append(self.graphs8_list_ctrl)
         for control in controls:
             control.SetFont(self.touch_font)
+            self.theme.style_list(control)
 
         self.GetDTCButton.SetMinSize((140, 40))
         self.GetDTCButton.SetFont(self.touch_font_bold)
@@ -239,7 +351,7 @@ class MyApp(GraphUIMixin, wx.App):
             self.home_services_button.SetFont(self.home_tile_font)
             self.home_graphs_button.SetFont(self.home_tile_font)
 
-    def _go_to_page(self, page):
+    def _go_to_page(self, page, title=None):
         page_index = wx.NOT_FOUND
         for i in range(self.nb.GetPageCount()):
             if self.nb.GetPage(i) is page:
@@ -248,86 +360,91 @@ class MyApp(GraphUIMixin, wx.App):
 
         if page_index != wx.NOT_FOUND:
             self.nb.SetSelection(page_index)
+            if title is None:
+                title = {
+                    self.home_panel: "Overview",
+                    self.sensors: "Live Data",
+                    self.DTCpanel: "Diagnostics",
+                    self.OBDTests: "Readiness",
+                    self.freezeframe: "Freeze Frame",
+                    self.graph_panel: "Graphs",
+                    self.status: "Vehicle",
+                    self.trace: "Activity Log",
+                    self.about_panel: "About",
+                }.get(page, "pyOBD")
+            if hasattr(self, "page_title"):
+                self.page_title.SetLabel(title)
+            self._refresh_sidebar_selection(page)
 
-    def _swap_notebook_pages(self, title_a, title_b):
-        idx_a = wx.NOT_FOUND
-        idx_b = wx.NOT_FOUND
-        for i in range(self.nb.GetPageCount()):
-            page_title = self.nb.GetPageText(i)
-            if page_title == title_a:
-                idx_a = i
-            elif page_title == title_b:
-                idx_b = i
-
-        if idx_a == wx.NOT_FOUND or idx_b == wx.NOT_FOUND or idx_a == idx_b:
-            return
-
-        if idx_a > idx_b:
-            idx_a, idx_b = idx_b, idx_a
-            title_a, title_b = title_b, title_a
-
-        page_a = self.nb.GetPage(idx_a)
-        page_b = self.nb.GetPage(idx_b)
-
-        self.nb.RemovePage(idx_b)
-        self.nb.RemovePage(idx_a)
-        self.nb.InsertPage(idx_a, page_b, title_b)
-        self.nb.InsertPage(idx_b, page_a, title_a)
-
-    def _create_home_tile(self, parent, label, bg_colour, fg_colour, handler):
+    def _create_home_tile(self, parent, label, handler):
         button = wx.Button(parent, -1, label)
-        button.SetMinSize((260, 130))
-        button.SetBackgroundColour(bg_colour)
-        button.SetForegroundColour(fg_colour)
+        button.SetMinSize((220, 70))
         button.Bind(wx.EVT_BUTTON, handler)
         return button
 
     def build_home_page(self):
         self.home_panel = wx.Panel(self.nb, -1)
-        self.home_panel.SetBackgroundColour(wx.Colour(236, 240, 245))
-        self.home_panel.SetForegroundColour(wx.Colour(24, 31, 42))
+        self.home_panel.SetBackgroundColour(self.theme.window)
+        self.home_panel.SetForegroundColour(self.theme.text)
 
         root_sizer = wx.BoxSizer(wx.VERTICAL)
-        header_sizer = wx.BoxSizer(wx.VERTICAL)
-        grid = wx.GridBagSizer(16, 16)
+        self.home_title = wx.StaticText(self.home_panel, -1, "Your vehicle at a glance")
+        self.home_title.SetForegroundColour(self.theme.text)
+        intro = wx.StaticText(
+            self.home_panel,
+            label="Connect an adapter to inspect live data, readiness, and diagnostic trouble codes.",
+        )
+        intro.SetForegroundColour(self.theme.muted)
 
-        self.home_title = wx.StaticText(self.home_panel, -1, "pyOBD Home — Modified by FareBrothers")
-        self.home_title.SetForegroundColour(wx.Colour(24, 31, 42))
+        connection_card = build_card(self.home_panel, self.theme)
+        connection_sizer = wx.BoxSizer(wx.VERTICAL)
+        connection_label = wx.StaticText(connection_card, label="CONNECTION")
+        connection_label.SetForegroundColour(self.theme.muted)
+        connection_label.SetFont(self.theme.font(8, bold=True))
+        self.home_connection_status = wx.StaticText(connection_card, label="●  Disconnected")
+        self.home_connection_status.SetForegroundColour(self.theme.muted)
+        self.home_connection_status.SetFont(self.theme.font(16, bold=True))
+        connection_help = wx.StaticText(connection_card, label="Choose USB, Wi-Fi, Bluetooth, or Demo mode.")
+        connection_help.SetForegroundColour(self.theme.muted)
+        configure_button = wx.Button(connection_card, label="Configure adapter")
+        configure_button.SetMinSize((160, 40))
+        configure_button.Bind(wx.EVT_BUTTON, self.Configure)
+        connection_sizer.Add(connection_label, 0, wx.LEFT | wx.RIGHT | wx.TOP, 22)
+        connection_sizer.Add(self.home_connection_status, 0, wx.LEFT | wx.RIGHT | wx.TOP, 22)
+        connection_sizer.Add(connection_help, 0, wx.LEFT | wx.RIGHT | wx.TOP, 22)
+        connection_sizer.Add(configure_button, 0, wx.ALL, 22)
+        connection_card.SetSizer(connection_sizer)
+
+        actions_label = wx.StaticText(self.home_panel, label="Quick actions")
+        actions_label.SetForegroundColour(self.theme.text)
+        actions_label.SetFont(self.theme.font(13, bold=True))
+        actions = wx.BoxSizer(wx.HORIZONTAL)
 
         self.home_scan_button = self._create_home_tile(
             self.home_panel,
-            "SCAN\nDTC",
-            wx.Colour(25, 118, 210),
-            wx.Colour(255, 255, 255),
+            "Scan trouble codes",
             self.OnHomeScan,
         )
         self.home_services_button = self._create_home_tile(
             self.home_panel,
-            "SERVICES",
-            wx.Colour(46, 125, 50),
-            wx.Colour(255, 255, 255),
-            self.OnHomeServices,
+            "View live data",
+            self.OnHomeSensors,
         )
         self.home_graphs_button = self._create_home_tile(
             self.home_panel,
-            "GRAPHS",
-            wx.Colour(2, 136, 209),
-            wx.Colour(255, 255, 255),
+            "Open graphs",
             self.OnHomeGraphs,
         )
+        actions.Add(self.home_scan_button, 1, wx.RIGHT, 10)
+        actions.Add(self.home_services_button, 1, wx.RIGHT, 10)
+        actions.Add(self.home_graphs_button, 1)
 
-        header_sizer.Add(self.home_title, 0, wx.BOTTOM, 4)
-
-        grid.Add(self.home_scan_button, (0, 0), span=(1, 1), flag=wx.EXPAND)
-        grid.Add(self.home_services_button, (0, 1), span=(1, 1), flag=wx.EXPAND)
-        grid.Add(self.home_graphs_button, (1, 0), span=(1, 2), flag=wx.EXPAND)
-        grid.AddGrowableCol(0, 1)
-        grid.AddGrowableCol(1, 1)
-        grid.AddGrowableRow(0, 1)
-        grid.AddGrowableRow(1, 1)
-
-        root_sizer.Add(header_sizer, 0, wx.ALL, 18)
-        root_sizer.Add(grid, 1, wx.EXPAND | wx.LEFT | wx.RIGHT | wx.BOTTOM, 18)
+        root_sizer.Add(self.home_title, 0, wx.LEFT | wx.RIGHT | wx.TOP, 24)
+        root_sizer.Add(intro, 0, wx.LEFT | wx.RIGHT | wx.TOP, 8)
+        root_sizer.Add(connection_card, 0, wx.EXPAND | wx.ALL, 24)
+        root_sizer.Add(actions_label, 0, wx.LEFT | wx.RIGHT | wx.BOTTOM, 24)
+        root_sizer.Add(actions, 0, wx.EXPAND | wx.LEFT | wx.RIGHT | wx.BOTTOM, 24)
+        root_sizer.AddStretchSpacer()
         self.home_panel.SetSizer(root_sizer)
 
         self.nb.AddPage(self.home_panel, "Home")
@@ -337,6 +454,9 @@ class MyApp(GraphUIMixin, wx.App):
 
     def OnHomeServices(self, event):
         self._go_to_page(self.status)
+
+    def OnHomeSensors(self, event):
+        self._go_to_page(self.sensors)
 
     def OnHomeGraphs(self, event):
         self._go_to_page(self.graph_panel)
@@ -388,7 +508,7 @@ class MyApp(GraphUIMixin, wx.App):
         self.sensor_id = tID
         self.sensors = self.MyListCtrl(self.nb, tID, pos=wx.Point(0, HOFFSET_LIST), style=
                         wx.LC_REPORT |
-                        wx.SUNKEN_BORDER |
+                        wx.BORDER_NONE |
                         wx.LC_HRULES |
                         wx.LC_SINGLE_SEL)
         self.sensors.InsertColumn(0, "PID", width=70)
@@ -519,7 +639,7 @@ class MyApp(GraphUIMixin, wx.App):
         self.freezeframe_id = tID
         self.freezeframe = self.MyListCtrl(self.nb, tID, style=
                                      wx.LC_REPORT |
-                                     wx.SUNKEN_BORDER |
+                                     wx.BORDER_NONE |
                                      wx.LC_HRULES |
                                      wx.LC_SINGLE_SEL)
         self.freezeframe.InsertColumn(0, "PID", width=70)
@@ -600,7 +720,7 @@ class MyApp(GraphUIMixin, wx.App):
         self.DTCpanel.Bind(wx.EVT_BUTTON, self.QueryClear, self.ClearDTCButton)
 
         self.dtc = self.MyListCtrl(self.DTCpanel, tID, pos=wx.Point(0, HOFFSET_LIST),
-                                   style=wx.LC_REPORT | wx.SUNKEN_BORDER | wx.LC_HRULES | wx.LC_SINGLE_SEL)
+                                   style=wx.LC_REPORT | wx.BORDER_NONE | wx.LC_HRULES | wx.LC_SINGLE_SEL)
 
         self.dtc.InsertColumn(0, "Code", width=100)
         self.dtc.InsertColumn(1, "Status", width=100)
@@ -681,6 +801,7 @@ class MyApp(GraphUIMixin, wx.App):
             self.COMPORT,
         )
 
+        self.theme = AppTheme()
         self.frame = wx.Frame(None, -1, "pyOBD-II v2.0")
         ico = wx.Icon(resource_path('pyobd.ico'), wx.BITMAP_TYPE_ICO)
         self.frame.SetIcon(ico)
@@ -711,10 +832,14 @@ class MyApp(GraphUIMixin, wx.App):
         EVT_RESULT(self, self.InsertFreezeframeRow, EVT_INSERT_FREEZEFRAME_ROW_ID)
         EVT_RESULT(self, self.OnFreezeframeResult, EVT_FREEZEFRAME_RESULT_ID)
 
-        # Main notebook frames
-        self.nb = wx.Notebook(self.frame, -1, style=wx.NB_TOP)
+        # Main application shell and page container.
+        self.shell_panel = wx.Panel(self.frame)
+        self.shell_panel.SetBackgroundColour(self.theme.window)
+        self.content_panel = wx.Panel(self.shell_panel)
+        self.content_panel.SetBackgroundColour(self.theme.window)
+        self.nb = wx.Simplebook(self.content_panel)
 
-        self.status = self.MyListCtrl(self.nb, tID, style=wx.LC_REPORT | wx.SUNKEN_BORDER)
+        self.status = self.MyListCtrl(self.nb, tID, style=wx.LC_REPORT | wx.BORDER_NONE)
         self.status.InsertColumn(0, "Description", width=200)
         self.status.InsertColumn(1, "Value")
         self.status.Append(["Link State", "Disconnnected"])
@@ -726,7 +851,7 @@ class MyApp(GraphUIMixin, wx.App):
 
         self.nb.AddPage(self.status, "Status")
 
-        self.OBDTests = self.MyListCtrl(self.nb, tID, style=wx.LC_REPORT | wx.SUNKEN_BORDER)
+        self.OBDTests = self.MyListCtrl(self.nb, tID, style=wx.LC_REPORT | wx.BORDER_NONE)
         self.OBDTests.InsertColumn(0, "Description", width=300)
         self.OBDTests.InsertColumn(1, "Available")
         self.OBDTests.InsertColumn(2, "Complete")
@@ -772,21 +897,32 @@ class MyApp(GraphUIMixin, wx.App):
 
         self.build_graph_page()
         # Legacy 4-Graphs and 8-Graphs pages removed.
-        self.trace = self.MyListCtrl(self.nb, tID, style=wx.LC_REPORT | wx.SUNKEN_BORDER)
+        self.trace = self.MyListCtrl(self.nb, tID, style=wx.LC_REPORT | wx.BORDER_NONE)
         self.trace.InsertColumn(0, "Level", width=40)
         self.trace.InsertColumn(1, "Message")
         self.nb.AddPage(self.trace, "Trace")
         self.TraceDebug(1, "Application started")
         self.about_panel = build_about_page(self.nb)
         self.build_home_page()
-        self._swap_notebook_pages("Home", "Status")
 
+        self._build_sidebar()
+        self._build_content_header()
         self._build_bottom_status_toolbar()
         self._set_bottom_status_defaults()
 
+        content_sizer = wx.BoxSizer(wx.VERTICAL)
+        content_sizer.Add(self.content_header, 0, wx.EXPAND | wx.LEFT | wx.RIGHT | wx.TOP, 20)
+        content_sizer.Add(self.nb, 1, wx.EXPAND | wx.ALL, 20)
+        content_sizer.Add(self.bottom_toolbar, 0, wx.EXPAND)
+        self.content_panel.SetSizer(content_sizer)
+
+        shell_sizer = wx.BoxSizer(wx.HORIZONTAL)
+        shell_sizer.Add(self.sidebar_panel, 0, wx.EXPAND)
+        shell_sizer.Add(self.content_panel, 1, wx.EXPAND)
+        self.shell_panel.SetSizer(shell_sizer)
+
         self.main_sizer = wx.BoxSizer(wx.VERTICAL)
-        self.main_sizer.Add(self.nb, 1, wx.EXPAND | wx.ALL, 8)
-        self.main_sizer.Add(self.bottom_toolbar, 0, wx.EXPAND | wx.LEFT | wx.RIGHT | wx.BOTTOM, 8)
+        self.main_sizer.Add(self.shell_panel, 1, wx.EXPAND)
         self.frame.SetSizer(self.main_sizer)
 
         self._apply_touch_friendly_style()
@@ -888,6 +1024,7 @@ class MyApp(GraphUIMixin, wx.App):
             # Drive UI control state from actual connection state notifications.
             if event.data[0] == 0:
                 state_text = str(event.data[2])
+                self._update_connection_visuals(state_text)
                 if state_text == "Car connected!":
                     self.sensor_control_on()
                 elif state_text == "Disconnected":
@@ -1427,7 +1564,7 @@ class MyApp(GraphUIMixin, wx.App):
         self.senprod.start()
 
     def GetDTC(self, e):
-        self.nb.SetSelection(3)
+        self._go_to_page(self.DTCpanel)
         self.ThreadControl = 2
 
     def AddDTC(self, code):
@@ -1479,7 +1616,7 @@ class MyApp(GraphUIMixin, wx.App):
 
     def ClearDTC(self):
         self.ThreadControl = 1
-        self.nb.SetSelection(3)
+        self._go_to_page(self.DTCpanel)
 
     def try_port(self, portStr):
         """returns boolean for port availability"""

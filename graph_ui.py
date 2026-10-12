@@ -292,7 +292,7 @@ class GraphUIMixin:
         self.graph_list_ctrl = self.MyListCtrl(
             self.graph_panel,
             wx.NewIdRef(),
-            style=wx.LC_REPORT | wx.SUNKEN_BORDER | wx.LC_HRULES,
+            style=wx.LC_REPORT | wx.BORDER_NONE | wx.LC_HRULES,
         )
         self.graph_list_ctrl.InsertColumn(0, "PID", width=80)
         self.graph_list_ctrl.InsertColumn(1, "Sensor", width=360)
