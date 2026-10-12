@@ -77,13 +77,19 @@ lock = threading.Lock()
 
 def resource_path(relative_path):
     """ Get absolute path to resource, works for dev and for PyInstaller """
-    try:
-        # PyInstaller creates a temp folder and stores path in _MEIPASS
-        base_path = sys._MEIPASS
-    except Exception:
-        base_path = os.path.abspath(".")
-
+    base_path = getattr(sys, "_MEIPASS", os.path.dirname(os.path.abspath(__file__)))
     return os.path.join(base_path, relative_path)
+
+
+def user_config_path():
+    if sys.platform == "win32":
+        config_dir = os.path.join(
+            os.environ.get("APPDATA", os.path.expanduser("~")),
+            "pyOBD",
+        )
+        os.makedirs(config_dir, exist_ok=True)
+        return os.path.join(config_dir, "pyobd.ini")
+    return os.path.join(os.path.expanduser("~"), ".pyobdrc")
 
 TESTS = ["MISFIRE_MONITORING",
     "FUEL_SYSTEM_MONITORING",
@@ -635,10 +641,7 @@ class MyApp(GraphUIMixin, wx.App):
         # print platform.system()
         # print platform.mac_ver()[]
 
-        if "OS" in os.environ.keys():  # runnig under windows
-            self.configfilepath = "pyobd.ini"
-        else:
-            self.configfilepath = os.environ['HOME'] + '/.pyobdrc'
+        self.configfilepath = user_config_path()
         if self.config.read(self.configfilepath) == []:
             self.COMPORT = "AUTO"
             self.CONNECTION_TYPE = "AUTO"

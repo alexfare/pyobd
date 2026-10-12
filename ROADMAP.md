@@ -11,7 +11,25 @@ Python UI architecture.
 
 ## What to improve first in pyOBD
 
-### 1. Protect the behavior with tests
+### 1. Make installation beginner-friendly
+
+The primary distribution must not require users to install Python, pip, or
+project requirements. Publish self-contained installers from automated builds:
+
+- Windows x64 installer with Start Menu and optional desktop shortcuts
+- macOS Apple Silicon and Intel disk images
+- Python source installation retained for contributors and unsupported systems
+- demo mode available immediately after first launch
+
+Sign the Windows installer and sign/notarize the macOS app before advertising a
+release to general users. The release page should present one obvious download
+for each operating system and keep developer setup instructions secondary.
+
+**Exit condition:** a new user can download one file, install pyOBD, launch it,
+and view demo sensor data without installing development tools or using a
+terminal.
+
+### 2. Protect the behavior with tests
 
 There are currently no active automated tests. Before restructuring the app,
 add tests for the parts most likely to cause incorrect vehicle data:
@@ -33,7 +51,7 @@ transcripts are better for repeatable protocol tests.
 **Exit condition:** tests can run without a car or adapter and the CI workflow
 actually executes them.
 
-### 2. Split the 4,300-line application module
+### 3. Split the application module
 
 `pyobd.py` currently combines UI construction, configuration, threads,
 connection state, polling, formatting, graphs, and event routing. Split it into
@@ -68,7 +86,7 @@ how an ELM command is framed or how a port is opened.
 **Exit condition:** the main UI module contains screen assembly and event
 handlers only; the protocol layer can run headlessly.
 
-### 3. Replace fragile thread control
+### 4. Replace fragile thread control
 
 The current worker uses numeric control flags, broad exception handling, and an
 immediate `os._exit(0)`. Replace those with:
@@ -84,7 +102,7 @@ Suggested connection states are `disconnected`, `discovering`, `connecting`,
 `initializingAdapter`, `discoveringVehicle`, `connected`, `reconnecting`, and
 `failed`.
 
-### 4. Improve the product experience
+### 5. Improve the product experience
 
 After the internals are stable:
 
@@ -102,7 +120,7 @@ After the internals are stable:
 - Use platform theme colors everywhere and verify light, dark, and high-contrast
   modes.
 
-### 5. Make releases repeatable
+### 6. Make releases repeatable
 
 - Define the supported Python and operating-system versions.
 - Package the application rather than asking users to run a loose script.
@@ -252,8 +270,9 @@ make Swift concurrency harder to reason about.
 
 ## Recommended order
 
-Start with the Python fixture suite and module split. In parallel with normal
-Python maintenance, create `PyOBDKit` and make replay mode its first transport.
+Start with automated desktop installers, the Python fixture suite, and clean
+worker shutdown. In parallel with normal Python maintenance, create `PyOBDKit`
+and make replay mode its first transport.
 Do not begin BLE work until a specific adapter and its GATT characteristics are
 documented and available for testing. Ship the Swift MVP with Wi-Fi and demo
 mode, then add BLE adapters individually as verified compatibility targets.
