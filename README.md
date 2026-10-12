@@ -21,6 +21,16 @@ are available through the
 [Apple App Store](https://apps.apple.com/us/developer/fare-brothers/id1869971574)
 and [Google Play](https://play.google.com/store/apps/developer?id=FareBrothers).
 
+## Download
+
+For the easiest setup, download the latest Windows installer or macOS disk
+image from [Releases](https://github.com/alexfare/pyobd/releases/latest). These
+packages include Python and all required libraries. No terminal, Python, or pip
+installation is required.
+
+Open pyOBD and select **DEMO** to try every main screen without an adapter or
+vehicle.
+
 ## Ubuntu setup
 
 Use Ubuntu's wxPython package to avoid compiling the GUI toolkit. Run these

@@ -2,3 +2,7 @@
 /obd/__pycache__
 /obd/protocols/__pycache__
 *.ini
+/build/
+/dist/
+/installer-dist/
+*.spec
