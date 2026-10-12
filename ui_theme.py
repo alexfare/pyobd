@@ -32,6 +32,9 @@ class AppTheme:
         self.accent = wx.Colour(37, 99, 235)
         self.accent_hover = wx.Colour(29, 78, 216)
         self.success = wx.Colour(22, 163, 74)
+        self.success_hover = wx.Colour(21, 128, 61)
+        self.info = wx.Colour(2, 136, 209)
+        self.info_hover = wx.Colour(3, 105, 161)
         self.warning = wx.Colour(217, 119, 6)
         self.danger = wx.Colour(220, 38, 38)
         self.sidebar_text = wx.Colour(226, 232, 240)
@@ -48,24 +51,26 @@ class AppTheme:
 
 
 class ActionCard(wx.Panel):
-    def __init__(self, parent, theme, title, description, handler):
+    def __init__(self, parent, theme, title, description, colour, hover_colour, handler):
         super().__init__(parent, style=wx.WANTS_CHARS | wx.BORDER_NONE)
         self.theme = theme
         self.handler = handler
+        self.colour = colour
+        self.hover_colour = hover_colour
         self.hovered = False
         self.SetMinSize((260, 110))
         self.SetName(title)
-        self.SetBackgroundColour(theme.surface)
+        self.SetBackgroundColour(colour)
         self.SetBackgroundStyle(wx.BG_STYLE_PAINT)
 
         self.title = wx.StaticText(self, label=title)
         self.title.SetFont(theme.font(15, bold=True))
-        self.title.SetForegroundColour(theme.text)
-        self.title.SetBackgroundColour(theme.surface)
+        self.title.SetForegroundColour(wx.WHITE)
+        self.title.SetBackgroundColour(colour)
         self.description = wx.StaticText(self, label=description)
         self.description.SetFont(theme.font(10))
-        self.description.SetForegroundColour(theme.muted)
-        self.description.SetBackgroundColour(theme.surface)
+        self.description.SetForegroundColour(wx.Colour(226, 232, 240))
+        self.description.SetBackgroundColour(colour)
 
         content = wx.BoxSizer(wx.VERTICAL)
         content.AddStretchSpacer()
@@ -89,8 +94,8 @@ class ActionCard(wx.Panel):
         dc = wx.AutoBufferedPaintDC(self)
         dc.SetBackground(wx.Brush(self.GetParent().GetBackgroundColour()))
         dc.Clear()
-        background = self.theme.surface_alt if self.hovered else self.theme.surface
-        border = self.theme.accent if self.hovered or self.HasFocus() else self.theme.border
+        background = self.hover_colour if self.hovered else self.colour
+        border = wx.WHITE if self.HasFocus() else background
         dc.SetBrush(wx.Brush(background))
         dc.SetPen(wx.Pen(border, 2 if self.HasFocus() else 1))
         width, height = self.GetClientSize()
@@ -100,7 +105,7 @@ class ActionCard(wx.Panel):
         if self.hovered == hovered:
             return
         self.hovered = hovered
-        background = self.theme.surface_alt if hovered else self.theme.surface
+        background = self.hover_colour if hovered else self.colour
         self.title.SetBackgroundColour(background)
         self.description.SetBackgroundColour(background)
         self.Refresh()
