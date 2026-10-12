@@ -49,7 +49,7 @@ from debugEvent import *
 from graph_ui import GraphUIMixin
 from sensor_worker import SensorProducer
 from obd2_codes import pcodes
-from ui_theme import AppTheme, build_card
+from ui_theme import AppTheme
 
 from wx.lib.mixins.listctrl import ListCtrlAutoWidthMixin
 import obd
@@ -229,9 +229,14 @@ class MyApp(GraphUIMixin, wx.App):
         self.header_connect_button.SetMinSize((110, 38))
         self.header_connect_button.Bind(wx.EVT_BUTTON, self._on_header_connection_action)
 
+        self.header_configure_button = wx.Button(self.content_header, label="Configure")
+        self.header_configure_button.SetMinSize((110, 38))
+        self.header_configure_button.Bind(wx.EVT_BUTTON, self.Configure)
+
         header_sizer.Add(self.page_title, 0, wx.ALIGN_CENTER_VERTICAL | wx.LEFT, 16)
         header_sizer.AddStretchSpacer()
         header_sizer.Add(self.header_connection_status, 0, wx.ALIGN_CENTER_VERTICAL | wx.RIGHT, 16)
+        header_sizer.Add(self.header_configure_button, 0, wx.ALIGN_CENTER_VERTICAL | wx.RIGHT, 8)
         header_sizer.Add(self.header_connect_button, 0, wx.ALIGN_CENTER_VERTICAL | wx.RIGHT, 16)
         self.content_header.SetSizer(header_sizer)
 
@@ -378,7 +383,7 @@ class MyApp(GraphUIMixin, wx.App):
 
     def _create_home_tile(self, parent, label, handler):
         button = wx.Button(parent, -1, label)
-        button.SetMinSize((220, 70))
+        button.SetMinSize((260, 110))
         button.Bind(wx.EVT_BUTTON, handler)
         return button
 
@@ -388,37 +393,10 @@ class MyApp(GraphUIMixin, wx.App):
         self.home_panel.SetForegroundColour(self.theme.text)
 
         root_sizer = wx.BoxSizer(wx.VERTICAL)
-        self.home_title = wx.StaticText(self.home_panel, -1, "Your vehicle at a glance")
-        self.home_title.SetForegroundColour(self.theme.text)
-        intro = wx.StaticText(
-            self.home_panel,
-            label="Connect an adapter to inspect live data, readiness, and diagnostic trouble codes.",
-        )
-        intro.SetForegroundColour(self.theme.muted)
-
-        connection_card = build_card(self.home_panel, self.theme)
-        connection_sizer = wx.BoxSizer(wx.VERTICAL)
-        connection_label = wx.StaticText(connection_card, label="CONNECTION")
-        connection_label.SetForegroundColour(self.theme.muted)
-        connection_label.SetFont(self.theme.font(8, bold=True))
-        self.home_connection_status = wx.StaticText(connection_card, label="●  Disconnected")
-        self.home_connection_status.SetForegroundColour(self.theme.muted)
-        self.home_connection_status.SetFont(self.theme.font(16, bold=True))
-        connection_help = wx.StaticText(connection_card, label="Choose USB, Wi-Fi, Bluetooth, or Demo mode.")
-        connection_help.SetForegroundColour(self.theme.muted)
-        configure_button = wx.Button(connection_card, label="Configure adapter")
-        configure_button.SetMinSize((160, 40))
-        configure_button.Bind(wx.EVT_BUTTON, self.Configure)
-        connection_sizer.Add(connection_label, 0, wx.LEFT | wx.RIGHT | wx.TOP, 22)
-        connection_sizer.Add(self.home_connection_status, 0, wx.LEFT | wx.RIGHT | wx.TOP, 22)
-        connection_sizer.Add(connection_help, 0, wx.LEFT | wx.RIGHT | wx.TOP, 22)
-        connection_sizer.Add(configure_button, 0, wx.ALL, 22)
-        connection_card.SetSizer(connection_sizer)
-
         actions_label = wx.StaticText(self.home_panel, label="Quick actions")
         actions_label.SetForegroundColour(self.theme.text)
         actions_label.SetFont(self.theme.font(13, bold=True))
-        actions = wx.BoxSizer(wx.HORIZONTAL)
+        actions = wx.GridBagSizer(12, 12)
 
         self.home_scan_button = self._create_home_tile(
             self.home_panel,
@@ -435,16 +413,16 @@ class MyApp(GraphUIMixin, wx.App):
             "Open graphs",
             self.OnHomeGraphs,
         )
-        actions.Add(self.home_scan_button, 1, wx.RIGHT, 10)
-        actions.Add(self.home_services_button, 1, wx.RIGHT, 10)
-        actions.Add(self.home_graphs_button, 1)
+        actions.Add(self.home_scan_button, pos=(0, 0), flag=wx.EXPAND)
+        actions.Add(self.home_services_button, pos=(0, 1), flag=wx.EXPAND)
+        actions.Add(self.home_graphs_button, pos=(1, 0), span=(1, 2), flag=wx.EXPAND)
+        actions.AddGrowableCol(0, 1)
+        actions.AddGrowableCol(1, 1)
+        actions.AddGrowableRow(0, 1)
+        actions.AddGrowableRow(1, 1)
 
-        root_sizer.Add(self.home_title, 0, wx.LEFT | wx.RIGHT | wx.TOP, 24)
-        root_sizer.Add(intro, 0, wx.LEFT | wx.RIGHT | wx.TOP, 8)
-        root_sizer.Add(connection_card, 0, wx.EXPAND | wx.ALL, 24)
-        root_sizer.Add(actions_label, 0, wx.LEFT | wx.RIGHT | wx.BOTTOM, 24)
-        root_sizer.Add(actions, 0, wx.EXPAND | wx.LEFT | wx.RIGHT | wx.BOTTOM, 24)
-        root_sizer.AddStretchSpacer()
+        root_sizer.Add(actions_label, 0, wx.ALL, 24)
+        root_sizer.Add(actions, 1, wx.EXPAND | wx.LEFT | wx.RIGHT | wx.BOTTOM, 24)
         self.home_panel.SetSizer(root_sizer)
 
         self.nb.AddPage(self.home_panel, "Home")
@@ -748,6 +726,7 @@ class MyApp(GraphUIMixin, wx.App):
 
     def OnInit(self):
         self.ThreadControl = 0  # say thread what to do
+        self._shutdown_started = False
         self.COMPORT = 0
         self.senprod = None
         self.DEBUGLEVEL = 0  # debug everything
@@ -970,6 +949,7 @@ class MyApp(GraphUIMixin, wx.App):
         self.frame.Bind(wx.EVT_MENU, self.OnHelpAbout, id=ID_HELP_ABOUT)
         self.frame.Bind(wx.EVT_MENU, self.OnHelpVisit, id=ID_HELP_VISIT)
         self.frame.Bind(wx.EVT_MENU, self.OnHelpOrder, id=ID_HELP_ORDER)
+        self.frame.Bind(wx.EVT_CLOSE, self.OnWindowClose)
 
         self.SetTopWindow(self.frame)
 
@@ -1175,6 +1155,9 @@ class MyApp(GraphUIMixin, wx.App):
         self.combobox8_8_selection = self.combobox8_8.SetSelection(8)
         self.combobox_graphs8_set_sel_finished = True
     def OnClose(self, event):
+
+        if self._shutdown_started:
+            return
 
         #while self.senprod.state != "finished":
         #    time.sleep(0.1)
@@ -1553,6 +1536,7 @@ class MyApp(GraphUIMixin, wx.App):
         if self.senprod:
             if self.senprod.is_alive():  # signal current producers to finish
                 self.senprod.stop()
+                self.senprod.join(timeout=2.0)
         self.ThreadControl = 0
 
         # Prevent reconfigure/reconnect clicks while connection attempt is in progress.
@@ -2169,9 +2153,19 @@ class MyApp(GraphUIMixin, wx.App):
             self.config.write(open(self.configfilepath, 'w'))
 
     def OnExit(self, e=None):
+        self.frame.Close()
+
+    def OnWindowClose(self, event):
+        if self._shutdown_started:
+            event.Skip()
+            return
+
+        self._shutdown_started = True
         self.ThreadControl = 666
-        time.sleep(0.1)
-        os._exit(0)
+        if self.senprod and self.senprod.is_alive():
+            self.senprod.stop()
+            self.senprod.join(timeout=2.0)
+        event.Skip()
 
 
 def main():

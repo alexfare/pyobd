@@ -185,7 +185,11 @@ class SensorProducer(threading.Thread):
                 reconnect()
                 continue
             prevstate = curstate
-            curstate = self._nb.GetSelection()  # picking the tab in the GUI
+            try:
+                curstate = self._nb.GetSelection()  # picking the tab in the GUI
+            except RuntimeError:
+                self._notify_window.ThreadControl = 666
+                break
 
 
 
@@ -1703,7 +1707,7 @@ class SensorProducer(threading.Thread):
     """
 
     def stop(self):
-        #self._notify_window.ThreadControl = 666
+        self._notify_window.ThreadControl = 666
 
         try: # if stop is called before any connection port is not defined (and not connected )
             self.connection.connection.close()
@@ -1712,13 +1716,14 @@ class SensorProducer(threading.Thread):
 
         #if self.port != None: #if stop is called before any connection port is not defined (and not connected )
         #  self.port.close()
-        wx.PostEvent(self._notify_window, StatusEvent([0, 1, "Disconnected"]))
-        wx.PostEvent(self._notify_window, StatusEvent([1, 1, "----"]))
-        wx.PostEvent(self._notify_window, StatusEvent([2, 1, "----"]))
-        wx.PostEvent(self._notify_window, StatusEvent([3, 1, "----"]))
-        wx.PostEvent(self._notify_window, StatusEvent([4, 1, "----"]))
-        wx.PostEvent(self._notify_window, StatusEvent([5, 1, "----"]))
-        wx.PostEvent(self._notify_window, CloseEvent([]))
+        if not getattr(self._notify_window, "_shutdown_started", False):
+            wx.PostEvent(self._notify_window, StatusEvent([0, 1, "Disconnected"]))
+            wx.PostEvent(self._notify_window, StatusEvent([1, 1, "----"]))
+            wx.PostEvent(self._notify_window, StatusEvent([2, 1, "----"]))
+            wx.PostEvent(self._notify_window, StatusEvent([3, 1, "----"]))
+            wx.PostEvent(self._notify_window, StatusEvent([4, 1, "----"]))
+            wx.PostEvent(self._notify_window, StatusEvent([5, 1, "----"]))
+            wx.PostEvent(self._notify_window, CloseEvent([]))
         print("Sensor producer has stopped.")
 
 # class producer end
