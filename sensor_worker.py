@@ -553,9 +553,6 @@ class SensorProducer(threading.Thread):
                         if r.value == None and sens[0].command != b"0103":
                             #reconnect()
                             continue
-                        wx.PostEvent(self._notify_window, ResultEvent([counter, 0, sens[0].command]))
-                        wx.PostEvent(self._notify_window, ResultEvent([counter, 1, str(sens[1])]))
-
                         if sens[0].command == b"0101" or sens[0].command == b"0141":
                             wx.PostEvent(self._notify_window, ResultEvent([counter, 2, "MIL ON: " + str(
                                 r.value.MIL) + ", DTC Count: " + str(r.value.DTC_count) + ", Ignition type: " + str(
@@ -668,6 +665,9 @@ class SensorProducer(threading.Thread):
                     self.graph_stream_active_last = False
                     first_time_graph = False
 
+                if self._notify_window.graph_interaction_paused:
+                    continue
+
                 if not self._notify_window.graph_streaming_enabled:
                     if self.graph_stream_active_last:
                         self.graph_counter = 0
@@ -724,7 +724,7 @@ class SensorProducer(threading.Thread):
 
                     plot_series.append((series["x"], series["y"], series["unit"], series["desc"], command_key))
 
-                if self.graph_emit_counter < 2 or (self.graph_emit_counter % 2) == 0:
+                if self.graph_emit_counter < 2 or (self.graph_emit_counter % 4) == 0:
                     plot_snapshot = [
                         (tuple(series[0]), tuple(series[1]), series[2], series[3], series[4])
                         for series in plot_series

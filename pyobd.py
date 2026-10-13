@@ -278,7 +278,7 @@ class MyApp(GraphUIMixin, wx.App):
 
         primary_items = [
             ("Overview", self.home_panel),
-            ("Live Data", self.sensors),
+            ("Live Data", self.sensors_panel),
             ("Diagnostics", self.DTCpanel),
             ("Readiness", self.OBDTests),
             ("Freeze Frame", self.freezeframe),
@@ -383,7 +383,7 @@ class MyApp(GraphUIMixin, wx.App):
             if title is None:
                 title = {
                     self.home_panel: "Overview",
-                    self.sensors: "Live Data",
+                    self.sensors_panel: "Live Data",
                     self.DTCpanel: "Diagnostics",
                     self.OBDTests: "Readiness",
                     self.freezeframe: "Freeze Frame",
@@ -463,7 +463,7 @@ class MyApp(GraphUIMixin, wx.App):
         self._go_to_page(self.status)
 
     def OnHomeSensors(self, event):
-        self._go_to_page(self.sensors)
+        self._go_to_page(self.sensors_panel)
 
     def OnHomeGraphs(self, event):
         self._go_to_page(self.graph_panel)
@@ -477,23 +477,6 @@ class MyApp(GraphUIMixin, wx.App):
         self.dtcmenu.Enable(ID_CLEAR, True)
         self.GetDTCButton.Enable(True)
         self.ClearDTCButton.Enable(True)
-
-        def sensor_toggle(e):
-            sel = e.m_itemIndex
-            state = self.senprod.active[sel]
-            print (sel, state)
-            if   state == 0:
-                self.senprod.on(sel)
-                self.sensors.SetItem(sel, 1, "1")
-            elif state == 1:
-                self.senprod.off(sel)
-                self.sensors.SetItem(sel, 1, "0")
-            else:
-                traceback.print_exc()
-                #debug("Incorrect sensor state")
-
-        self.sensors.Bind(wx.EVT_LIST_ITEM_ACTIVATED, sensor_toggle, id=self.sensor_id)
-
 
     def sensor_control_off(self):  # after disconnect disable few buttons
         self.dtcmenu.Enable(ID_GETC, False)
@@ -510,18 +493,112 @@ class MyApp(GraphUIMixin, wx.App):
 
 
     def build_sensor_page(self):
-        HOFFSET_LIST = 0
         tID = wx.NewIdRef(count=1)
         self.sensor_id = tID
-        self.sensors = self.MyListCtrl(self.nb, tID, pos=wx.Point(0, HOFFSET_LIST), style=
-                        wx.LC_REPORT |
-                        wx.BORDER_NONE |
-                        wx.LC_HRULES |
-                        wx.LC_SINGLE_SEL)
-        self.sensors.InsertColumn(0, "PID", width=70)
-        self.sensors.InsertColumn(1, "Sensor", format=wx.LIST_FORMAT_LEFT, width=320)
-        self.sensors.InsertColumn(2, "Value", width=60)
-        self.nb.AddPage(self.sensors, "Sensors")
+        self.sensor_rows = []
+        self.sensor_visible_indices = []
+        self.sensor_filter_timer = None
+
+        self.sensors_panel = wx.Panel(self.nb)
+        self.sensors_panel.SetBackgroundColour(self.theme.window)
+        toolbar = wx.BoxSizer(wx.HORIZONTAL)
+        self.sensor_search = wx.SearchCtrl(self.sensors_panel, style=wx.TE_PROCESS_ENTER)
+        self.sensor_search.SetDescriptiveText("Search PID or sensor")
+        self.sensor_search.ShowCancelButton(True)
+        self.sensor_search.SetMinSize((280, 40))
+        self.sensor_count_label = wx.StaticText(self.sensors_panel, label="Waiting for vehicle data")
+        self.sensor_count_label.SetForegroundColour(self.theme.muted)
+        self.sensor_add_graph_button = wx.Button(self.sensors_panel, label="Add selected to graph")
+        self.sensor_add_graph_button.SetMinSize((180, 40))
+
+        toolbar.Add(self.sensor_search, 0, wx.RIGHT, 12)
+        toolbar.Add(self.sensor_count_label, 0, wx.ALIGN_CENTER_VERTICAL)
+        toolbar.AddStretchSpacer()
+        toolbar.Add(self.sensor_add_graph_button, 0)
+
+        self.sensors = self.MyListCtrl(
+            self.sensors_panel,
+            tID,
+            style=wx.LC_REPORT | wx.BORDER_NONE | wx.LC_HRULES,
+        )
+        self.sensors.InsertColumn(0, "PID", width=100)
+        self.sensors.InsertColumn(1, "Sensor", format=wx.LIST_FORMAT_LEFT, width=420)
+        self.sensors.InsertColumn(2, "Value", format=wx.LIST_FORMAT_RIGHT, width=220)
+
+        root = wx.BoxSizer(wx.VERTICAL)
+        root.Add(toolbar, 0, wx.EXPAND | wx.ALL, 16)
+        root.Add(self.sensors, 1, wx.EXPAND | wx.LEFT | wx.RIGHT | wx.BOTTOM, 16)
+        self.sensors_panel.SetSizer(root)
+
+        self.sensor_search.Bind(wx.EVT_TEXT, self._schedule_sensor_filter)
+        self.sensor_add_graph_button.Bind(wx.EVT_BUTTON, self._add_selected_sensors_to_graph)
+        self.nb.AddPage(self.sensors_panel, "Sensors")
+
+    def _schedule_sensor_filter(self, event=None):
+        if self._shutdown_started:
+            return
+        if self.sensor_filter_timer and self.sensor_filter_timer.IsRunning():
+            self.sensor_filter_timer.Stop()
+        self.sensor_filter_timer = wx.CallLater(150, self._apply_sensor_filter)
+
+    def _apply_sensor_filter(self):
+        self.sensor_filter_timer = None
+        if self._shutdown_started:
+            return
+        query = self.sensor_search.GetValue().strip().lower()
+        selected_sources = {
+            self.sensor_visible_indices[index]
+            for index in self._selected_sensor_rows()
+            if 0 <= index < len(self.sensor_visible_indices)
+        }
+
+        self.sensors.Freeze()
+        self.sensors.DeleteAllItems()
+        self.sensor_visible_indices = []
+        for source_index, row in enumerate(self.sensor_rows):
+            searchable = f"{row[0]} {row[1]}".lower()
+            if query and query not in searchable:
+                continue
+            view_index = self.sensors.InsertItem(self.sensors.GetItemCount(), row[0])
+            self.sensors.SetItem(view_index, 1, row[1])
+            self.sensors.SetItem(view_index, 2, row[2])
+            self.sensor_visible_indices.append(source_index)
+            if source_index in selected_sources:
+                self.sensors.Select(view_index)
+        self.sensors.Thaw()
+
+        visible = len(self.sensor_visible_indices)
+        total = len(self.sensor_rows)
+        self.sensor_count_label.SetLabel(f"{visible} of {total} PIDs" if total else "Waiting for vehicle data")
+
+    def _selected_sensor_rows(self):
+        selected = []
+        index = self.sensors.GetFirstSelected()
+        while index != wx.NOT_FOUND:
+            selected.append(index)
+            index = self.sensors.GetNextSelected(index)
+        return selected
+
+    def _add_selected_sensors_to_graph(self, event=None):
+        selected_pids = set()
+        for view_index in self._selected_sensor_rows():
+            if 0 <= view_index < len(self.sensor_visible_indices):
+                source_index = self.sensor_visible_indices[view_index]
+                selected_pids.add(self.sensor_rows[source_index][0])
+
+        catalog_indices = [
+            index
+            for index, command in enumerate(self.graph_command_catalog)
+            if command.command.decode(errors="ignore") in selected_pids
+        ]
+        if not catalog_indices:
+            wx.MessageBox(
+                "Select one or more graph-compatible PIDs.",
+                "Live Data",
+                wx.OK | wx.ICON_INFORMATION,
+            )
+            return
+        self._add_graph_commands_by_catalog_indices(catalog_indices)
 
         """
         HOFFSET_LIST = 0
@@ -1020,7 +1097,21 @@ class MyApp(GraphUIMixin, wx.App):
         self.HelpAboutDlg.Destroy()
 
     def OnResult(self, event):
-        self.sensors.SetItem(event.data[0], event.data[1], event.data[2])
+        source_index, column, value = event.data
+        while len(self.sensor_rows) <= source_index:
+            self.sensor_rows.append(["", "", ""])
+        if isinstance(value, bytes):
+            value = value.decode(errors="ignore")
+        value = str(value)
+        changed = self.sensor_rows[source_index][column] != value
+        self.sensor_rows[source_index][column] = value
+
+        query_active = bool(self.sensor_search.GetValue().strip())
+        if query_active and column in (0, 1) and changed:
+            self._schedule_sensor_filter()
+        elif source_index in self.sensor_visible_indices:
+            view_index = self.sensor_visible_indices.index(source_index)
+            self.sensors.SetItem(view_index, column, value)
 
     def OnFreezeframeResult(self, event):
         self.freezeframe.SetItem(event.data[0], event.data[1], event.data[2])
@@ -1054,7 +1145,17 @@ class MyApp(GraphUIMixin, wx.App):
     """
     def InsertSensorRow(self, event):
         counter = event.data
-        self.sensors.InsertItem(counter, "")
+        while len(self.sensor_rows) <= counter:
+            self.sensor_rows.append(["", "", ""])
+        if self.sensor_search.GetValue().strip():
+            self._schedule_sensor_filter()
+            return
+        if counter not in self.sensor_visible_indices:
+            view_index = self.sensors.InsertItem(self.sensors.GetItemCount(), "")
+            self.sensor_visible_indices.append(counter)
+            self.sensors.SetItem(view_index, 1, "")
+            self.sensors.SetItem(view_index, 2, "")
+        self.sensor_count_label.SetLabel(f"{len(self.sensor_visible_indices)} of {len(self.sensor_rows)} PIDs")
 
     def InsertFreezeframeRow(self, event):
         counter = event.data
@@ -1216,6 +1317,9 @@ class MyApp(GraphUIMixin, wx.App):
                     pass
 
         self.sensors.DeleteAllItems()
+        self.sensor_rows.clear()
+        self.sensor_visible_indices.clear()
+        self.sensor_count_label.SetLabel("Waiting for vehicle data")
         self.freezeframe.DeleteAllItems()
         self.OBDTests.DeleteAllItems()
         self.OBDTests.Append(["MISFIRE_MONITORING", "---", "---"])
@@ -2192,6 +2296,8 @@ class MyApp(GraphUIMixin, wx.App):
             return
 
         self._shutdown_started = True
+        if self.sensor_filter_timer and self.sensor_filter_timer.IsRunning():
+            self.sensor_filter_timer.Stop()
         self.ThreadControl = 666
         if self.senprod and self.senprod.is_alive():
             self.senprod.stop()
