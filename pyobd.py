@@ -1016,7 +1016,7 @@ class MyApp(GraphUIMixin, wx.App):
         self.tests_status_label = wx.StaticText(
             self.tests_panel, label="Connect to check monitors"
         )
-        self.tests_status_label.SetForegroundColour(self.theme.muted_text)
+        self.tests_status_label.SetForegroundColour(self.theme.muted)
         self.RefreshTestsButton = wx.Button(self.tests_panel, label="Refresh")
         self.RefreshTestsButton.Enable(False)
         self.RefreshTestsButton.Bind(wx.EVT_BUTTON, self.RefreshTests)
@@ -1031,7 +1031,7 @@ class MyApp(GraphUIMixin, wx.App):
                 "Clearing diagnostic codes resets readiness."
             ),
         )
-        tests_help.SetForegroundColour(self.theme.muted_text)
+        tests_help.SetForegroundColour(self.theme.muted)
 
         self.tests_notebook = wx.Notebook(self.tests_panel)
         self.OBDTests = self.MyListCtrl(
