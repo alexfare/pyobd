@@ -497,6 +497,8 @@ class MyApp(GraphUIMixin, wx.App):
         self.sensor_id = tID
         self.sensor_rows = []
         self.sensor_visible_indices = []
+        self.sensor_selected_sources = set()
+        self._rebuilding_sensor_list = False
         self.sensor_filter_timer = None
 
         self.sensors_panel = wx.Panel(self.nb)
@@ -532,6 +534,8 @@ class MyApp(GraphUIMixin, wx.App):
 
         self.sensor_search.Bind(wx.EVT_TEXT, self._schedule_sensor_filter)
         self.sensor_add_graph_button.Bind(wx.EVT_BUTTON, self._add_selected_sensors_to_graph)
+        self.sensors.Bind(wx.EVT_LIST_ITEM_SELECTED, self._on_sensor_selected)
+        self.sensors.Bind(wx.EVT_LIST_ITEM_DESELECTED, self._on_sensor_deselected)
         self.nb.AddPage(self.sensors_panel, "Sensors")
 
     def _schedule_sensor_filter(self, event=None):
@@ -546,12 +550,9 @@ class MyApp(GraphUIMixin, wx.App):
         if self._shutdown_started:
             return
         query = self.sensor_search.GetValue().strip().lower()
-        selected_sources = {
-            self.sensor_visible_indices[index]
-            for index in self._selected_sensor_rows()
-            if 0 <= index < len(self.sensor_visible_indices)
-        }
+        self._capture_sensor_selection()
 
+        self._rebuilding_sensor_list = True
         self.sensors.Freeze()
         self.sensors.DeleteAllItems()
         self.sensor_visible_indices = []
@@ -563,9 +564,12 @@ class MyApp(GraphUIMixin, wx.App):
             self.sensors.SetItem(view_index, 1, row[1])
             self.sensors.SetItem(view_index, 2, row[2])
             self.sensor_visible_indices.append(source_index)
-            if source_index in selected_sources:
+        self.sensor_selected_sources.intersection_update(self.sensor_visible_indices)
+        for view_index, source_index in enumerate(self.sensor_visible_indices):
+            if source_index in self.sensor_selected_sources:
                 self.sensors.Select(view_index)
         self.sensors.Thaw()
+        self._rebuilding_sensor_list = False
 
         visible = len(self.sensor_visible_indices)
         total = len(self.sensor_rows)
@@ -579,21 +583,53 @@ class MyApp(GraphUIMixin, wx.App):
             index = self.sensors.GetNextSelected(index)
         return selected
 
-    def _add_selected_sensors_to_graph(self, event=None):
-        selected_pids = set()
+    def _capture_sensor_selection(self):
         for view_index in self._selected_sensor_rows():
             if 0 <= view_index < len(self.sensor_visible_indices):
-                source_index = self.sensor_visible_indices[view_index]
-                selected_pids.add(self.sensor_rows[source_index][0])
+                self.sensor_selected_sources.add(self.sensor_visible_indices[view_index])
+
+    def _on_sensor_selected(self, event):
+        if not self._rebuilding_sensor_list:
+            view_index = event.GetIndex()
+            if 0 <= view_index < len(self.sensor_visible_indices):
+                self.sensor_selected_sources.add(self.sensor_visible_indices[view_index])
+        event.Skip()
+
+    def _on_sensor_deselected(self, event):
+        if not self._rebuilding_sensor_list:
+            view_index = event.GetIndex()
+            if 0 <= view_index < len(self.sensor_visible_indices):
+                self.sensor_selected_sources.discard(self.sensor_visible_indices[view_index])
+        event.Skip()
+
+    def _add_selected_sensors_to_graph(self, event=None):
+        self._capture_sensor_selection()
+        selected_sources = {
+            source_index
+            for source_index in self.sensor_selected_sources
+            if 0 <= source_index < len(self.sensor_rows)
+        }
+        if not selected_sources:
+            wx.MessageBox(
+                "Select one or more PIDs first.",
+                "Live Data",
+                wx.OK | wx.ICON_INFORMATION,
+            )
+            return
+
+        selected_pids = {
+            self.sensor_rows[source_index][0].strip().upper()
+            for source_index in selected_sources
+        }
 
         catalog_indices = [
             index
             for index, command in enumerate(self.graph_command_catalog)
-            if command.command.decode(errors="ignore") in selected_pids
+            if command.command.decode(errors="ignore").upper() in selected_pids
         ]
         if not catalog_indices:
             wx.MessageBox(
-                "Select one or more graph-compatible PIDs.",
+                "The selected PID does not provide graph-compatible numeric data.",
                 "Live Data",
                 wx.OK | wx.ICON_INFORMATION,
             )
@@ -1319,6 +1355,7 @@ class MyApp(GraphUIMixin, wx.App):
         self.sensors.DeleteAllItems()
         self.sensor_rows.clear()
         self.sensor_visible_indices.clear()
+        self.sensor_selected_sources.clear()
         self.sensor_count_label.SetLabel("Waiting for vehicle data")
         self.freezeframe.DeleteAllItems()
         self.OBDTests.DeleteAllItems()
