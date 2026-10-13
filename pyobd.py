@@ -108,6 +108,24 @@ TESTS = ["MISFIRE_MONITORING",
     "EXHAUST_GAS_SENSOR_MONITORING",
     "PM_FILTER_MONITORING"]
 
+TEST_LABELS = [
+    "Misfire monitoring",
+    "Fuel system monitoring",
+    "Component monitoring",
+    "Catalyst monitoring",
+    "Heated catalyst monitoring",
+    "Evaporative system monitoring",
+    "Secondary air system monitoring",
+    "Oxygen sensor monitoring",
+    "Oxygen sensor heater monitoring",
+    "EGR / VVT system monitoring",
+    "NMHC catalyst monitoring",
+    "NOx / SCR aftertreatment monitoring",
+    "Boost pressure monitoring",
+    "Exhaust gas sensor monitoring",
+    "Particulate filter monitoring",
+]
+
 
 
 class MyApp(GraphUIMixin, wx.App):
@@ -280,7 +298,7 @@ class MyApp(GraphUIMixin, wx.App):
             ("Overview", self.home_panel),
             ("Live Data", self.sensors_panel),
             ("Diagnostics", self.DTCpanel),
-            ("Readiness", self.OBDTests),
+            ("Readiness", self.tests_panel),
             ("Freeze Frame", self.freezeframe),
             ("Graphs", self.graph_panel),
             ("Vehicle", self.status),
@@ -338,6 +356,7 @@ class MyApp(GraphUIMixin, wx.App):
         controls = [
             self.status,
             self.OBDTests,
+            self.misfire_tests,
             self.sensors,
             self.freezeframe,
             self.dtc,
@@ -387,7 +406,7 @@ class MyApp(GraphUIMixin, wx.App):
                     self.home_panel: "Overview",
                     self.sensors_panel: "Live Data",
                     self.DTCpanel: "Diagnostics",
-                    self.OBDTests: "Readiness",
+                    self.tests_panel: "Readiness",
                     self.freezeframe: "Freeze Frame",
                     self.graph_panel: "Graphs",
                     self.status: "Vehicle",
@@ -470,6 +489,11 @@ class MyApp(GraphUIMixin, wx.App):
     def OnHomeGraphs(self, event):
         self._go_to_page(self.graph_panel)
 
+    def RefreshTests(self, event=None):
+        self.tests_refresh_requested = True
+        self.tests_status_label.SetLabel("Reading monitor status…")
+        self.RefreshTestsButton.Enable(False)
+
 
     def sensor_control_on(self):  # after connection enable few buttons
         self.settingmenu.Enable(ID_CONFIG, False)
@@ -479,6 +503,8 @@ class MyApp(GraphUIMixin, wx.App):
         self.dtcmenu.Enable(ID_CLEAR, True)
         self.GetDTCButton.Enable(True)
         self.ClearDTCButton.Enable(True)
+        self.RefreshTestsButton.Enable(True)
+        self.tests_status_label.SetLabel("Ready to check monitors")
         if self.dtc.GetItemCount() == 0:
             self.dtc_status_label.SetLabel("Ready to scan")
 
@@ -491,6 +517,8 @@ class MyApp(GraphUIMixin, wx.App):
         self.GetDTCButton.Enable(False)
         self.ClearDTCButton.Enable(False)
         self.dtc_status_label.SetLabel("Connect to scan vehicle")
+        self.RefreshTestsButton.Enable(False)
+        self.tests_status_label.SetLabel("Connect to check monitors")
         # http://pyserial.sourceforge.net/                                                    empty function
         # EVT_LIST_ITEM_ACTIVATED(self.sensors,self.sensor_id, lambda : None)
 
@@ -980,40 +1008,56 @@ class MyApp(GraphUIMixin, wx.App):
 
         self.nb.AddPage(self.status, "Status")
 
-        self.OBDTests = self.MyListCtrl(self.nb, tID, style=wx.LC_REPORT | wx.BORDER_NONE)
-        self.OBDTests.InsertColumn(0, "Description", width=300)
-        self.OBDTests.InsertColumn(1, "Available")
-        self.OBDTests.InsertColumn(2, "Complete")
-        self.nb.AddPage(self.OBDTests, "Tests")
+        self.tests_refresh_requested = False
+        self.tests_panel = wx.Panel(self.nb)
+        self.tests_panel.SetBackgroundColour(self.theme.window)
+        tests_root = wx.BoxSizer(wx.VERTICAL)
+        tests_toolbar = wx.BoxSizer(wx.HORIZONTAL)
+        self.tests_status_label = wx.StaticText(
+            self.tests_panel, label="Connect to check monitors"
+        )
+        self.tests_status_label.SetForegroundColour(self.theme.muted_text)
+        self.RefreshTestsButton = wx.Button(self.tests_panel, label="Refresh")
+        self.RefreshTestsButton.Enable(False)
+        self.RefreshTestsButton.Bind(wx.EVT_BUTTON, self.RefreshTests)
+        tests_toolbar.Add(self.tests_status_label, 1, wx.ALIGN_CENTER_VERTICAL)
+        tests_toolbar.Add(self.RefreshTestsButton, 0)
 
+        tests_help = wx.StaticText(
+            self.tests_panel,
+            label=(
+                "Readiness shows which emissions monitors have completed. "
+                "Mode 06 shows onboard test results when supported. "
+                "Clearing diagnostic codes resets readiness."
+            ),
+        )
+        tests_help.SetForegroundColour(self.theme.muted_text)
 
-        self.OBDTests.Append(["MISFIRE_MONITORING", "---", "---"])
-        self.OBDTests.Append(["FUEL_SYSTEM_MONITORING", "---", "---"])
-        self.OBDTests.Append(["COMPONENT_MONITORING", "---", "---"])
-        self.OBDTests.Append(["CATALYST_MONITORING", "---", "---"])
-        self.OBDTests.Append(["HEATED_CATALYST_MONITORING", "---", "---"])
-        self.OBDTests.Append(["EVAPORATIVE_SYSTEM_MONITORING", "---", "---"])
-        self.OBDTests.Append(["SECONDARY_AIR_SYSTEM_MONITORING", "---", "---"])
-        self.OBDTests.Append(["OXYGEN_SENSOR_MONITORING", "---", "---"])
-        self.OBDTests.Append(["OXYGEN_SENSOR_HEATER_MONITORING", "---", "---"])
-        self.OBDTests.Append(["EGR_VVT_SYSTEM_MONITORING", "---", "---"])
-        self.OBDTests.Append(["NMHC_CATALYST_MONITORING", "---", "---"])
-        self.OBDTests.Append(["NOX_SCR_AFTERTREATMENT_MONITORING", "---", "---"])
-        self.OBDTests.Append(["BOOST_PRESSURE_MONITORING", "---", "---"])
-        self.OBDTests.Append(["EXHAUST_GAS_SENSOR_MONITORING", "---", "---"])
-        self.OBDTests.Append(["PM_FILTER_MONITORING", "---", "---"])
-        self.OBDTests.Append(["MISFIRE CYLINDER 1", "---", "---"])
-        self.OBDTests.Append(["MISFIRE CYLINDER 2", "---", "---"])
-        self.OBDTests.Append(["MISFIRE CYLINDER 3", "---", "---"])
-        self.OBDTests.Append(["MISFIRE CYLINDER 4", "---", "---"])
-        self.OBDTests.Append(["MISFIRE CYLINDER 5", "---", "---"])
-        self.OBDTests.Append(["MISFIRE CYLINDER 6", "---", "---"])
-        self.OBDTests.Append(["MISFIRE CYLINDER 7", "---", "---"])
-        self.OBDTests.Append(["MISFIRE CYLINDER 8", "---", "---"])
-        self.OBDTests.Append(["MISFIRE CYLINDER 9", "---", "---"])
-        self.OBDTests.Append(["MISFIRE CYLINDER 10", "---", "---"])
-        self.OBDTests.Append(["MISFIRE CYLINDER 11", "---", "---"])
-        self.OBDTests.Append(["MISFIRE CYLINDER 12", "---", "---"])
+        self.tests_notebook = wx.Notebook(self.tests_panel)
+        self.OBDTests = self.MyListCtrl(
+            self.tests_notebook, wx.NewIdRef(), style=wx.LC_REPORT | wx.BORDER_NONE
+        )
+        self.OBDTests.InsertColumn(0, "Monitor", width=330)
+        self.OBDTests.InsertColumn(1, "Supported", width=110)
+        self.OBDTests.InsertColumn(2, "Status", width=140)
+        for label in TEST_LABELS:
+            self.OBDTests.Append([label, "—", "—"])
+
+        self.misfire_tests = self.MyListCtrl(
+            self.tests_notebook, wx.NewIdRef(), style=wx.LC_REPORT | wx.BORDER_NONE
+        )
+        self.misfire_tests.InsertColumn(0, "Monitor", width=330)
+        self.misfire_tests.InsertColumn(1, "Mode 06 result", width=180)
+        for cylinder in range(1, 13):
+            self.misfire_tests.Append([f"Cylinder {cylinder}", "—"])
+
+        self.tests_notebook.AddPage(self.OBDTests, "Readiness")
+        self.tests_notebook.AddPage(self.misfire_tests, "Misfire Results")
+        tests_root.Add(tests_toolbar, 0, wx.EXPAND | wx.ALL, 20)
+        tests_root.Add(tests_help, 0, wx.LEFT | wx.RIGHT | wx.BOTTOM, 20)
+        tests_root.Add(self.tests_notebook, 1, wx.EXPAND | wx.LEFT | wx.RIGHT | wx.BOTTOM, 20)
+        self.tests_panel.SetSizer(tests_root)
+        self.nb.AddPage(self.tests_panel, "Readiness")
 
 
 
@@ -1177,7 +1221,30 @@ class MyApp(GraphUIMixin, wx.App):
                     self._set_graph_streaming(False)
 
     def OnTests(self, event):
-        self.OBDTests.SetItem(event.data[0], event.data[1], event.data[2])
+        data = event.data
+        if not isinstance(data, dict):
+            self.OBDTests.SetItem(data[0], data[1], data[2])
+            return
+        if data["kind"] == "readiness":
+            self.OBDTests.SetItem(data["index"], 1, "Yes" if data["supported"] else "No")
+            self.OBDTests.SetItem(data["index"], 2, data["status"])
+            colour = {
+                "Ready": self.theme.success,
+                "Not ready": self.theme.warning,
+                "Unsupported": self.theme.muted,
+            }[data["status"]]
+            self.OBDTests.SetItemTextColour(data["index"], colour)
+        elif data["kind"] == "misfire":
+            self.misfire_tests.SetItem(data["index"], 1, data["result"])
+        elif data["kind"] == "complete":
+            self.tests_status_label.SetLabel(
+                f"{data['ready']} ready  •  {data['not_ready']} not ready  •  "
+                f"{data['unsupported']} unsupported"
+            )
+            self.RefreshTestsButton.Enable(True)
+        elif data["kind"] == "error":
+            self.tests_status_label.SetLabel("Unable to read monitor status")
+            self.RefreshTestsButton.Enable(True)
 
     """
     def OnCombo(self, event):
@@ -1365,34 +1432,11 @@ class MyApp(GraphUIMixin, wx.App):
         self.sensor_selected_sources.clear()
         self.sensor_count_label.SetLabel("Waiting for vehicle data")
         self.freezeframe.DeleteAllItems()
-        self.OBDTests.DeleteAllItems()
-        self.OBDTests.Append(["MISFIRE_MONITORING", "---", "---"])
-        self.OBDTests.Append(["FUEL_SYSTEM_MONITORING", "---", "---"])
-        self.OBDTests.Append(["COMPONENT_MONITORING", "---", "---"])
-        self.OBDTests.Append(["CATALYST_MONITORING", "---", "---"])
-        self.OBDTests.Append(["HEATED_CATALYST_MONITORING", "---", "---"])
-        self.OBDTests.Append(["EVAPORATIVE_SYSTEM_MONITORING", "---", "---"])
-        self.OBDTests.Append(["SECONDARY_AIR_SYSTEM_MONITORING", "---", "---"])
-        self.OBDTests.Append(["OXYGEN_SENSOR_MONITORING", "---", "---"])
-        self.OBDTests.Append(["OXYGEN_SENSOR_HEATER_MONITORING", "---", "---"])
-        self.OBDTests.Append(["EGR_VVT_SYSTEM_MONITORING", "---", "---"])
-        self.OBDTests.Append(["NMHC_CATALYST_MONITORING", "---", "---"])
-        self.OBDTests.Append(["NOX_SCR_AFTERTREATMENT_MONITORING", "---", "---"])
-        self.OBDTests.Append(["BOOST_PRESSURE_MONITORING", "---", "---"])
-        self.OBDTests.Append(["EXHAUST_GAS_SENSOR_MONITORING", "---", "---"])
-        self.OBDTests.Append(["PM_FILTER_MONITORING", "---", "---"])
-        self.OBDTests.Append(["MISFIRE CYLINDER 1", "---", "---"])
-        self.OBDTests.Append(["MISFIRE CYLINDER 2", "---", "---"])
-        self.OBDTests.Append(["MISFIRE CYLINDER 3", "---", "---"])
-        self.OBDTests.Append(["MISFIRE CYLINDER 4", "---", "---"])
-        self.OBDTests.Append(["MISFIRE CYLINDER 5", "---", "---"])
-        self.OBDTests.Append(["MISFIRE CYLINDER 6", "---", "---"])
-        self.OBDTests.Append(["MISFIRE CYLINDER 7", "---", "---"])
-        self.OBDTests.Append(["MISFIRE CYLINDER 8", "---", "---"])
-        self.OBDTests.Append(["MISFIRE CYLINDER 9", "---", "---"])
-        self.OBDTests.Append(["MISFIRE CYLINDER 10", "---", "---"])
-        self.OBDTests.Append(["MISFIRE CYLINDER 11", "---", "---"])
-        self.OBDTests.Append(["MISFIRE CYLINDER 12", "---", "---"])
+        for row in range(self.OBDTests.GetItemCount()):
+            self.OBDTests.SetItem(row, 1, "—")
+            self.OBDTests.SetItem(row, 2, "—")
+        for row in range(self.misfire_tests.GetItemCount()):
+            self.misfire_tests.SetItem(row, 1, "—")
         self.dtc.DeleteAllItems()
 
         reset_list_if_present("graphs_list_ctrl", 4)
