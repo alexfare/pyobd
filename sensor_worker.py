@@ -595,25 +595,24 @@ class SensorProducer(threading.Thread):
                 if prevstate != 3:
 
                     wx.PostEvent(self._notify_window, DTCEvent(0))  # clear list
-                    r = self.connection.connection.query(obd.commands.GET_DTC)
                     DTCCODES = []
-                    print ("DTCCODES:",r.value)
-                    if r.value != None:
-                        for dtccode in r.value:
-                            DTCCODES.append((dtccode[0], "Active", dtccode[1]))
-                    r = self.connection.connection.query(obd.commands.FREEZE_DTC)
-                    print ("FREEZECODES:",r.value)
-                    if r.value != None:
-                        dtccode = r.value
-                        if "P0000" not in dtccode:
-                            DTCCODES.append((dtccode[0], "Passive", dtccode[1]))
+                    counts = {"Stored": 0, "Pending": 0, "Permanent": 0}
+                    categories = (
+                        ("Stored", obd.commands.GET_DTC),
+                        ("Pending", obd.commands.GET_CURRENT_DTC),
+                        ("Permanent", obd.commands.GET_PERMANENT_DTC),
+                    )
+                    for category, command in categories:
+                        response = self.connection.connection.query(command)
+                        if response.value is None:
+                            continue
+                        for dtccode in response.value:
+                            DTCCODES.append((dtccode[0], category, dtccode[1]))
+                            counts[category] += 1
 
-                    print ("DTCcodes and FREEZEcodes:", DTCCODES)
-                    if len(DTCCODES) > 0:
-                        for dtccode in DTCCODES:
-                            wx.PostEvent(self._notify_window, DTCEvent(dtccode))
-                    elif len(DTCCODES) == 0:
-                        wx.PostEvent(self._notify_window, DTCEvent(["", "", "No DTC codes (codes cleared)"]))
+                    for dtccode in DTCCODES:
+                        wx.PostEvent(self._notify_window, DTCEvent(dtccode))
+                    wx.PostEvent(self._notify_window, DTCEvent({"counts": counts}))
 
             elif curstate == 4:  # show freezeframe tab
                 r = self.connection.connection.query(obd.commands.RPM)

@@ -356,6 +356,8 @@ class MyApp(GraphUIMixin, wx.App):
         self.GetDTCButton.SetFont(self.touch_font_bold)
         self.ClearDTCButton.SetMinSize((140, 40))
         self.ClearDTCButton.SetFont(self.touch_font_bold)
+        self.LookupDTCButton.SetMinSize((140, 40))
+        self.LookupDTCButton.SetFont(self.touch_font_bold)
 
         if hasattr(self, "add_graph_pid_button"):
             self.add_graph_pid_button.SetFont(self.touch_font_bold)
@@ -477,6 +479,8 @@ class MyApp(GraphUIMixin, wx.App):
         self.dtcmenu.Enable(ID_CLEAR, True)
         self.GetDTCButton.Enable(True)
         self.ClearDTCButton.Enable(True)
+        if self.dtc.GetItemCount() == 0:
+            self.dtc_status_label.SetLabel("Ready to scan")
 
     def sensor_control_off(self):  # after disconnect disable few buttons
         self.dtcmenu.Enable(ID_GETC, False)
@@ -486,6 +490,7 @@ class MyApp(GraphUIMixin, wx.App):
         self.settingmenu.Enable(ID_RESET, True)
         self.GetDTCButton.Enable(False)
         self.ClearDTCButton.Enable(False)
+        self.dtc_status_label.SetLabel("Connect to scan vehicle")
         # http://pyserial.sourceforge.net/                                                    empty function
         # EVT_LIST_ITEM_ACTIVATED(self.sensors,self.sensor_id, lambda : None)
 
@@ -828,37 +833,39 @@ class MyApp(GraphUIMixin, wx.App):
 
         """
         
-        HOFFSET_LIST = 30  # offset from the top of panel (space for buttons)
-        # tID = wx.NewId()
         tID = wx.NewIdRef(count=1)
         self.DTCpanel = wx.Panel(self.nb, -1)
-        self.GetDTCButton = wx.Button(self.DTCpanel, -1, "Get DTC", wx.Point(15, 0))
-        self.ClearDTCButton = wx.Button(self.DTCpanel, -1, "Clear DTC", wx.Point(100, 0))
+        self.DTCpanel.SetBackgroundColour(self.theme.window)
+        self.GetDTCButton = wx.Button(self.DTCpanel, label="Scan codes")
+        self.ClearDTCButton = wx.Button(self.DTCpanel, label="Clear codes")
+        self.LookupDTCButton = wx.Button(self.DTCpanel, label="Code lookup")
+        self.dtc_status_label = wx.StaticText(self.DTCpanel, label="Connect to scan vehicle")
+        self.dtc_status_label.SetForegroundColour(self.theme.muted)
 
-        # bind functions to button click action
-        self.DTCpanel.Bind(wx.EVT_BUTTON, self.GetDTC, self.GetDTCButton)
-        self.DTCpanel.Bind(wx.EVT_BUTTON, self.QueryClear, self.ClearDTCButton)
+        self.GetDTCButton.Bind(wx.EVT_BUTTON, self.GetDTC)
+        self.ClearDTCButton.Bind(wx.EVT_BUTTON, self.QueryClear)
+        self.LookupDTCButton.Bind(wx.EVT_BUTTON, self.CodeLookup)
 
-        self.dtc = self.MyListCtrl(self.DTCpanel, tID, pos=wx.Point(0, HOFFSET_LIST),
-                                   style=wx.LC_REPORT | wx.BORDER_NONE | wx.LC_HRULES | wx.LC_SINGLE_SEL)
+        self.dtc = self.MyListCtrl(
+            self.DTCpanel,
+            tID,
+            style=wx.LC_REPORT | wx.BORDER_NONE | wx.LC_HRULES | wx.LC_SINGLE_SEL,
+        )
 
-        self.dtc.InsertColumn(0, "Code", width=100)
-        self.dtc.InsertColumn(1, "Status", width=100)
-        self.dtc.InsertColumn(2, "Trouble code")
+        self.dtc.InsertColumn(0, "Code", width=110)
+        self.dtc.InsertColumn(1, "Category", width=140)
+        self.dtc.InsertColumn(2, "Description", width=520)
 
+        toolbar = wx.BoxSizer(wx.HORIZONTAL)
+        toolbar.Add(self.GetDTCButton, 0, wx.RIGHT, 8)
+        toolbar.Add(self.ClearDTCButton, 0, wx.RIGHT, 8)
+        toolbar.Add(self.LookupDTCButton, 0, wx.RIGHT, 16)
+        toolbar.Add(self.dtc_status_label, 0, wx.ALIGN_CENTER_VERTICAL)
 
-        ####################################################################
-        # This little bit of magic keeps the list the same size as the frame
-        def OnPSize(e, win=self.DTCpanel):
-            self.DTCpanel.SetSize(e.GetSize())
-            self.dtc.SetSize(e.GetSize())
-            w, h = self.frame.GetSize()
-            # I have no idea where 70 comes from
-            # self.dtc.SetDimensions(0,HOFFSET_LIST, w-16 , h - 70 )
-            self.dtc.SetSize(0, HOFFSET_LIST, w - 16, h - 70)
-
-        self.DTCpanel.Bind(wx.EVT_SIZE, OnPSize)
-        ####################################################################
+        root = wx.BoxSizer(wx.VERTICAL)
+        root.Add(toolbar, 0, wx.EXPAND | wx.ALL, 16)
+        root.Add(self.dtc, 1, wx.EXPAND | wx.LEFT | wx.RIGHT | wx.BOTTOM, 16)
+        self.DTCpanel.SetSizer(root)
 
         self.nb.AddPage(self.DTCpanel, "DTC")
 
@@ -1689,6 +1696,20 @@ class MyApp(GraphUIMixin, wx.App):
     def OnDtc(self, event):
         if event.data == 0:  # signal, that DTC was cleared
             self.dtc.DeleteAllItems()
+            self.dtc_status_label.SetLabel("Scanning diagnostic trouble codes…")
+            self.GetDTCButton.Enable(False)
+        elif isinstance(event.data, dict):
+            counts = event.data.get("counts", {})
+            total = sum(counts.values())
+            if total:
+                self.dtc_status_label.SetLabel(
+                    f"{counts.get('Stored', 0)} stored  •  "
+                    f"{counts.get('Pending', 0)} pending  •  "
+                    f"{counts.get('Permanent', 0)} permanent"
+                )
+            else:
+                self.dtc_status_label.SetLabel("No diagnostic trouble codes reported")
+            self.GetDTCButton.Enable(True)
         else:
             self.dtc.Append(event.data)
 
@@ -1721,6 +1742,8 @@ class MyApp(GraphUIMixin, wx.App):
 
     def GetDTC(self, e):
         self._go_to_page(self.DTCpanel)
+        self.dtc_status_label.SetLabel("Scanning diagnostic trouble codes…")
+        self.GetDTCButton.Enable(False)
         self.ThreadControl = 2
 
     def AddDTC(self, code):
@@ -1751,23 +1774,14 @@ class MyApp(GraphUIMixin, wx.App):
         diag.Show(True)
 
     def QueryClear(self, e):
-        id = 0
-        diag = wx.Dialog(self.frame, id, title="Clear DTC?")
-
-        sizer = wx.BoxSizer(wx.VERTICAL)
-        sizer.Add(wx.StaticText(diag, -1, "Are you sure you wish to"), 0)
-        sizer.Add(wx.StaticText(diag, -1, "clear all DTC codes and "), 0)
-        sizer.Add(wx.StaticText(diag, -1, "freeze frame data?      "), 0)
-        box = wx.BoxSizer(wx.HORIZONTAL)
-        box.Add(wx.Button(diag, wx.ID_OK, "Ok"), 0)
-        box.Add(wx.Button(diag, wx.ID_CANCEL, "Cancel"), 0)
-
-        sizer.Add(box, 0)
-        diag.SetSizer(sizer)
-        diag.SetAutoLayout(True)
-        sizer.Fit(diag)
-        r = diag.ShowModal()
-        if r == wx.ID_OK:
+        result = wx.MessageBox(
+            "Clear stored and pending codes and freeze-frame data?\n\n"
+            "Readiness monitors will reset. Permanent codes cannot be cleared by a scan tool.",
+            "Clear diagnostic codes",
+            wx.YES_NO | wx.NO_DEFAULT | wx.ICON_WARNING,
+            self.frame,
+        )
+        if result == wx.YES:
             self.ClearDTC()
 
     def ClearDTC(self):
