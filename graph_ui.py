@@ -4,6 +4,7 @@ import wx
 from wx.lib import plot as wxplot
 
 import obd
+from ui_theme import ModernButton
 
 
 GRAPH_COLOURS = ["blue", "red", "green", "orange", "purple", "brown", "black", "cyan"]
@@ -30,6 +31,7 @@ class GraphUIMixin:
         self.graph_streaming_enabled = bool(enabled)
         if hasattr(self, "graph_play_button"):
             self.graph_play_button.SetLabel("Stop" if self.graph_streaming_enabled else "Play")
+            self.graph_play_button.SetVariant("danger" if self.graph_streaming_enabled else "success")
 
         if not self.graph_streaming_enabled:
             for row in range(self.graph_list_ctrl.GetItemCount()):
@@ -97,8 +99,10 @@ class GraphUIMixin:
         root = wx.BoxSizer(wx.VERTICAL)
         search_ctrl = wx.TextCtrl(dialog)
         list_box = wx.ListBox(dialog, style=wx.LB_EXTENDED)
-        add_button = wx.Button(dialog, label="Add Selected")
-        done_button = wx.Button(dialog, wx.ID_CANCEL, "Done")
+        add_button = ModernButton(dialog, "Add Selected", self.theme, variant="primary")
+        done_button = ModernButton(
+            dialog, "Done", self.theme, variant="secondary", id=wx.ID_CANCEL
+        )
 
         button_row = wx.BoxSizer(wx.HORIZONTAL)
         button_row.Add(add_button)
@@ -152,6 +156,7 @@ class GraphUIMixin:
 
         search_ctrl.Bind(wx.EVT_TEXT, update_filter)
         add_button.Bind(wx.EVT_BUTTON, add_selected)
+        done_button.Bind(wx.EVT_BUTTON, lambda _event: dialog.EndModal(wx.ID_CANCEL))
         list_box.Bind(wx.EVT_LISTBOX_DCLICK, add_selected)
         self.graph_interaction_paused = True
         try:
@@ -288,10 +293,18 @@ class GraphUIMixin:
         root = wx.BoxSizer(wx.VERTICAL)
         toolbar = wx.BoxSizer(wx.HORIZONTAL)
 
-        self.add_graph_pid_button = wx.Button(self.graph_panel, label="Add PID")
-        self.remove_graph_pid_button = wx.Button(self.graph_panel, label="Remove Selected")
-        self.graph_play_button = wx.Button(self.graph_panel, label="Play")
-        self.graph_view_button = wx.Button(self.graph_panel, label="▦", size=(48, 42))
+        self.add_graph_pid_button = ModernButton(
+            self.graph_panel, "Add PID", self.theme, variant="primary"
+        )
+        self.remove_graph_pid_button = ModernButton(
+            self.graph_panel, "Remove Selected", self.theme, variant="danger"
+        )
+        self.graph_play_button = ModernButton(
+            self.graph_panel, "Play", self.theme, variant="success"
+        )
+        self.graph_view_button = ModernButton(
+            self.graph_panel, "▦", self.theme, variant="secondary", size=(48, 42)
+        )
         self.graph_individual_mode = False
         view_font = self.graph_view_button.GetFont()
         view_font.SetPointSize(18)

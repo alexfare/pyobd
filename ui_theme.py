@@ -50,6 +50,151 @@ class AppTheme:
         control.SetForegroundColour(self.text)
 
 
+class ModernButton(wx.Control):
+    def __init__(
+        self,
+        parent,
+        label,
+        theme,
+        variant="secondary",
+        id=wx.ID_ANY,
+        size=wx.DefaultSize,
+        align="center",
+    ):
+        super().__init__(parent, id=id, size=size, style=wx.WANTS_CHARS | wx.BORDER_NONE)
+        self.theme = theme
+        self.variant = variant
+        self.align = align
+        self.hovered = False
+        self.pressed = False
+        self.SetLabel(label)
+        self.SetName(label)
+        self.SetFont(theme.font(10, bold=True))
+        self.SetCursor(wx.Cursor(wx.CURSOR_HAND))
+        self.SetBackgroundStyle(wx.BG_STYLE_PAINT)
+        self.SetMinSize((88, 40) if size == wx.DefaultSize else size)
+
+        self.Bind(wx.EVT_PAINT, self._on_paint)
+        self.Bind(wx.EVT_ENTER_WINDOW, self._on_enter)
+        self.Bind(wx.EVT_LEAVE_WINDOW, self._on_leave)
+        self.Bind(wx.EVT_LEFT_DOWN, self._on_left_down)
+        self.Bind(wx.EVT_LEFT_UP, self._on_left_up)
+        self.Bind(wx.EVT_MOUSE_CAPTURE_LOST, self._on_capture_lost)
+        self.Bind(wx.EVT_KEY_DOWN, self._on_key_down)
+        self.Bind(wx.EVT_SET_FOCUS, self._refresh)
+        self.Bind(wx.EVT_KILL_FOCUS, self._refresh)
+
+    def DoGetBestSize(self):
+        return wx.Size(max(88, len(self.GetLabel()) * 8 + 32), 40)
+
+    def SetLabel(self, label):
+        super().SetLabel(label)
+        self.InvalidateBestSize()
+        self.Refresh()
+
+    def SetVariant(self, variant):
+        if self.variant != variant:
+            self.variant = variant
+            self.Refresh()
+
+    def Enable(self, enable=True):
+        changed = super().Enable(enable)
+        self.SetCursor(wx.Cursor(wx.CURSOR_HAND if enable else wx.CURSOR_ARROW))
+        self.Refresh()
+        return changed
+
+    def _colours(self):
+        variants = {
+            "primary": (self.theme.accent, self.theme.accent_hover, wx.WHITE, self.theme.accent),
+            "success": (self.theme.success, self.theme.success_hover, wx.WHITE, self.theme.success),
+            "danger": (self.theme.danger, wx.Colour(185, 28, 28), wx.WHITE, self.theme.danger),
+            "sidebar": (self.theme.sidebar, self.theme.sidebar_hover, self.theme.sidebar_text, self.theme.sidebar),
+            "sidebar_active": (self.theme.accent, self.theme.accent_hover, wx.WHITE, self.theme.accent),
+            "ghost": (self.theme.surface, self.theme.surface_alt, self.theme.text, self.theme.border),
+            "secondary": (self.theme.surface_alt, self.theme.border, self.theme.text, self.theme.border),
+        }
+        if not self.IsEnabled():
+            return self.theme.surface_alt, self.theme.surface_alt, self.theme.muted, self.theme.border
+        return variants.get(self.variant, variants["secondary"])
+
+    def _on_paint(self, _event):
+        dc = wx.AutoBufferedPaintDC(self)
+        parent_colour = self.GetParent().GetBackgroundColour()
+        dc.SetBackground(wx.Brush(parent_colour))
+        dc.Clear()
+
+        normal, hover, foreground, border = self._colours()
+        background = hover if self.hovered or self.pressed else normal
+        if self.pressed:
+            background = background.ChangeLightness(88)
+
+        width, height = self.GetClientSize()
+        dc.SetBrush(wx.Brush(background))
+        focus_border = self.theme.accent if self.HasFocus() else border
+        dc.SetPen(wx.Pen(focus_border, 2 if self.HasFocus() else 1))
+        dc.DrawRoundedRectangle(1, 1, max(0, width - 2), max(0, height - 2), 8)
+
+        dc.SetFont(self.GetFont())
+        dc.SetTextForeground(foreground)
+        text_width, text_height = dc.GetTextExtent(self.GetLabel())
+        x = 16 if self.align == "left" else max(0, (width - text_width) // 2)
+        y = max(0, (height - text_height) // 2)
+        dc.DrawText(self.GetLabel(), x, y)
+
+    def _refresh(self, event):
+        self.Refresh()
+        event.Skip()
+
+    def _on_enter(self, event):
+        if self.IsEnabled():
+            self.hovered = True
+            self.Refresh()
+        event.Skip()
+
+    def _on_leave(self, event):
+        self.hovered = False
+        self.pressed = False
+        self.Refresh()
+        event.Skip()
+
+    def _on_left_down(self, _event):
+        if not self.IsEnabled():
+            return
+        self.SetFocus()
+        self.pressed = True
+        if not self.HasCapture():
+            self.CaptureMouse()
+        self.Refresh()
+
+    def _on_left_up(self, event):
+        if self.HasCapture():
+            self.ReleaseMouse()
+        activate = self.IsEnabled() and self.pressed and self.GetClientRect().Contains(event.GetPosition())
+        self.pressed = False
+        self.Refresh()
+        if activate:
+            self._emit_click()
+
+    def _on_key_down(self, event):
+        if self.IsEnabled() and event.GetKeyCode() in (
+            wx.WXK_RETURN,
+            wx.WXK_NUMPAD_ENTER,
+            wx.WXK_SPACE,
+        ):
+            self._emit_click()
+            return
+        event.Skip()
+
+    def _on_capture_lost(self, _event):
+        self.pressed = False
+        self.Refresh()
+
+    def _emit_click(self):
+        event = wx.CommandEvent(wx.EVT_BUTTON.typeId, self.GetId())
+        event.SetEventObject(self)
+        self.ProcessWindowEvent(event)
+
+
 class ActionCard(wx.Panel):
     def __init__(self, parent, theme, title, description, colour, hover_colour, handler):
         super().__init__(parent, style=wx.WANTS_CHARS | wx.BORDER_NONE)

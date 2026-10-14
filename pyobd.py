@@ -49,7 +49,7 @@ from debugEvent import *
 from graph_ui import GraphUIMixin
 from sensor_worker import SensorProducer
 from obd2_codes import pcodes
-from ui_theme import ActionCard, AppTheme
+from ui_theme import ActionCard, AppTheme, ModernButton
 
 from wx.lib.mixins.listctrl import ListCtrlAutoWidthMixin
 import obd
@@ -228,6 +228,7 @@ class MyApp(GraphUIMixin, wx.App):
 
         if hasattr(self, "header_connect_button"):
             self.header_connect_button.SetLabel("Disconnect" if label == "●  Connected" else "Connect")
+            self.header_connect_button.SetVariant("danger" if label == "●  Connected" else "primary")
 
     def _build_content_header(self):
         self.content_header = wx.Panel(self.content_panel)
@@ -235,7 +236,9 @@ class MyApp(GraphUIMixin, wx.App):
         self.content_header.SetMinSize((-1, 64))
         header_sizer = wx.BoxSizer(wx.HORIZONTAL)
 
-        self.header_menu_button = wx.Button(self.content_header, label="☰")
+        self.header_menu_button = ModernButton(
+            self.content_header, "☰", self.theme, variant="ghost", size=(44, 38)
+        )
         self.header_menu_button.SetMinSize((44, 38))
         self.header_menu_button.SetFont(self.theme.font(16))
         self.header_menu_button.SetToolTip("Open navigation")
@@ -249,11 +252,15 @@ class MyApp(GraphUIMixin, wx.App):
         self.header_connection_status.SetForegroundColour(self.theme.muted)
         self.header_connection_status.SetFont(self.theme.font(10, bold=True))
 
-        self.header_connect_button = wx.Button(self.content_header, label="Connect")
+        self.header_connect_button = ModernButton(
+            self.content_header, "Connect", self.theme, variant="primary"
+        )
         self.header_connect_button.SetMinSize((110, 38))
         self.header_connect_button.Bind(wx.EVT_BUTTON, self._on_header_connection_action)
 
-        self.header_configure_button = wx.Button(self.content_header, label="Configure")
+        self.header_configure_button = ModernButton(
+            self.content_header, "Configure", self.theme, variant="secondary"
+        )
         self.header_configure_button.SetMinSize((110, 38))
         self.header_configure_button.Bind(wx.EVT_BUTTON, self.Configure)
 
@@ -310,10 +317,14 @@ class MyApp(GraphUIMixin, wx.App):
         self.sidebar_buttons = {}
 
         def add_item(label, page):
-            button = wx.Button(self.sidebar_panel, label=label, style=wx.BORDER_NONE | wx.BU_LEFT)
+            button = ModernButton(
+                self.sidebar_panel,
+                label,
+                self.theme,
+                variant="sidebar",
+                align="left",
+            )
             button.SetMinSize((-1, 44))
-            button.SetBackgroundColour(self.theme.sidebar)
-            button.SetForegroundColour(self.theme.sidebar_text)
             button.SetFont(self.theme.font(11, bold=label == "Overview"))
             button.Bind(wx.EVT_BUTTON, lambda _event, target=page, title=label: self._go_to_page(target, title))
             sidebar_sizer.Add(button, 0, wx.EXPAND | wx.LEFT | wx.RIGHT | wx.BOTTOM, 10)
@@ -330,8 +341,7 @@ class MyApp(GraphUIMixin, wx.App):
     def _refresh_sidebar_selection(self, selected_page):
         for page, button in getattr(self, "sidebar_buttons", {}).items():
             selected = page is selected_page
-            button.SetBackgroundColour(self.theme.accent if selected else self.theme.sidebar)
-            button.SetForegroundColour(wx.WHITE if selected else self.theme.sidebar_text)
+            button.SetVariant("sidebar_active" if selected else "sidebar")
             button.SetFont(self.theme.font(11, bold=selected))
             button.Refresh()
 
@@ -543,7 +553,9 @@ class MyApp(GraphUIMixin, wx.App):
         self.sensor_search.SetMinSize((280, 40))
         self.sensor_count_label = wx.StaticText(self.sensors_panel, label="Waiting for vehicle data")
         self.sensor_count_label.SetForegroundColour(self.theme.muted)
-        self.sensor_add_graph_button = wx.Button(self.sensors_panel, label="Add selected to graph")
+        self.sensor_add_graph_button = ModernButton(
+            self.sensors_panel, "Add selected to graph", self.theme, variant="primary"
+        )
         self.sensor_add_graph_button.SetMinSize((180, 40))
 
         toolbar.Add(self.sensor_search, 0, wx.RIGHT, 12)
@@ -864,9 +876,15 @@ class MyApp(GraphUIMixin, wx.App):
         tID = wx.NewIdRef(count=1)
         self.DTCpanel = wx.Panel(self.nb, -1)
         self.DTCpanel.SetBackgroundColour(self.theme.window)
-        self.GetDTCButton = wx.Button(self.DTCpanel, label="Scan codes")
-        self.ClearDTCButton = wx.Button(self.DTCpanel, label="Clear codes")
-        self.LookupDTCButton = wx.Button(self.DTCpanel, label="Code lookup")
+        self.GetDTCButton = ModernButton(
+            self.DTCpanel, "Scan codes", self.theme, variant="primary"
+        )
+        self.ClearDTCButton = ModernButton(
+            self.DTCpanel, "Clear codes", self.theme, variant="danger"
+        )
+        self.LookupDTCButton = ModernButton(
+            self.DTCpanel, "Code lookup", self.theme, variant="secondary"
+        )
         self.dtc_status_label = wx.StaticText(self.DTCpanel, label="Connect to scan vehicle")
         self.dtc_status_label.SetForegroundColour(self.theme.muted)
 
@@ -1017,7 +1035,9 @@ class MyApp(GraphUIMixin, wx.App):
             self.tests_panel, label="Connect to check monitors"
         )
         self.tests_status_label.SetForegroundColour(self.theme.muted)
-        self.RefreshTestsButton = wx.Button(self.tests_panel, label="Refresh")
+        self.RefreshTestsButton = ModernButton(
+            self.tests_panel, "Refresh", self.theme, variant="primary"
+        )
         self.RefreshTestsButton.Enable(False)
         self.RefreshTestsButton.Bind(wx.EVT_BUTTON, self.RefreshTests)
         tests_toolbar.Add(self.tests_status_label, 1, wx.ALIGN_CENTER_VERTICAL)
@@ -2252,12 +2272,20 @@ class MyApp(GraphUIMixin, wx.App):
         sizer.Add(note_text, 0, wx.LEFT | wx.RIGHT | wx.TOP, 8)
 
         link_and_buttons = wx.BoxSizer(wx.HORIZONTAL)
-        self.OpenLinkButton = wx.Button(diag, -1, "Order OBD adapter", size=(160, 30))
+        self.OpenLinkButton = ModernButton(
+            diag, "Order OBD adapter", self.theme, variant="secondary", size=(160, 40)
+        )
         diag.Bind(wx.EVT_BUTTON, self.OnHelpOrder, self.OpenLinkButton)
         link_and_buttons.Add(self.OpenLinkButton, 0, wx.RIGHT, 10)
         link_and_buttons.AddStretchSpacer(1)
-        link_and_buttons.Add(wx.Button(diag, wx.ID_OK), 0, wx.RIGHT, 6)
-        link_and_buttons.Add(wx.Button(diag, wx.ID_CANCEL), 0)
+        ok_button = ModernButton(diag, "Save", self.theme, variant="primary", id=wx.ID_OK)
+        cancel_button = ModernButton(
+            diag, "Cancel", self.theme, variant="secondary", id=wx.ID_CANCEL
+        )
+        ok_button.Bind(wx.EVT_BUTTON, lambda _event: diag.EndModal(wx.ID_OK))
+        cancel_button.Bind(wx.EVT_BUTTON, lambda _event: diag.EndModal(wx.ID_CANCEL))
+        link_and_buttons.Add(ok_button, 0, wx.RIGHT, 6)
+        link_and_buttons.Add(cancel_button, 0)
         sizer.Add(link_and_buttons, 0, wx.EXPAND | wx.ALL, 8)
 
         if (self.COMPORT != 0) and (self.COMPORT in ports):
