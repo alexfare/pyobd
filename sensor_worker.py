@@ -25,6 +25,12 @@ READINESS_MONITORS = (
     "EXHAUST_GAS_SENSOR_MONITORING", "PM_FILTER_MONITORING",
 )
 
+DTC_CATEGORIES = (
+    ("Stored", obd.commands.GET_DTC),
+    ("Pending", obd.commands.GET_CURRENT_DTC),
+    ("Permanent", obd.commands.GET_PERMANENT_DTC),
+)
+
 
 class SensorProducer(threading.Thread):
     @staticmethod
@@ -36,6 +42,47 @@ class SensorProducer(threading.Thread):
         if isolated_key is None:
             return list(commands)
         return [command for command in commands if command.command == isolated_key]
+
+    @staticmethod
+    def _readiness_results(status_value):
+        counts = {"ready": 0, "not_ready": 0, "unsupported": 0}
+        results = []
+        for index, name in enumerate(READINESS_MONITORS):
+            monitor = getattr(status_value, name, None) if status_value is not None else None
+            supported = bool(monitor and monitor.available)
+            if not supported:
+                status = "Unsupported"
+                counts["unsupported"] += 1
+            elif monitor.complete:
+                status = "Ready"
+                counts["ready"] += 1
+            else:
+                status = "Not ready"
+                counts["not_ready"] += 1
+            results.append({
+                "kind": "readiness", "index": index,
+                "supported": supported, "status": status,
+            })
+        return results, counts
+
+    @staticmethod
+    def _misfire_result(value):
+        if value is None:
+            return "Unsupported"
+        return f"{value.MISFIRE_COUNT} misfires"
+
+    @staticmethod
+    def _collect_dtc_results(connection):
+        rows = []
+        counts = {category: 0 for category, _command in DTC_CATEGORIES}
+        for category, command in DTC_CATEGORIES:
+            response = connection.query(command)
+            if response.value is None:
+                continue
+            for code, description in response.value:
+                rows.append((code, category, description))
+                counts[category] += 1
+        return rows, counts
 
     def __init__(self, _notify_window, portName, SERTIMEOUT, RECONNATTEMPTS, BAUDRATE, FAST, _nb):
         #from queue import Queue
@@ -341,47 +388,22 @@ class SensorProducer(threading.Thread):
                         continue
                     self._notify_window.tests_refresh_requested = False
                     status_response = self.connection.connection.query(obd.commands[1][1])
-                    ready = not_ready = unsupported = 0
-                    if status_response.value is not None:
-                        for index, name in enumerate(READINESS_MONITORS):
-                            monitor = getattr(status_response.value, name)
-                            supported = bool(monitor.available)
-                            if not supported:
-                                status = "Unsupported"
-                                unsupported += 1
-                            elif monitor.complete:
-                                status = "Ready"
-                                ready += 1
-                            else:
-                                status = "Not ready"
-                                not_ready += 1
-                            wx.PostEvent(self._notify_window, TestEvent({
-                                "kind": "readiness", "index": index,
-                                "supported": supported, "status": status,
-                            }))
-                    else:
-                        unsupported = len(READINESS_MONITORS)
-                        for index in range(len(READINESS_MONITORS)):
-                            wx.PostEvent(self._notify_window, TestEvent({
-                                "kind": "readiness", "index": index,
-                                "supported": False, "status": "Unsupported",
-                            }))
+                    readiness, counts = self._readiness_results(status_response.value)
+                    for result in readiness:
+                        wx.PostEvent(self._notify_window, TestEvent(result))
 
                     for index in range(12):
                         command = getattr(
                             obd.commands, f"MONITOR_MISFIRE_CYLINDER_{index + 1}"
                         )
                         response = self.connection.connection.query(command)
-                        result = "Unsupported"
-                        if response.value is not None:
-                            result = f"{response.value.MISFIRE_COUNT} misfires"
+                        result = self._misfire_result(response.value)
                         wx.PostEvent(self._notify_window, TestEvent({
                             "kind": "misfire", "index": index, "result": result,
                         }))
 
                     wx.PostEvent(self._notify_window, TestEvent({
-                        "kind": "complete", "ready": ready,
-                        "not_ready": not_ready, "unsupported": unsupported,
+                        "kind": "complete", **counts,
                     }))
 
                 except:
@@ -479,22 +501,10 @@ class SensorProducer(threading.Thread):
                 if prevstate != 3:
 
                     wx.PostEvent(self._notify_window, DTCEvent(0))  # clear list
-                    DTCCODES = []
-                    counts = {"Stored": 0, "Pending": 0, "Permanent": 0}
-                    categories = (
-                        ("Stored", obd.commands.GET_DTC),
-                        ("Pending", obd.commands.GET_CURRENT_DTC),
-                        ("Permanent", obd.commands.GET_PERMANENT_DTC),
+                    dtc_codes, counts = self._collect_dtc_results(
+                        self.connection.connection
                     )
-                    for category, command in categories:
-                        response = self.connection.connection.query(command)
-                        if response.value is None:
-                            continue
-                        for dtccode in response.value:
-                            DTCCODES.append((dtccode[0], category, dtccode[1]))
-                            counts[category] += 1
-
-                    for dtccode in DTCCODES:
+                    for dtccode in dtc_codes:
                         wx.PostEvent(self._notify_window, DTCEvent(dtccode))
                     wx.PostEvent(self._notify_window, DTCEvent({"counts": counts}))
 
