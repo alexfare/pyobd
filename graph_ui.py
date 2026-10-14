@@ -299,6 +299,7 @@ class GraphUIMixin:
         self.remove_graph_pid_button = ModernButton(
             self.graph_panel, "Remove Selected", self.theme, variant="danger"
         )
+        self.remove_graph_pid_button.SetMinSize((160, 40))
         self.graph_play_button = ModernButton(
             self.graph_panel, "Play", self.theme, variant="success"
         )
