@@ -27,6 +27,11 @@ Release owner: ____________________  Target date: ____________________
 | Windows 10/11 x64 | [ ] | [ ] | [ ] | [ ] | __________ |
 | Ubuntu/Debian x64 | [ ] | [ ] | [ ] | [ ] | __________ |
 
+### Validation notes
+
+- [x] Linux: application launches and runs normally in initial desktop testing.
+- [ ] Linux: real-vehicle connection and diagnostics remain untested.
+
 ## Clean-install checks — each platform
 
 - [ ] Install on a machine without the development environment.
