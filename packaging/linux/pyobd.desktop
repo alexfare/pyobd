@@ -3,6 +3,6 @@ Type=Application
 Name=pyOBD
 Comment=OBD-II vehicle diagnostics
 Exec=pyobd
-Icon=/usr/share/pixmaps/pyobd.ico
+Icon=/usr/share/pixmaps/pyobd.png
 Terminal=false
 Categories=Utility;
