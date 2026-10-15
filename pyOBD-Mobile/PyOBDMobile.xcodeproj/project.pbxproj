@@ -14,11 +14,7 @@
 
 /* Begin PBXFileReference section */
 		302D888DDFAAD44FDEA7549E /* ContentView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ContentView.swift; sourceTree = "<group>"; };
-<<<<<<< Updated upstream
 		570B1A100B6118DE591BAC7D /* pyOBD Mobile.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = "pyOBD Mobile.app"; sourceTree = BUILT_PRODUCTS_DIR; };
-=======
-		570B1A100B6118DE591BAC7D /* pyOBD Mobile.app */ = {isa = PBXFileReference; includeInIndex = 0; lastKnownFileType = wrapper.application; path = "pyOBD Mobile.app"; sourceTree = BUILT_PRODUCTS_DIR; };
->>>>>>> Stashed changes
 		6E98F4CA789CA9618A87EDE2 /* Assets.xcassets */ = {isa = PBXFileReference; lastKnownFileType = folder.assetcatalog; path = Assets.xcassets; sourceTree = "<group>"; };
 		9CF274BD2797F6059EED2C65 /* PyOBDMobileApp.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PyOBDMobileApp.swift; sourceTree = "<group>"; };
 /* End PBXFileReference section */
@@ -151,22 +147,14 @@
 				ASSETCATALOG_COMPILER_GLOBAL_ACCENT_COLOR_NAME = AccentColor;
 				CODE_SIGN_IDENTITY = "iPhone Developer";
 				CODE_SIGN_STYLE = Automatic;
-<<<<<<< Updated upstream
 				DEVELOPMENT_TEAM = GC6DD3L4UQ;
 				GENERATE_INFOPLIST_FILE = YES;
 				INFOPLIST_KEY_LSApplicationCategoryType = "public.app-category.utilities";
-=======
-				GENERATE_INFOPLIST_FILE = YES;
->>>>>>> Stashed changes
 				LD_RUNPATH_SEARCH_PATHS = (
 					"$(inherited)",
 					"@executable_path/Frameworks",
 				);
-<<<<<<< Updated upstream
 				PRODUCT_BUNDLE_IDENTIFIER = com.farebros.swiftOBD;
-=======
-				PRODUCT_BUNDLE_IDENTIFIER = com.farebrothers.pyobd.mobile;
->>>>>>> Stashed changes
 				PRODUCT_MODULE_NAME = PyOBDMobile;
 				PRODUCT_NAME = "pyOBD Mobile";
 				SDKROOT = iphoneos;
@@ -246,22 +234,14 @@
 				ASSETCATALOG_COMPILER_GLOBAL_ACCENT_COLOR_NAME = AccentColor;
 				CODE_SIGN_IDENTITY = "iPhone Developer";
 				CODE_SIGN_STYLE = Automatic;
-<<<<<<< Updated upstream
 				DEVELOPMENT_TEAM = GC6DD3L4UQ;
 				GENERATE_INFOPLIST_FILE = YES;
 				INFOPLIST_KEY_LSApplicationCategoryType = "public.app-category.utilities";
-=======
-				GENERATE_INFOPLIST_FILE = YES;
->>>>>>> Stashed changes
 				LD_RUNPATH_SEARCH_PATHS = (
 					"$(inherited)",
 					"@executable_path/Frameworks",
 				);
-<<<<<<< Updated upstream
 				PRODUCT_BUNDLE_IDENTIFIER = com.farebros.swiftOBD;
-=======
-				PRODUCT_BUNDLE_IDENTIFIER = com.farebrothers.pyobd.mobile;
->>>>>>> Stashed changes
 				PRODUCT_MODULE_NAME = PyOBDMobile;
 				PRODUCT_NAME = "pyOBD Mobile";
 				SDKROOT = iphoneos;

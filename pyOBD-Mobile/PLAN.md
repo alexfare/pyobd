@@ -5,10 +5,7 @@ Native SwiftUI iPhone companion to the Python desktop application.
 ## Initial sequence
 
 - [x] Create the blank SwiftUI application.
-<<<<<<< Updated upstream
-=======
 - [x] Add the shared pyOBD application icon.
->>>>>>> Stashed changes
 - [ ] Add the mobile navigation shell and shared visual theme.
 - [ ] Port Demo mode and simulated vehicle data.
 - [ ] Port standard OBD-II models, PID definitions, and decoders.
