@@ -557,33 +557,32 @@ class MyApp(GraphUIMixin, wx.App):
         self.sensors_panel = wx.Panel(self.nb)
         self.sensors_panel.SetBackgroundColour(self.theme.window)
         toolbar = wx.BoxSizer(wx.HORIZONTAL)
-        recording_toolbar = wx.BoxSizer(wx.HORIZONTAL)
         self.sensor_search = wx.SearchCtrl(self.sensors_panel, style=wx.TE_PROCESS_ENTER)
         self.sensor_search.SetDescriptiveText("Search PID or sensor")
         self.sensor_search.ShowCancelButton(True)
-        self.sensor_search.SetMinSize((280, 40))
+        self.sensor_search.SetMinSize((220, 36))
         self.sensor_count_label = wx.StaticText(self.sensors_panel, label="Waiting for vehicle data")
         self.sensor_count_label.SetForegroundColour(self.theme.muted)
         self.sensor_add_graph_button = ModernButton(
-            self.sensors_panel, "Add selected to graph", self.theme, variant="primary"
+            self.sensors_panel, "Graph", self.theme, variant="primary", size=(88, 36)
         )
-        self.sensor_add_graph_button.SetMinSize((180, 40))
+        self.sensor_add_graph_button.SetToolTip("Add selected PIDs to Graphs")
         self.sensor_record_status_label = wx.StaticText(
-            self.sensors_panel, label="Select PIDs to record"
+            self.sensors_panel, label=""
         )
         self.sensor_record_status_label.SetForegroundColour(self.theme.muted)
+        self.sensor_record_status_label.Hide()
         self.sensor_record_button = ModernButton(
-            self.sensors_panel, "Record selected", self.theme, variant="success"
+            self.sensors_panel, "Record", self.theme, variant="success", size=(88, 36)
         )
-        self.sensor_record_button.SetMinSize((160, 40))
+        self.sensor_record_button.SetToolTip("Record selected PIDs to CSV")
 
         toolbar.Add(self.sensor_search, 0, wx.RIGHT, 12)
         toolbar.Add(self.sensor_count_label, 0, wx.ALIGN_CENTER_VERTICAL)
         toolbar.AddStretchSpacer()
+        toolbar.Add(self.sensor_record_status_label, 0, wx.ALIGN_CENTER_VERTICAL | wx.RIGHT, 12)
+        toolbar.Add(self.sensor_record_button, 0, wx.RIGHT, 8)
         toolbar.Add(self.sensor_add_graph_button, 0)
-        recording_toolbar.Add(self.sensor_record_status_label, 0, wx.ALIGN_CENTER_VERTICAL)
-        recording_toolbar.AddStretchSpacer()
-        recording_toolbar.Add(self.sensor_record_button, 0)
 
         self.sensors = self.MyListCtrl(
             self.sensors_panel,
@@ -596,7 +595,6 @@ class MyApp(GraphUIMixin, wx.App):
 
         root = wx.BoxSizer(wx.VERTICAL)
         root.Add(toolbar, 0, wx.EXPAND | wx.ALL, 16)
-        root.Add(recording_toolbar, 0, wx.EXPAND | wx.LEFT | wx.RIGHT | wx.BOTTOM, 16)
         root.Add(self.sensors, 1, wx.EXPAND | wx.LEFT | wx.RIGHT | wx.BOTTOM, 16)
         self.sensors_panel.SetSizer(root)
 
@@ -669,8 +667,10 @@ class MyApp(GraphUIMixin, wx.App):
         self.sensor_record_started_at = time.monotonic()
         self.sensor_record_sample_count = 0
         self.sensor_record_flush_count = 0
-        self.sensor_record_button.SetLabel("Stop and save")
+        self.sensor_record_button.SetLabel("Stop")
         self.sensor_record_button.SetVariant("danger")
+        self.sensor_record_button.SetToolTip("Stop and save recording")
+        self.sensor_record_status_label.Show()
         self.sensor_record_timer.Start(500)
         self._update_sensor_recording_status()
 
@@ -686,7 +686,7 @@ class MyApp(GraphUIMixin, wx.App):
             else f"{minutes:02d}:{seconds:02d}"
         )
         self.sensor_record_status_label.SetLabel(
-            f"Recording {elapsed_text}  •  {self.sensor_record_sample_count} samples"
+            f"{elapsed_text}  •  {self.sensor_record_sample_count} samples"
         )
         self.sensors_panel.Layout()
 
@@ -736,8 +736,10 @@ class MyApp(GraphUIMixin, wx.App):
         self.sensor_record_sources.clear()
         self.sensor_record_started_at = None
         self.sensor_record_flush_count = 0
-        self.sensor_record_button.SetLabel("Record selected")
+        self.sensor_record_button.SetLabel("Record")
         self.sensor_record_button.SetVariant("success")
+        self.sensor_record_button.SetToolTip("Record selected PIDs to CSV")
+        self.sensor_record_status_label.Show()
         self.sensor_record_status_label.SetLabel(
             status or f"Saved {sample_count} samples"
         )
