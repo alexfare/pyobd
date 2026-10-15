@@ -42,6 +42,7 @@ from serial.tools import list_ports
 import time
 import configparser  # safe application configuration
 import webbrowser  # open browser from python
+import csv
 
 from about_ui import ABOUT_DIALOG_TEXT, build_about_page
 from app_events import *
@@ -514,11 +515,13 @@ class MyApp(GraphUIMixin, wx.App):
         self.GetDTCButton.Enable(True)
         self.ClearDTCButton.Enable(True)
         self.RefreshTestsButton.Enable(True)
+        self.sensor_record_button.Enable(True)
         self.tests_status_label.SetLabel("Ready to check monitors")
         if self.dtc.GetItemCount() == 0:
             self.dtc_status_label.SetLabel("Ready to scan")
 
     def sensor_control_off(self):  # after disconnect disable few buttons
+        self._stop_sensor_recording()
         self.dtcmenu.Enable(ID_GETC, False)
         self.dtcmenu.Enable(ID_CLEAR, False)
         self.settingmenu.Enable(ID_DISCONNECT, False)
@@ -528,6 +531,7 @@ class MyApp(GraphUIMixin, wx.App):
         self.ClearDTCButton.Enable(False)
         self.dtc_status_label.SetLabel("Connect to scan vehicle")
         self.RefreshTestsButton.Enable(False)
+        self.sensor_record_button.Enable(False)
         self.tests_status_label.SetLabel("Connect to check monitors")
         # http://pyserial.sourceforge.net/                                                    empty function
         # EVT_LIST_ITEM_ACTIVATED(self.sensors,self.sensor_id, lambda : None)
@@ -543,10 +547,17 @@ class MyApp(GraphUIMixin, wx.App):
         self.sensor_selected_sources = set()
         self._rebuilding_sensor_list = False
         self.sensor_filter_timer = None
+        self.sensor_record_file = None
+        self.sensor_record_writer = None
+        self.sensor_record_sources = set()
+        self.sensor_record_started_at = None
+        self.sensor_record_sample_count = 0
+        self.sensor_record_flush_count = 0
 
         self.sensors_panel = wx.Panel(self.nb)
         self.sensors_panel.SetBackgroundColour(self.theme.window)
         toolbar = wx.BoxSizer(wx.HORIZONTAL)
+        recording_toolbar = wx.BoxSizer(wx.HORIZONTAL)
         self.sensor_search = wx.SearchCtrl(self.sensors_panel, style=wx.TE_PROCESS_ENTER)
         self.sensor_search.SetDescriptiveText("Search PID or sensor")
         self.sensor_search.ShowCancelButton(True)
@@ -557,11 +568,22 @@ class MyApp(GraphUIMixin, wx.App):
             self.sensors_panel, "Add selected to graph", self.theme, variant="primary"
         )
         self.sensor_add_graph_button.SetMinSize((180, 40))
+        self.sensor_record_status_label = wx.StaticText(
+            self.sensors_panel, label="Select PIDs to record"
+        )
+        self.sensor_record_status_label.SetForegroundColour(self.theme.muted)
+        self.sensor_record_button = ModernButton(
+            self.sensors_panel, "Record selected", self.theme, variant="success"
+        )
+        self.sensor_record_button.SetMinSize((160, 40))
 
         toolbar.Add(self.sensor_search, 0, wx.RIGHT, 12)
         toolbar.Add(self.sensor_count_label, 0, wx.ALIGN_CENTER_VERTICAL)
         toolbar.AddStretchSpacer()
         toolbar.Add(self.sensor_add_graph_button, 0)
+        recording_toolbar.Add(self.sensor_record_status_label, 0, wx.ALIGN_CENTER_VERTICAL)
+        recording_toolbar.AddStretchSpacer()
+        recording_toolbar.Add(self.sensor_record_button, 0)
 
         self.sensors = self.MyListCtrl(
             self.sensors_panel,
@@ -574,14 +596,152 @@ class MyApp(GraphUIMixin, wx.App):
 
         root = wx.BoxSizer(wx.VERTICAL)
         root.Add(toolbar, 0, wx.EXPAND | wx.ALL, 16)
+        root.Add(recording_toolbar, 0, wx.EXPAND | wx.LEFT | wx.RIGHT | wx.BOTTOM, 16)
         root.Add(self.sensors, 1, wx.EXPAND | wx.LEFT | wx.RIGHT | wx.BOTTOM, 16)
         self.sensors_panel.SetSizer(root)
 
         self.sensor_search.Bind(wx.EVT_TEXT, self._schedule_sensor_filter)
         self.sensor_add_graph_button.Bind(wx.EVT_BUTTON, self._add_selected_sensors_to_graph)
+        self.sensor_record_button.Bind(wx.EVT_BUTTON, self._toggle_sensor_recording)
         self.sensors.Bind(wx.EVT_LIST_ITEM_SELECTED, self._on_sensor_selected)
         self.sensors.Bind(wx.EVT_LIST_ITEM_DESELECTED, self._on_sensor_deselected)
+        self.sensor_record_timer = wx.Timer(self.sensors_panel)
+        self.sensors_panel.Bind(
+            wx.EVT_TIMER, self._update_sensor_recording_status, self.sensor_record_timer
+        )
         self.nb.AddPage(self.sensors_panel, "Sensors")
+
+    def _toggle_sensor_recording(self, event=None):
+        if self.sensor_record_file:
+            self._stop_sensor_recording()
+            return
+
+        self._capture_sensor_selection()
+        selected_sources = {
+            source_index
+            for source_index in self.sensor_selected_sources
+            if 0 <= source_index < len(self.sensor_rows)
+        }
+        if not selected_sources:
+            wx.MessageBox(
+                "Select one or more PIDs first.",
+                "Live Data Recording",
+                wx.OK | wx.ICON_INFORMATION,
+            )
+            return
+
+        default_name = datetime.datetime.now().strftime("pyobd-session-%Y%m%d-%H%M%S.csv")
+        default_dir = wx.StandardPaths.Get().GetDocumentsDir()
+        dialog = wx.FileDialog(
+            self.frame,
+            "Save Live Data recording",
+            defaultDir=default_dir if os.path.isdir(default_dir) else "",
+            defaultFile=default_name,
+            wildcard="CSV files (*.csv)|*.csv",
+            style=wx.FD_SAVE | wx.FD_OVERWRITE_PROMPT,
+        )
+        try:
+            if dialog.ShowModal() != wx.ID_OK:
+                return
+            path = dialog.GetPath()
+        finally:
+            dialog.Destroy()
+
+        try:
+            self.sensor_record_file = open(path, "w", newline="", encoding="utf-8")
+            self.sensor_record_writer = csv.writer(self.sensor_record_file)
+            self.sensor_record_writer.writerow(
+                ["Timestamp", "Elapsed Seconds", "PID", "Sensor", "Value"]
+            )
+        except OSError as error:
+            if self.sensor_record_file:
+                self.sensor_record_file.close()
+            self.sensor_record_file = None
+            self.sensor_record_writer = None
+            wx.MessageBox(
+                f"Unable to create the recording file.\n\n{error}",
+                "Live Data Recording",
+                wx.OK | wx.ICON_ERROR,
+            )
+            return
+
+        self.sensor_record_sources = selected_sources
+        self.sensor_record_started_at = time.monotonic()
+        self.sensor_record_sample_count = 0
+        self.sensor_record_flush_count = 0
+        self.sensor_record_button.SetLabel("Stop and save")
+        self.sensor_record_button.SetVariant("danger")
+        self.sensor_record_timer.Start(500)
+        self._update_sensor_recording_status()
+
+    def _update_sensor_recording_status(self, event=None):
+        if not self.sensor_record_file or self.sensor_record_started_at is None:
+            return
+        elapsed = max(0, int(time.monotonic() - self.sensor_record_started_at))
+        hours, remainder = divmod(elapsed, 3600)
+        minutes, seconds = divmod(remainder, 60)
+        elapsed_text = (
+            f"{hours:02d}:{minutes:02d}:{seconds:02d}"
+            if hours
+            else f"{minutes:02d}:{seconds:02d}"
+        )
+        self.sensor_record_status_label.SetLabel(
+            f"Recording {elapsed_text}  •  {self.sensor_record_sample_count} samples"
+        )
+        self.sensors_panel.Layout()
+
+    def _record_sensor_value(self, source_index):
+        if (
+            not self.sensor_record_writer
+            or source_index not in self.sensor_record_sources
+            or not 0 <= source_index < len(self.sensor_rows)
+        ):
+            return
+        row = self.sensor_rows[source_index]
+        try:
+            self.sensor_record_writer.writerow([
+                datetime.datetime.now().astimezone().isoformat(timespec="milliseconds"),
+                f"{time.monotonic() - self.sensor_record_started_at:.3f}",
+                row[0],
+                row[1],
+                row[2],
+            ])
+            self.sensor_record_sample_count += 1
+            self.sensor_record_flush_count += 1
+            if self.sensor_record_flush_count >= 25:
+                self.sensor_record_file.flush()
+                self.sensor_record_flush_count = 0
+        except (OSError, ValueError) as error:
+            self._stop_sensor_recording("Recording stopped: unable to write file")
+            wx.MessageBox(
+                f"Unable to continue the recording.\n\n{error}",
+                "Live Data Recording",
+                wx.OK | wx.ICON_ERROR,
+            )
+
+    def _stop_sensor_recording(self, status=None):
+        if not self.sensor_record_file:
+            return
+        if self.sensor_record_timer.IsRunning():
+            self.sensor_record_timer.Stop()
+        recorded_file = self.sensor_record_file
+        sample_count = self.sensor_record_sample_count
+        try:
+            recorded_file.flush()
+            recorded_file.close()
+        except OSError:
+            pass
+        self.sensor_record_file = None
+        self.sensor_record_writer = None
+        self.sensor_record_sources.clear()
+        self.sensor_record_started_at = None
+        self.sensor_record_flush_count = 0
+        self.sensor_record_button.SetLabel("Record selected")
+        self.sensor_record_button.SetVariant("success")
+        self.sensor_record_status_label.SetLabel(
+            status or f"Saved {sample_count} samples"
+        )
+        self.sensors_panel.Layout()
 
     def _schedule_sensor_filter(self, event=None):
         if self._shutdown_started:
@@ -1212,6 +1372,8 @@ class MyApp(GraphUIMixin, wx.App):
         value = str(value)
         changed = self.sensor_rows[source_index][column] != value
         self.sensor_rows[source_index][column] = value
+        if column == 2:
+            self._record_sensor_value(source_index)
 
         query_active = bool(self.sensor_search.GetValue().strip())
         if query_active and column in (0, 1) and changed:
@@ -1778,6 +1940,7 @@ class MyApp(GraphUIMixin, wx.App):
             self.dtc.Append(event.data)
 
     def OnDisconnect(self, event):  # disconnect connection to ECU
+        self._stop_sensor_recording()
         try:
             self.ThreadControl = 666
             time.sleep(0.1)
@@ -2419,6 +2582,7 @@ class MyApp(GraphUIMixin, wx.App):
             return
 
         self._shutdown_started = True
+        self._stop_sensor_recording()
         if self.sensor_filter_timer and self.sensor_filter_timer.IsRunning():
             self.sensor_filter_timer.Stop()
         self.ThreadControl = 666
