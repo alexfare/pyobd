@@ -7,7 +7,7 @@ import wx
 import webbrowser
 
 
-APP_VERSION = "2.2.0"
+APP_VERSION = "2.3.0"
 PROJECT_URL = "https://github.com/alexfare/pyobd"
 RELEASES_URL = f"{PROJECT_URL}/releases/latest"
 ISSUES_URL = f"{PROJECT_URL}/issues"

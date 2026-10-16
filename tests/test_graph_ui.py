@@ -139,7 +139,7 @@ class GraphUITests(unittest.TestCase):
         self.assertEqual(graph.graph_list_ctrl.rows[0][2], "")
 
     def test_about_dialog_describes_pyobd(self):
-        self.assertIn("pyOBD v2.2.0", ABOUT_DIALOG_TEXT)
+        self.assertIn("pyOBD v2.3.0", ABOUT_DIALOG_TEXT)
         self.assertIn("Open-source OBD-II diagnostics", ABOUT_DIALOG_TEXT)
         self.assertIn("Maintained by FareBrothers, LLC", ABOUT_DIALOG_TEXT)
         self.assertIn("GPL-2.0", ABOUT_DIALOG_TEXT)
