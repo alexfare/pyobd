@@ -38,6 +38,8 @@ import serial
 import re
 import json
 import subprocess
+import urllib.error
+import urllib.request
 from serial.tools import list_ports
 import time
 import configparser  # safe application configuration
@@ -75,6 +77,10 @@ ID_DISCONNECT = 507
 ID_HELP_ABOUT = 508
 ID_HELP_VISIT = 509
 ID_HELP_ORDER = 510
+
+APP_VERSION = "2.2.0"
+RELEASE_API_URL = "https://api.github.com/repos/alexfare/pyobd/releases/latest"
+RELEASES_URL = "https://github.com/alexfare/pyobd/releases/latest"
 
 lock = threading.Lock()
 
@@ -566,7 +572,68 @@ class MyApp(DashboardUIMixin, GraphUIMixin, wx.App):
         self._go_to_page(self.DTCpanel)
 
     def OnHomeUpdate(self, event):
-        pass
+        if getattr(self, "update_check_in_progress", False):
+            return
+        self.update_check_in_progress = True
+        self.home_update_button.title.SetLabel("Checking…")
+        self.home_update_button.Layout()
+
+        def check_release():
+            try:
+                request = urllib.request.Request(
+                    RELEASE_API_URL,
+                    headers={"Accept": "application/vnd.github+json", "User-Agent": "pyOBD"},
+                )
+                with urllib.request.urlopen(request, timeout=8) as response:
+                    release = json.loads(response.read().decode("utf-8"))
+                wx.CallAfter(
+                    self._finish_update_check,
+                    release.get("tag_name", ""),
+                    release.get("html_url", RELEASES_URL),
+                    None,
+                )
+            except (OSError, ValueError, urllib.error.URLError) as error:
+                wx.CallAfter(self._finish_update_check, "", RELEASES_URL, str(error))
+
+        threading.Thread(target=check_release, daemon=True).start()
+
+    @staticmethod
+    def _version_numbers(version):
+        numbers = [int(value) for value in re.findall(r"\d+", str(version))[:3]]
+        return tuple((numbers + [0, 0, 0])[:3])
+
+    def _finish_update_check(self, latest_version, release_url, error):
+        try:
+            if not self.frame or self.frame.IsBeingDeleted() or not self.home_update_button:
+                return
+        except RuntimeError:
+            return
+        self.update_check_in_progress = False
+        self.home_update_button.title.SetLabel("Update")
+        self.home_update_button.Layout()
+        if error:
+            wx.MessageBox(
+                f"Unable to check for updates.\n\n{error}",
+                "pyOBD Update", wx.OK | wx.ICON_ERROR,
+            )
+            return
+        if not latest_version:
+            wx.MessageBox(
+                "No published release was found.",
+                "pyOBD Update", wx.OK | wx.ICON_INFORMATION,
+            )
+            return
+        if self._version_numbers(latest_version) > self._version_numbers(APP_VERSION):
+            if wx.MessageBox(
+                f"pyOBD {latest_version} is available. Open the download page?",
+                "Update Available", wx.YES_NO | wx.ICON_INFORMATION,
+            ) == wx.YES:
+                webbrowser.open(release_url)
+            return
+        wx.MessageBox(
+            f"pyOBD {APP_VERSION} is up to date.",
+            "pyOBD Update", wx.OK | wx.ICON_INFORMATION,
+        )
 
     def RefreshTests(self, event=None):
         self.tests_refresh_requested = True
@@ -1208,7 +1275,7 @@ class MyApp(DashboardUIMixin, GraphUIMixin, wx.App):
         )
 
         self.theme = AppTheme()
-        self.frame = wx.Frame(None, -1, "pyOBD v2.2 - Modified by Fare Brothers")
+        self.frame = wx.Frame(None, -1, f"pyOBD v{APP_VERSION} - Modified by Fare Brothers")
         ico = wx.Icon(resource_path('pyobd.png'), wx.BITMAP_TYPE_PNG)
         self.frame.SetIcon(ico)
 
