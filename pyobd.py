@@ -47,6 +47,7 @@ import csv
 from about_ui import ABOUT_DIALOG_TEXT, build_about_page
 from app_events import *
 from debugEvent import *
+from dashboard_ui import DashboardUIMixin
 from graph_ui import GraphUIMixin
 from sensor_worker import SensorProducer
 from obd2_codes import pcodes
@@ -129,7 +130,7 @@ TEST_LABELS = [
 
 
 
-class MyApp(GraphUIMixin, wx.App):
+class MyApp(DashboardUIMixin, GraphUIMixin, wx.App):
     # A listctrl which auto-resizes the column boxes to fill
     class MyListCtrl(wx.ListCtrl, ListCtrlAutoWidthMixin):
         def __init__(self, parent, id, pos=wx.DefaultPosition,
@@ -248,6 +249,7 @@ class MyApp(GraphUIMixin, wx.App):
     def sensor_control_reconnecting(self):
         self._stop_sensor_recording()
         self._set_graph_streaming(False)
+        self._reset_dashboard_values()
         self.settingmenu.Enable(ID_CONFIG, False)
         self.settingmenu.Enable(ID_RESET, False)
         self.settingmenu.Enable(ID_DISCONNECT, True)
@@ -331,6 +333,7 @@ class MyApp(GraphUIMixin, wx.App):
 
         primary_items = [
             ("Overview", self.home_panel),
+            ("Dashboard", self.dashboard_panel),
             ("Live Data", self.sensors_panel),
             ("Diagnostics", self.DTCpanel),
             ("Readiness", self.tests_panel),
@@ -442,6 +445,7 @@ class MyApp(GraphUIMixin, wx.App):
             if title is None:
                 title = {
                     self.home_panel: "Overview",
+                    self.dashboard_panel: "Dashboard",
                     self.sensors_panel: "Live Data",
                     self.DTCpanel: "Diagnostics",
                     self.tests_panel: "Readiness",
@@ -472,51 +476,79 @@ class MyApp(GraphUIMixin, wx.App):
         self.home_panel.SetForegroundColour(self.theme.text)
 
         root_sizer = wx.BoxSizer(wx.VERTICAL)
-        actions_label = wx.StaticText(self.home_panel, label="Quick actions")
-        actions_label.SetForegroundColour(self.theme.text)
-        actions_label.SetFont(self.theme.font(13, bold=True))
         actions = wx.GridBagSizer(12, 12)
 
         self.home_scan_button = self._create_home_tile(
             self.home_panel,
-            "Scan trouble codes",
-            "Read and manage diagnostic trouble codes.",
+            "Dashboard",
+            "",
             self.theme.accent,
             self.theme.accent_hover,
-            self.OnHomeScan,
+            self.OnHomeDashboard,
         )
         self.home_services_button = self._create_home_tile(
             self.home_panel,
-            "View live data",
-            "Monitor real-time vehicle sensor readings.",
+            "Live Data",
+            "",
             self.theme.success,
             self.theme.success_hover,
             self.OnHomeSensors,
         )
         self.home_graphs_button = self._create_home_tile(
             self.home_panel,
-            "Open graphs",
-            "Visualize selected sensor readings over time.",
+            "Graphs",
+            "",
             self.theme.info,
             self.theme.info_hover,
             self.OnHomeGraphs,
         )
+        self.home_readiness_button = self._create_home_tile(
+            self.home_panel,
+            "Readiness",
+            "",
+            self.theme.warning,
+            self.theme.warning.ChangeLightness(85),
+            self.OnHomeReadiness,
+        )
+        self.home_diagnostics_button = self._create_home_tile(
+            self.home_panel,
+            "Diagnostics",
+            "",
+            self.theme.danger,
+            self.theme.danger.ChangeLightness(85),
+            self.OnHomeDiagnostics,
+        )
+        update_colour = wx.Colour(126, 34, 206)
+        self.home_update_button = self._create_home_tile(
+            self.home_panel,
+            "Update",
+            "",
+            update_colour,
+            update_colour.ChangeLightness(85),
+            self.OnHomeUpdate,
+        )
         actions.Add(self.home_scan_button, pos=(0, 0), flag=wx.EXPAND)
         actions.Add(self.home_services_button, pos=(0, 1), flag=wx.EXPAND)
-        actions.Add(self.home_graphs_button, pos=(1, 0), span=(1, 2), flag=wx.EXPAND)
+        actions.Add(self.home_graphs_button, pos=(0, 2), flag=wx.EXPAND)
+        actions.Add(self.home_readiness_button, pos=(1, 0), flag=wx.EXPAND)
+        actions.Add(self.home_diagnostics_button, pos=(1, 1), flag=wx.EXPAND)
+        actions.Add(self.home_update_button, pos=(1, 2), flag=wx.EXPAND)
         actions.AddGrowableCol(0, 1)
         actions.AddGrowableCol(1, 1)
+        actions.AddGrowableCol(2, 1)
         actions.AddGrowableRow(0, 1)
         actions.AddGrowableRow(1, 1)
 
-        root_sizer.Add(actions_label, 0, wx.ALL, 24)
-        root_sizer.Add(actions, 1, wx.EXPAND | wx.LEFT | wx.RIGHT | wx.BOTTOM, 24)
+        root_sizer.Add(actions, 1, wx.EXPAND | wx.ALL, 24)
         self.home_panel.SetSizer(root_sizer)
 
         self.nb.AddPage(self.home_panel, "Home")
 
     def OnHomeScan(self, event):
         self.GetDTC(None)
+
+    def OnHomeDashboard(self, event):
+        self._go_to_page(self.dashboard_panel)
 
     def OnHomeServices(self, event):
         self._go_to_page(self.status)
@@ -526,6 +558,15 @@ class MyApp(GraphUIMixin, wx.App):
 
     def OnHomeGraphs(self, event):
         self._go_to_page(self.graph_panel)
+
+    def OnHomeReadiness(self, event):
+        self._go_to_page(self.tests_panel)
+
+    def OnHomeDiagnostics(self, event):
+        self._go_to_page(self.DTCpanel)
+
+    def OnHomeUpdate(self, event):
+        pass
 
     def RefreshTests(self, event=None):
         self.tests_refresh_requested = True
@@ -549,6 +590,7 @@ class MyApp(GraphUIMixin, wx.App):
 
     def sensor_control_off(self):  # after disconnect disable few buttons
         self._stop_sensor_recording()
+        self._reset_dashboard_values()
         self.dtcmenu.Enable(ID_GETC, False)
         self.dtcmenu.Enable(ID_CLEAR, False)
         self.settingmenu.Enable(ID_DISCONNECT, False)
@@ -1195,6 +1237,7 @@ class MyApp(GraphUIMixin, wx.App):
         EVT_RESULT(self, self.InsertSensorRow, EVT_INSERT_SENSOR_ROW_ID)
         EVT_RESULT(self, self.InsertFreezeframeRow, EVT_INSERT_FREEZEFRAME_ROW_ID)
         EVT_RESULT(self, self.OnFreezeframeResult, EVT_FREEZEFRAME_RESULT_ID)
+        EVT_RESULT(self, self.OnDashboardValues, EVT_DASHBOARD_VALUES_ID)
 
         # Main application shell and page container.
         self.shell_panel = wx.Panel(self.frame)
@@ -1286,6 +1329,7 @@ class MyApp(GraphUIMixin, wx.App):
         self.TraceDebug(1, "Application started")
         self.about_panel = build_about_page(self.nb)
         self.build_home_page()
+        self.build_dashboard_page()
 
         self._build_sidebar()
         self._build_content_header()

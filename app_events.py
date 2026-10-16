@@ -27,6 +27,7 @@ EVT_GRAPHS8_VALUE_ID = 1051
 EVT_BUILD_COMBOBOXGRAPHS8_ID = 1102
 EVT_COMBOBOXGRAPHS8_GETSELECTION_ID = 1105
 EVT_COMBOBOXGRAPHS8_SETSELECTION_ID = 1106
+EVT_DASHBOARD_VALUES_ID = 1107
 
 
 def EVT_RESULT(window, handler, event_id):
@@ -82,4 +83,5 @@ DTCEvent = _event_class("DTCEvent", EVT_DTC_ID)
 StatusEvent = _event_class("StatusEvent", EVT_STATUS_ID)
 CloseEvent = _event_class("CloseEvent", EVT_CLOSE_ID)
 TestEvent = _event_class("TestEvent", EVT_TESTS_ID)
+DashboardValuesEvent = _event_class("DashboardValuesEvent", EVT_DASHBOARD_VALUES_ID)
 
