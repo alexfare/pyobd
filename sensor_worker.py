@@ -205,6 +205,7 @@ class SensorProducer(threading.Thread):
         self.graph_dirty8_6 = False
         self.graph_dirty8_7 = False
         self.graph_dirty8_8 = False
+        self.dashboard_last_emit_at = 0.0
         #sensor_list = []
         misfire_cylinder_supported = True
         first_time=True
@@ -1624,6 +1625,32 @@ class SensorProducer(threading.Thread):
                 if r.value == None:
                     reconnect()
                     continue
+            elif (
+                hasattr(self._notify_window, "dashboard_page_index")
+                and curstate == self._notify_window.dashboard_page_index
+            ):
+                dashboard_now = time.monotonic()
+                if (
+                    dashboard_now - self.dashboard_last_emit_at >= 0.2
+                    and not self._notify_window.dashboard_event_pending
+                ):
+                    values = []
+                    for command in list(self._notify_window.dashboard_poll_commands):
+                        response = self.connection.connection.query(command)
+                        if response.value is None:
+                            continue
+                        magnitude, unit, value_text = self._notify_window.get_measurement_components(
+                            response.value
+                        )
+                        values.append({
+                            "pid": command.command.decode(errors="ignore").upper(),
+                            "magnitude": magnitude,
+                            "unit": unit,
+                            "text": value_text,
+                        })
+                    self._notify_window.dashboard_event_pending = True
+                    wx.PostEvent(self._notify_window, DashboardValuesEvent(values))
+                    self.dashboard_last_emit_at = dashboard_now
             time_end = datetime.datetime.now()
             first_time = False
 

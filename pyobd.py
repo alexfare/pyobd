@@ -47,6 +47,7 @@ import csv
 from about_ui import ABOUT_DIALOG_TEXT, build_about_page
 from app_events import *
 from debugEvent import *
+from dashboard_ui import DashboardUIMixin
 from graph_ui import GraphUIMixin
 from sensor_worker import SensorProducer
 from obd2_codes import pcodes
@@ -129,7 +130,7 @@ TEST_LABELS = [
 
 
 
-class MyApp(GraphUIMixin, wx.App):
+class MyApp(DashboardUIMixin, GraphUIMixin, wx.App):
     # A listctrl which auto-resizes the column boxes to fill
     class MyListCtrl(wx.ListCtrl, ListCtrlAutoWidthMixin):
         def __init__(self, parent, id, pos=wx.DefaultPosition,
@@ -248,6 +249,7 @@ class MyApp(GraphUIMixin, wx.App):
     def sensor_control_reconnecting(self):
         self._stop_sensor_recording()
         self._set_graph_streaming(False)
+        self._reset_dashboard_values()
         self.settingmenu.Enable(ID_CONFIG, False)
         self.settingmenu.Enable(ID_RESET, False)
         self.settingmenu.Enable(ID_DISCONNECT, True)
@@ -331,6 +333,7 @@ class MyApp(GraphUIMixin, wx.App):
 
         primary_items = [
             ("Overview", self.home_panel),
+            ("Dashboard", self.dashboard_panel),
             ("Live Data", self.sensors_panel),
             ("Diagnostics", self.DTCpanel),
             ("Readiness", self.tests_panel),
@@ -442,6 +445,7 @@ class MyApp(GraphUIMixin, wx.App):
             if title is None:
                 title = {
                     self.home_panel: "Overview",
+                    self.dashboard_panel: "Dashboard",
                     self.sensors_panel: "Live Data",
                     self.DTCpanel: "Diagnostics",
                     self.tests_panel: "Readiness",
@@ -549,6 +553,7 @@ class MyApp(GraphUIMixin, wx.App):
 
     def sensor_control_off(self):  # after disconnect disable few buttons
         self._stop_sensor_recording()
+        self._reset_dashboard_values()
         self.dtcmenu.Enable(ID_GETC, False)
         self.dtcmenu.Enable(ID_CLEAR, False)
         self.settingmenu.Enable(ID_DISCONNECT, False)
@@ -1195,6 +1200,7 @@ class MyApp(GraphUIMixin, wx.App):
         EVT_RESULT(self, self.InsertSensorRow, EVT_INSERT_SENSOR_ROW_ID)
         EVT_RESULT(self, self.InsertFreezeframeRow, EVT_INSERT_FREEZEFRAME_ROW_ID)
         EVT_RESULT(self, self.OnFreezeframeResult, EVT_FREEZEFRAME_RESULT_ID)
+        EVT_RESULT(self, self.OnDashboardValues, EVT_DASHBOARD_VALUES_ID)
 
         # Main application shell and page container.
         self.shell_panel = wx.Panel(self.frame)
@@ -1286,6 +1292,7 @@ class MyApp(GraphUIMixin, wx.App):
         self.TraceDebug(1, "Application started")
         self.about_panel = build_about_page(self.nb)
         self.build_home_page()
+        self.build_dashboard_page()
 
         self._build_sidebar()
         self._build_content_header()
