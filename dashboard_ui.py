@@ -63,7 +63,7 @@ class DashboardTile(wx.Control):
             graphics.DrawRoundedRectangle(2, 2, width - 4, height - 4, 18)
         del graphics
 
-        self._draw_centered(dc, self.widget.get("title") or self.widget["pid"], 14, 11, True)
+        self._draw_fitted_title(dc, self.widget.get("title") or self.widget["pid"], width)
         display = self.widget.get("type", "Digital")
         if display in ("Dial", "Combined"):
             self._draw_dial(dc, width, height, accent, display == "Combined")
@@ -83,6 +83,41 @@ class DashboardTile(wx.Control):
         text_width, _ = dc.GetTextExtent(text)
         dc.DrawText(text, max(8, (self.GetClientSize().width - text_width) // 2), y)
 
+    def _draw_fitted_title(self, dc, text, width):
+        text = str(text).strip()
+        max_width = max(60, width - 36)
+        for size in range(11, 6, -1):
+            dc.SetFont(self.owner.theme.font(size, bold=True))
+            words = text.split()
+            lines = []
+            current = ""
+            for word in words:
+                candidate = f"{current} {word}".strip()
+                candidate_width, _ = dc.GetTextExtent(candidate)
+                if current and candidate_width > max_width:
+                    lines.append(current)
+                    current = word
+                else:
+                    current = candidate
+            if current:
+                lines.append(current)
+            line_widths = [dc.GetTextExtent(line)[0] for line in lines]
+            if len(lines) <= 2 and all(line_width <= max_width for line_width in line_widths):
+                break
+        lines = lines[:2]
+        if lines:
+            last_line = len(lines) - 1
+            while lines[last_line] and dc.GetTextExtent(f"{lines[last_line]}…")[0] > max_width:
+                lines[last_line] = lines[last_line][:-1]
+            if lines[last_line] != text and (
+                len(lines) == 1 or " ".join(lines) != text
+            ):
+                lines[last_line] += "…"
+        dc.SetTextForeground(self.owner.theme.text)
+        for index, line in enumerate(lines):
+            text_width, text_height = dc.GetTextExtent(line)
+            dc.DrawText(line, max(8, (width - text_width) // 2), 10 + index * text_height)
+
     def _draw_dial(self, dc, width, height, accent, show_center):
         center_x = width // 2
         center_y = max(62, height // 2 + 10)
@@ -90,14 +125,23 @@ class DashboardTile(wx.Control):
         minimum = float(self.widget.get("minimum", 0))
         maximum = float(self.widget.get("maximum", 100))
         span = max(0.0001, maximum - minimum)
+        divisions = max(2, min(20, int(self.widget.get("divisions", 10))))
         dc.SetPen(wx.Pen(self.owner.theme.border, 2))
-        for step in range(11):
-            angle = math.radians(135 + (270 * step / 10))
+        dc.SetFont(self.owner.theme.font(7))
+        dc.SetTextForeground(self.owner.theme.muted)
+        for step in range(divisions + 1):
+            angle = math.radians(135 + (270 * step / divisions))
             outer_x = center_x + int(math.cos(angle) * radius)
             outer_y = center_y + int(math.sin(angle) * radius)
             inner_x = center_x + int(math.cos(angle) * (radius - 9))
             inner_y = center_y + int(math.sin(angle) * (radius - 9))
             dc.DrawLine(inner_x, inner_y, outer_x, outer_y)
+            label = f"{minimum + span * step / divisions:g}"
+            label_width, label_height = dc.GetTextExtent(label)
+            label_radius = radius - 22
+            label_x = center_x + int(math.cos(angle) * label_radius) - label_width // 2
+            label_y = center_y + int(math.sin(angle) * label_radius) - label_height // 2
+            dc.DrawText(label, label_x, label_y)
 
         if self.primary_magnitude is not None:
             value = max(minimum, min(maximum, float(self.primary_magnitude)))
@@ -112,12 +156,6 @@ class DashboardTile(wx.Control):
 
         if show_center:
             self._draw_centered(dc, self.center_text, center_y + 10, 13, True)
-        dc.SetFont(self.owner.theme.font(8))
-        dc.SetTextForeground(self.owner.theme.muted)
-        dc.DrawText(f"{minimum:g}", 16, height - 28)
-        maximum_text = f"{maximum:g}"
-        maximum_width, _ = dc.GetTextExtent(maximum_text)
-        dc.DrawText(maximum_text, width - maximum_width - 16, height - 28)
 
     def _event_screen_position(self, event):
         return self.ClientToScreen(event.GetPosition())
@@ -195,6 +233,7 @@ class DashboardUIMixin:
             "id": str(time.time_ns()), "pid": pid, "center_pid": center_pid,
             "title": title, "type": display, "shape": shape, "colour": colour,
             "minimum": minimum, "maximum": maximum,
+            "divisions": 10,
             "x": x, "y": y, "width": width, "height": height,
         }
 
@@ -225,6 +264,7 @@ class DashboardUIMixin:
                     widget["type"] = "Dial"
                 widget.setdefault("shape", "Rounded")
                 widget.setdefault("center_pid", "")
+                widget.setdefault("divisions", 10)
                 widget.setdefault("x", 20 + (index % 3) * 290)
                 widget.setdefault("y", 20 + (index // 3) * 200)
                 widget.setdefault("width", width)
@@ -403,16 +443,26 @@ class DashboardUIMixin:
         height_ctrl = wx.SpinCtrl(dialog, min=100, max=600, initial=180)
         minimum_ctrl = wx.TextCtrl(dialog, value="0")
         maximum_ctrl = wx.TextCtrl(dialog, value="100")
-        controls = [
-            ("Main PID", pid_choice), ("Center PID", center_pid_choice),
-            ("Title", title_ctrl), ("Display", type_choice),
-            ("Shape", shape_choice), ("Colour", colour_choice),
-            ("Width", width_ctrl), ("Height", height_ctrl),
-            ("Dial minimum", minimum_ctrl), ("Dial maximum", maximum_ctrl),
-        ]
-        for label, control in controls:
-            grid.Add(wx.StaticText(dialog, label=label), 0, wx.ALIGN_CENTER_VERTICAL)
+        divisions_ctrl = wx.SpinCtrl(dialog, min=2, max=20, initial=10)
+        rows = {}
+
+        def add_row(key, label, control):
+            label_control = wx.StaticText(dialog, label=label)
+            grid.Add(label_control, 0, wx.ALIGN_CENTER_VERTICAL)
             grid.Add(control, 1, wx.EXPAND)
+            rows[key] = (label_control, control)
+
+        add_row("pid", "Main PID", pid_choice)
+        add_row("title", "Widget name", title_ctrl)
+        add_row("display", "Display", type_choice)
+        add_row("center_pid", "Center PID", center_pid_choice)
+        add_row("shape", "Shape", shape_choice)
+        add_row("colour", "Colour", colour_choice)
+        add_row("width", "Width", width_ctrl)
+        add_row("height", "Height", height_ctrl)
+        add_row("minimum", "Dial minimum", minimum_ctrl)
+        add_row("maximum", "Dial maximum", maximum_ctrl)
+        add_row("divisions", "Dial divisions", divisions_ctrl)
         if widget:
             pid = str(widget.get("pid", "")).upper()
             pid_choice.SetSelection(keys.index(pid) if pid in keys else 0)
@@ -426,12 +476,30 @@ class DashboardUIMixin:
             height_ctrl.SetValue(int(widget.get("height", 180)))
             minimum_ctrl.SetValue(str(widget.get("minimum", 0)))
             maximum_ctrl.SetValue(str(widget.get("maximum", 100)))
+            divisions_ctrl.SetValue(int(widget.get("divisions", 10)))
         else:
             pid_choice.SetSelection(keys.index("010C") if "010C" in keys else 0)
             center_pid_choice.SetSelection(0)
             type_choice.SetStringSelection("Digital")
             shape_choice.SetStringSelection("Rounded")
             colour_choice.SetStringSelection("Blue")
+
+        def update_display_rows(_event=None):
+            display = type_choice.GetStringSelection()
+            visibility = {
+                "center_pid": display == "Combined",
+                "minimum": display in ("Dial", "Combined"),
+                "maximum": display in ("Dial", "Combined"),
+                "divisions": display in ("Dial", "Combined"),
+            }
+            for key, visible in visibility.items():
+                for control in rows[key]:
+                    control.Show(visible)
+            dialog.Layout()
+            dialog.Fit()
+
+        type_choice.Bind(wx.EVT_CHOICE, update_display_rows)
+        update_display_rows()
         buttons = dialog.CreateStdDialogButtonSizer(wx.OK | wx.CANCEL)
         root.Add(grid, 1, wx.EXPAND | wx.ALL, 16)
         root.Add(buttons, 0, wx.EXPAND | wx.LEFT | wx.RIGHT | wx.BOTTOM, 16)
@@ -466,6 +534,7 @@ class DashboardUIMixin:
             "colour": colour_choice.GetStringSelection(),
             "width": width, "height": height,
             "minimum": minimum, "maximum": maximum,
+            "divisions": divisions_ctrl.GetValue(),
         }
         dialog.Destroy()
         return result
