@@ -476,51 +476,79 @@ class MyApp(DashboardUIMixin, GraphUIMixin, wx.App):
         self.home_panel.SetForegroundColour(self.theme.text)
 
         root_sizer = wx.BoxSizer(wx.VERTICAL)
-        actions_label = wx.StaticText(self.home_panel, label="Quick actions")
-        actions_label.SetForegroundColour(self.theme.text)
-        actions_label.SetFont(self.theme.font(13, bold=True))
         actions = wx.GridBagSizer(12, 12)
 
         self.home_scan_button = self._create_home_tile(
             self.home_panel,
-            "Scan trouble codes",
-            "Read and manage diagnostic trouble codes.",
+            "Dashboard",
+            "",
             self.theme.accent,
             self.theme.accent_hover,
-            self.OnHomeScan,
+            self.OnHomeDashboard,
         )
         self.home_services_button = self._create_home_tile(
             self.home_panel,
-            "View live data",
-            "Monitor real-time vehicle sensor readings.",
+            "Live Data",
+            "",
             self.theme.success,
             self.theme.success_hover,
             self.OnHomeSensors,
         )
         self.home_graphs_button = self._create_home_tile(
             self.home_panel,
-            "Open graphs",
-            "Visualize selected sensor readings over time.",
+            "Graphs",
+            "",
             self.theme.info,
             self.theme.info_hover,
             self.OnHomeGraphs,
         )
+        self.home_readiness_button = self._create_home_tile(
+            self.home_panel,
+            "Readiness",
+            "",
+            self.theme.warning,
+            self.theme.warning.ChangeLightness(85),
+            self.OnHomeReadiness,
+        )
+        self.home_diagnostics_button = self._create_home_tile(
+            self.home_panel,
+            "Diagnostics",
+            "",
+            self.theme.danger,
+            self.theme.danger.ChangeLightness(85),
+            self.OnHomeDiagnostics,
+        )
+        update_colour = wx.Colour(126, 34, 206)
+        self.home_update_button = self._create_home_tile(
+            self.home_panel,
+            "Update",
+            "",
+            update_colour,
+            update_colour.ChangeLightness(85),
+            self.OnHomeUpdate,
+        )
         actions.Add(self.home_scan_button, pos=(0, 0), flag=wx.EXPAND)
         actions.Add(self.home_services_button, pos=(0, 1), flag=wx.EXPAND)
-        actions.Add(self.home_graphs_button, pos=(1, 0), span=(1, 2), flag=wx.EXPAND)
+        actions.Add(self.home_graphs_button, pos=(0, 2), flag=wx.EXPAND)
+        actions.Add(self.home_readiness_button, pos=(1, 0), flag=wx.EXPAND)
+        actions.Add(self.home_diagnostics_button, pos=(1, 1), flag=wx.EXPAND)
+        actions.Add(self.home_update_button, pos=(1, 2), flag=wx.EXPAND)
         actions.AddGrowableCol(0, 1)
         actions.AddGrowableCol(1, 1)
+        actions.AddGrowableCol(2, 1)
         actions.AddGrowableRow(0, 1)
         actions.AddGrowableRow(1, 1)
 
-        root_sizer.Add(actions_label, 0, wx.ALL, 24)
-        root_sizer.Add(actions, 1, wx.EXPAND | wx.LEFT | wx.RIGHT | wx.BOTTOM, 24)
+        root_sizer.Add(actions, 1, wx.EXPAND | wx.ALL, 24)
         self.home_panel.SetSizer(root_sizer)
 
         self.nb.AddPage(self.home_panel, "Home")
 
     def OnHomeScan(self, event):
         self.GetDTC(None)
+
+    def OnHomeDashboard(self, event):
+        self._go_to_page(self.dashboard_panel)
 
     def OnHomeServices(self, event):
         self._go_to_page(self.status)
@@ -530,6 +558,15 @@ class MyApp(DashboardUIMixin, GraphUIMixin, wx.App):
 
     def OnHomeGraphs(self, event):
         self._go_to_page(self.graph_panel)
+
+    def OnHomeReadiness(self, event):
+        self._go_to_page(self.tests_panel)
+
+    def OnHomeDiagnostics(self, event):
+        self._go_to_page(self.DTCpanel)
+
+    def OnHomeUpdate(self, event):
+        pass
 
     def RefreshTests(self, event=None):
         self.tests_refresh_requested = True
