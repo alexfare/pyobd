@@ -1,5 +1,7 @@
 """Graph page UI and interaction logic for pyOBD."""
 
+import json
+
 import wx
 from wx.lib import plot as wxplot
 
@@ -26,6 +28,150 @@ class GraphUIMixin:
         ]
         self.selected_graph_commands = []
         self.isolated_graph_command_key = None
+
+    def _load_graph_presets(self):
+        try:
+            saved = json.loads(self.config.get("pyOBD", "GRAPH_PRESETS", fallback="{}"))
+        except (TypeError, ValueError):
+            saved = {}
+        self.graph_presets = {
+            str(name): [str(command) for command in commands]
+            for name, commands in saved.items()
+            if str(name).strip() and isinstance(commands, list)
+        } if isinstance(saved, dict) else {}
+
+    def _save_graph_presets(self):
+        if not self.config.has_section("pyOBD"):
+            self.config.add_section("pyOBD")
+        self.config.set("pyOBD", "GRAPH_PRESETS", json.dumps(self.graph_presets, sort_keys=True))
+        try:
+            with open(self.configfilepath, "w", encoding="utf-8") as config_file:
+                self.config.write(config_file)
+        except OSError as error:
+            wx.MessageBox(
+                f"Unable to save graph presets.\n\n{error}",
+                "Graph Presets",
+                wx.OK | wx.ICON_ERROR,
+            )
+            return False
+        return True
+
+    def _refresh_graph_preset_choice(self, selected_name=None):
+        names = sorted(self.graph_presets, key=str.casefold)
+        self.graph_preset_choice.Set(["Select preset"] + names)
+        if selected_name in names:
+            self.graph_preset_choice.SetSelection(names.index(selected_name) + 1)
+        else:
+            self.graph_preset_choice.SetSelection(0)
+
+    def _selected_graph_preset_name(self):
+        return (
+            self.graph_preset_choice.GetStringSelection()
+            if self.graph_preset_choice.GetSelection() > 0
+            else None
+        )
+
+    def _apply_graph_preset(self, name):
+        catalog = {
+            command.command.decode(errors="ignore").upper(): command
+            for command in self.graph_command_catalog
+        }
+        commands = []
+        seen = set()
+        for key in self.graph_presets.get(name, []):
+            command = catalog.get(key.upper())
+            if command and command.command not in seen:
+                commands.append(command)
+                seen.add(command.command)
+        self.selected_graph_commands = commands
+        self.isolated_graph_command_key = None
+        self._refresh_graph_selection_ui()
+
+    def OnGraphPresetSelected(self, _event):
+        name = self._selected_graph_preset_name()
+        if name:
+            self._apply_graph_preset(name)
+
+    def _save_current_graph_preset(self, _event=None):
+        if not self.selected_graph_commands:
+            wx.MessageBox(
+                "Add at least one PID before saving a preset.",
+                "Graph Presets",
+                wx.OK | wx.ICON_INFORMATION,
+            )
+            return
+        current_name = self._selected_graph_preset_name() or ""
+        dialog = wx.TextEntryDialog(self.frame, "Preset name:", "Save Graph Preset", current_name)
+        try:
+            if dialog.ShowModal() != wx.ID_OK:
+                return
+            name = dialog.GetValue().strip()
+        finally:
+            dialog.Destroy()
+        if not name:
+            return
+        if name in self.graph_presets and wx.MessageBox(
+            f'Replace the existing preset "{name}"?',
+            "Graph Presets",
+            wx.YES_NO | wx.NO_DEFAULT | wx.ICON_QUESTION,
+        ) != wx.YES:
+            return
+        self.graph_presets[name] = [
+            command.command.decode(errors="ignore")
+            for command in self.selected_graph_commands
+        ]
+        if self._save_graph_presets():
+            self._refresh_graph_preset_choice(name)
+
+    def _rename_graph_preset(self, _event=None):
+        old_name = self._selected_graph_preset_name()
+        if not old_name:
+            return
+        dialog = wx.TextEntryDialog(self.frame, "Preset name:", "Rename Graph Preset", old_name)
+        try:
+            if dialog.ShowModal() != wx.ID_OK:
+                return
+            new_name = dialog.GetValue().strip()
+        finally:
+            dialog.Destroy()
+        if not new_name or new_name == old_name:
+            return
+        if new_name in self.graph_presets:
+            wx.MessageBox(
+                "A preset with that name already exists.",
+                "Graph Presets",
+                wx.OK | wx.ICON_INFORMATION,
+            )
+            return
+        self.graph_presets[new_name] = self.graph_presets.pop(old_name)
+        if self._save_graph_presets():
+            self._refresh_graph_preset_choice(new_name)
+
+    def _delete_graph_preset(self, _event=None):
+        name = self._selected_graph_preset_name()
+        if not name or wx.MessageBox(
+            f'Delete the preset "{name}"?',
+            "Graph Presets",
+            wx.YES_NO | wx.NO_DEFAULT | wx.ICON_QUESTION,
+        ) != wx.YES:
+            return
+        del self.graph_presets[name]
+        if self._save_graph_presets():
+            self._refresh_graph_preset_choice()
+
+    def OnManageGraphPresets(self, _event):
+        menu = wx.Menu()
+        save_item = menu.Append(wx.ID_ANY, "Save current as…")
+        rename_item = menu.Append(wx.ID_ANY, "Rename selected")
+        delete_item = menu.Append(wx.ID_ANY, "Delete selected")
+        has_selection = self._selected_graph_preset_name() is not None
+        rename_item.Enable(has_selection)
+        delete_item.Enable(has_selection)
+        self.graph_preset_button.Bind(wx.EVT_MENU, self._save_current_graph_preset, save_item)
+        self.graph_preset_button.Bind(wx.EVT_MENU, self._rename_graph_preset, rename_item)
+        self.graph_preset_button.Bind(wx.EVT_MENU, self._delete_graph_preset, delete_item)
+        self.graph_preset_button.PopupMenu(menu)
+        menu.Destroy()
 
     def _set_graph_streaming(self, enabled):
         self.graph_streaming_enabled = bool(enabled)
@@ -303,6 +449,12 @@ class GraphUIMixin:
         self.graph_play_button = ModernButton(
             self.graph_panel, "Play", self.theme, variant="success"
         )
+        self.graph_preset_choice = wx.Choice(self.graph_panel, choices=["Select preset"])
+        self.graph_preset_choice.SetMinSize((170, 40))
+        self.graph_preset_button = ModernButton(
+            self.graph_panel, "Manage", self.theme, variant="secondary"
+        )
+        self.graph_preset_button.SetToolTip("Save, rename, or delete graph presets")
         self.graph_view_button = ModernButton(
             self.graph_panel, "▦", self.theme, variant="secondary", size=(48, 42)
         )
@@ -315,6 +467,8 @@ class GraphUIMixin:
         toolbar.Add(self.remove_graph_pid_button, 0, wx.RIGHT, 8)
         toolbar.Add(self.graph_play_button, 0, wx.RIGHT, 16)
         toolbar.AddStretchSpacer(1)
+        toolbar.Add(self.graph_preset_choice, 0, wx.ALIGN_CENTER_VERTICAL | wx.RIGHT, 8)
+        toolbar.Add(self.graph_preset_button, 0, wx.RIGHT, 8)
         toolbar.Add(self.graph_view_button, 0, wx.ALIGN_CENTER_VERTICAL)
 
         self.graph_list_ctrl = self.MyListCtrl(
@@ -341,11 +495,15 @@ class GraphUIMixin:
         self.graph_panel.SetSizer(root)
 
         self._build_graph_command_catalog()
+        self._load_graph_presets()
+        self._refresh_graph_preset_choice()
         self.graph_streaming_enabled = False
         self.graph_interaction_paused = False
         self.add_graph_pid_button.Bind(wx.EVT_BUTTON, self.OnAddGraphPid)
         self.remove_graph_pid_button.Bind(wx.EVT_BUTTON, self.OnRemoveGraphPid)
         self.graph_play_button.Bind(wx.EVT_BUTTON, self.OnToggleGraphStreaming)
+        self.graph_preset_choice.Bind(wx.EVT_CHOICE, self.OnGraphPresetSelected)
+        self.graph_preset_button.Bind(wx.EVT_BUTTON, self.OnManageGraphPresets)
         self.graph_view_button.Bind(wx.EVT_BUTTON, self.OnGraphViewToggle)
         self.graph_list_ctrl.Bind(wx.EVT_LEFT_DOWN, self.OnGraphListClick)
         self.graph_list_ctrl.Bind(wx.EVT_LIST_ITEM_RIGHT_CLICK, self.OnGraphListRightClick)

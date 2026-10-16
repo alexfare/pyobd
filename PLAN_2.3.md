@@ -12,8 +12,8 @@ v2.2 release validation remains on the v2.2 branch. v2.3 development assumes the
 
 ## Next
 
-- [ ] Save named PID and graph presets.
-- [ ] Restore a preset without duplicating graph entries.
+- [x] Save named PID and graph presets.
+- [x] Restore a preset without duplicating graph entries.
 - [ ] Improve connection-loss detection and recovery.
 - [ ] Add vehicle profiles and recent-session history.
 - [ ] Complete another cross-platform interface consistency pass.
