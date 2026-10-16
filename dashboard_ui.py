@@ -691,11 +691,109 @@ class DashboardUIMixin:
         rename_item = menu.Append(wx.ID_ANY, "Rename dashboard")
         delete_item = menu.Append(wx.ID_ANY, "Delete dashboard")
         delete_item.Enable(len(self.dashboard_layouts) > 1)
+        menu.AppendSeparator()
+        import_item = menu.Append(wx.ID_ANY, "Import layouts")
+        export_item = menu.Append(wx.ID_ANY, "Export layouts")
         menu.Bind(wx.EVT_MENU, self._new_dashboard, new_item)
         menu.Bind(wx.EVT_MENU, self._rename_dashboard, rename_item)
         menu.Bind(wx.EVT_MENU, self._delete_dashboard, delete_item)
+        menu.Bind(wx.EVT_MENU, self._import_dashboard_layouts, import_item)
+        menu.Bind(wx.EVT_MENU, self._export_dashboard_layouts, export_item)
         self.dashboard_manage_button.PopupMenu(menu)
         menu.Destroy()
+
+    def _export_dashboard_layouts(self, _event=None):
+        dialog = wx.FileDialog(
+            self.frame,
+            "Export Dashboard Layouts",
+            defaultFile="pyobd-dashboard-layouts.json",
+            wildcard="JSON files (*.json)|*.json",
+            style=wx.FD_SAVE | wx.FD_OVERWRITE_PROMPT,
+        )
+        try:
+            if dialog.ShowModal() != wx.ID_OK:
+                return
+            payload = {
+                "format": "pyobd-dashboard-layouts",
+                "version": 1,
+                "current": self.dashboard_current,
+                "layouts": self.dashboard_layouts,
+            }
+            with open(dialog.GetPath(), "w", encoding="utf-8") as export_file:
+                json.dump(payload, export_file, indent=2)
+        except OSError as error:
+            wx.MessageBox(
+                f"Unable to export dashboard layouts.\n\n{error}",
+                "Dashboard", wx.OK | wx.ICON_ERROR,
+            )
+        finally:
+            dialog.Destroy()
+
+    def _import_dashboard_layouts(self, _event=None):
+        dialog = wx.FileDialog(
+            self.frame,
+            "Import Dashboard Layouts",
+            wildcard="JSON files (*.json)|*.json",
+            style=wx.FD_OPEN | wx.FD_FILE_MUST_EXIST,
+        )
+        try:
+            if dialog.ShowModal() != wx.ID_OK:
+                return
+            with open(dialog.GetPath(), "r", encoding="utf-8") as import_file:
+                payload = json.load(import_file)
+        except (OSError, ValueError) as error:
+            wx.MessageBox(
+                f"Unable to import dashboard layouts.\n\n{error}",
+                "Dashboard", wx.OK | wx.ICON_ERROR,
+            )
+            return
+        finally:
+            dialog.Destroy()
+
+        layouts = payload.get("layouts") if isinstance(payload, dict) else None
+        if not isinstance(layouts, dict) or not layouts:
+            wx.MessageBox(
+                "This file does not contain valid pyOBD dashboard layouts.",
+                "Dashboard", wx.OK | wx.ICON_ERROR,
+            )
+            return
+        valid_layouts = {
+            str(name): layout
+            for name, layout in layouts.items()
+            if str(name).strip()
+            and isinstance(layout, dict)
+            and isinstance(layout.get("widgets"), list)
+            and all(
+                isinstance(widget, dict) and str(widget.get("pid", "")).strip()
+                for widget in layout["widgets"]
+            )
+        }
+        if not valid_layouts:
+            wx.MessageBox(
+                "No valid dashboard layouts were found.",
+                "Dashboard", wx.OK | wx.ICON_ERROR,
+            )
+            return
+        duplicates = set(valid_layouts).intersection(self.dashboard_layouts)
+        if duplicates and wx.MessageBox(
+            "Replace existing dashboards with the same names?",
+            "Import Dashboard Layouts",
+            wx.YES_NO | wx.NO_DEFAULT | wx.ICON_QUESTION,
+        ) != wx.YES:
+            valid_layouts = {
+                name: layout for name, layout in valid_layouts.items()
+                if name not in duplicates
+            }
+        if not valid_layouts:
+            return
+        self.dashboard_layouts.update(valid_layouts)
+        imported_current = payload.get("current")
+        if imported_current in valid_layouts:
+            self.dashboard_current = imported_current
+        self._migrate_dashboard_layouts()
+        self._save_dashboard_layouts()
+        self._refresh_dashboard_choices()
+        self._rebuild_dashboard()
 
     def OnDashboardValues(self, event):
         try:
