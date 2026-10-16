@@ -117,6 +117,8 @@ class _DemoConnection:
     def __init__(self, baudrate=None):
         self._start = time.time()
         self._dtc_active = [("P0301", "Cylinder 1 Misfire Detected")]
+        self._dtc_pending = [("P0171", "System Too Lean (Bank 1)")]
+        self._dtc_permanent = [("P0420", "Catalyst System Efficiency Below Threshold")]
         self._freeze_dtc = ("P0301", "Cylinder 1 Misfire Detected")
         self.interface = _FakeInterface(baudrate)
 
@@ -179,10 +181,15 @@ class _DemoConnection:
         # Mode 03/07/04 DTC handling
         if command == obd.commands.GET_DTC:
             return _FakeResponse(list(self._dtc_active))
+        if command == obd.commands.GET_CURRENT_DTC:
+            return _FakeResponse(list(self._dtc_pending))
+        if command == obd.commands.GET_PERMANENT_DTC:
+            return _FakeResponse(list(self._dtc_permanent))
         if command == obd.commands.FREEZE_DTC:
             return _FakeResponse(self._freeze_dtc)
         if command == obd.commands["CLEAR_DTC"]:
             self._dtc_active = []
+            self._dtc_pending = []
             self._freeze_dtc = ("P0000", "No stored freeze code")
             return _FakeResponse("OK")
 

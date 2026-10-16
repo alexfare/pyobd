@@ -15,6 +15,22 @@ from app_events import *
 from debugEvent import DebugEvent
 from obd.utils import OBDStatus
 
+READINESS_MONITORS = (
+    "MISFIRE_MONITORING", "FUEL_SYSTEM_MONITORING", "COMPONENT_MONITORING",
+    "CATALYST_MONITORING", "HEATED_CATALYST_MONITORING",
+    "EVAPORATIVE_SYSTEM_MONITORING", "SECONDARY_AIR_SYSTEM_MONITORING",
+    "OXYGEN_SENSOR_MONITORING", "OXYGEN_SENSOR_HEATER_MONITORING",
+    "EGR_VVT_SYSTEM_MONITORING", "NMHC_CATALYST_MONITORING",
+    "NOX_SCR_AFTERTREATMENT_MONITORING", "BOOST_PRESSURE_MONITORING",
+    "EXHAUST_GAS_SENSOR_MONITORING", "PM_FILTER_MONITORING",
+)
+
+DTC_CATEGORIES = (
+    ("Stored", obd.commands.GET_DTC),
+    ("Pending", obd.commands.GET_CURRENT_DTC),
+    ("Permanent", obd.commands.GET_PERMANENT_DTC),
+)
+
 
 class SensorProducer(threading.Thread):
     @staticmethod
@@ -26,6 +42,47 @@ class SensorProducer(threading.Thread):
         if isolated_key is None:
             return list(commands)
         return [command for command in commands if command.command == isolated_key]
+
+    @staticmethod
+    def _readiness_results(status_value):
+        counts = {"ready": 0, "not_ready": 0, "unsupported": 0}
+        results = []
+        for index, name in enumerate(READINESS_MONITORS):
+            monitor = getattr(status_value, name, None) if status_value is not None else None
+            supported = bool(monitor and monitor.available)
+            if not supported:
+                status = "Unsupported"
+                counts["unsupported"] += 1
+            elif monitor.complete:
+                status = "Ready"
+                counts["ready"] += 1
+            else:
+                status = "Not ready"
+                counts["not_ready"] += 1
+            results.append({
+                "kind": "readiness", "index": index,
+                "supported": supported, "status": status,
+            })
+        return results, counts
+
+    @staticmethod
+    def _misfire_result(value):
+        if value is None:
+            return "Unsupported"
+        return f"{value.MISFIRE_COUNT} misfires"
+
+    @staticmethod
+    def _collect_dtc_results(connection):
+        rows = []
+        counts = {category: 0 for category, _command in DTC_CATEGORIES}
+        for category, command in DTC_CATEGORIES:
+            response = connection.query(command)
+            if response.value is None:
+                continue
+            for code, description in response.value:
+                rows.append((code, category, description))
+                counts[category] += 1
+        return rows, counts
 
     def __init__(self, _notify_window, portName, SERTIMEOUT, RECONNATTEMPTS, BAUDRATE, FAST, _nb):
         #from queue import Queue
@@ -185,7 +242,11 @@ class SensorProducer(threading.Thread):
                 reconnect()
                 continue
             prevstate = curstate
-            curstate = self._nb.GetSelection()  # picking the tab in the GUI
+            try:
+                curstate = self._nb.GetSelection()  # picking the tab in the GUI
+            except RuntimeError:
+                self._notify_window.ThreadControl = 666
+                break
 
 
 
@@ -318,188 +379,37 @@ class SensorProducer(threading.Thread):
 
             elif curstate == 1:  # show tests tab
                 try:
+                    refresh_requested = self._notify_window.tests_refresh_requested
+                    if prevstate == 1 and not refresh_requested:
+                        continue
                     r = self.connection.connection.query(obd.commands.RPM)
                     if r.value == None:
                         reconnect()
                         continue
-                    r = self.connection.connection.query(obd.commands[1][1])
-                    if r.value == None:
-                        # NOT SUPPORTED, so do nothing
-                        continue
+                    self._notify_window.tests_refresh_requested = False
+                    status_response = self.connection.connection.query(obd.commands[1][1])
+                    readiness, counts = self._readiness_results(status_response.value)
+                    for result in readiness:
+                        wx.PostEvent(self._notify_window, TestEvent(result))
 
-                    if r.value.MISFIRE_MONITORING.available:
-                        wx.PostEvent(self._notify_window, TestEvent([0, 1, "Available"]))
-                        if r.value.MISFIRE_MONITORING.complete:
-                            wx.PostEvent(self._notify_window, TestEvent([0, 2, "Complete"]))
-                        else:
-                            wx.PostEvent(self._notify_window, TestEvent([0, 2, "Incomplete"]))
-                    if r.value.FUEL_SYSTEM_MONITORING.available:
-                        wx.PostEvent(self._notify_window, TestEvent([1, 1, "Available"]))
-                        if r.value.FUEL_SYSTEM_MONITORING.complete:
-                            wx.PostEvent(self._notify_window, TestEvent([1, 2, "Complete"]))
-                        else:
-                            wx.PostEvent(self._notify_window, TestEvent([1, 2, "Incomplete"]))
-                    if r.value.COMPONENT_MONITORING.available:
-                        wx.PostEvent(self._notify_window, TestEvent([2, 1, "Available"]))
-                        if r.value.COMPONENT_MONITORING.complete:
-                            wx.PostEvent(self._notify_window, TestEvent([2, 2, "Complete"]))
-                        else:
-                            wx.PostEvent(self._notify_window, TestEvent([2, 2, "Incomplete"]))
+                    for index in range(12):
+                        command = getattr(
+                            obd.commands, f"MONITOR_MISFIRE_CYLINDER_{index + 1}"
+                        )
+                        response = self.connection.connection.query(command)
+                        result = self._misfire_result(response.value)
+                        wx.PostEvent(self._notify_window, TestEvent({
+                            "kind": "misfire", "index": index, "result": result,
+                        }))
 
-                    if r.value.CATALYST_MONITORING.available:
-                        wx.PostEvent(self._notify_window, TestEvent([3, 1, "Available"]))
-                        if r.value.CATALYST_MONITORING.complete:
-                            wx.PostEvent(self._notify_window, TestEvent([3, 2, "Complete"]))
-                        else:
-                            wx.PostEvent(self._notify_window, TestEvent([3, 2, "Incomplete"]))
-
-                    if r.value.HEATED_CATALYST_MONITORING.available:
-                        wx.PostEvent(self._notify_window, TestEvent([4, 1, "Available"]))
-                        if r.value.HEATED_CATALYST_MONITORING.complete:
-                            wx.PostEvent(self._notify_window, TestEvent([4, 2, "Complete"]))
-                        else:
-                            wx.PostEvent(self._notify_window, TestEvent([4, 2, "Incomplete"]))
-
-                    if r.value.EVAPORATIVE_SYSTEM_MONITORING.available:
-                        wx.PostEvent(self._notify_window, TestEvent([5, 1, "Available"]))
-                        if r.value.EVAPORATIVE_SYSTEM_MONITORING.complete:
-                            wx.PostEvent(self._notify_window, TestEvent([5, 2, "Complete"]))
-                        else:
-                            wx.PostEvent(self._notify_window, TestEvent([5, 2, "Incomplete"]))
-
-                    if r.value.SECONDARY_AIR_SYSTEM_MONITORING.available:
-                        wx.PostEvent(self._notify_window, TestEvent([6, 1, "Available"]))
-                        if r.value.SECONDARY_AIR_SYSTEM_MONITORING.complete:
-                            wx.PostEvent(self._notify_window, TestEvent([6, 2, "Complete"]))
-                        else:
-                            wx.PostEvent(self._notify_window, TestEvent([6, 2, "Incomplete"]))
-
-                    if r.value.OXYGEN_SENSOR_MONITORING.available:
-                        wx.PostEvent(self._notify_window, TestEvent([7, 1, "Available"]))
-                        if r.value.OXYGEN_SENSOR_MONITORING.complete:
-                            wx.PostEvent(self._notify_window, TestEvent([7, 2, "Complete"]))
-                        else:
-                            wx.PostEvent(self._notify_window, TestEvent([7, 2, "Incomplete"]))
-
-                    if r.value.OXYGEN_SENSOR_HEATER_MONITORING.available:
-                        wx.PostEvent(self._notify_window, TestEvent([8, 1, "Available"]))
-                        if r.value.OXYGEN_SENSOR_HEATER_MONITORING.complete:
-                            wx.PostEvent(self._notify_window, TestEvent([8, 2, "Complete"]))
-                        else:
-                            wx.PostEvent(self._notify_window, TestEvent([8, 2, "Incomplete"]))
-
-                    if r.value.EGR_VVT_SYSTEM_MONITORING.available:
-                        wx.PostEvent(self._notify_window, TestEvent([9, 1, "Available"]))
-                        if r.value.EGR_VVT_SYSTEM_MONITORING.complete:
-                            wx.PostEvent(self._notify_window, TestEvent([9, 2, "Complete"]))
-                        else:
-                            wx.PostEvent(self._notify_window, TestEvent([9, 2, "Incomplete"]))
-
-                    if r.value.NMHC_CATALYST_MONITORING.available:
-                        wx.PostEvent(self._notify_window, TestEvent([10, 1, "Available"]))
-                        if r.value.NMHC_CATALYST_MONITORING.complete:
-                            wx.PostEvent(self._notify_window, TestEvent([10, 2, "Complete"]))
-                        else:
-                            wx.PostEvent(self._notify_window, TestEvent([10, 2, "Incomplete"]))
-
-                    if r.value.NOX_SCR_AFTERTREATMENT_MONITORING.available:
-                        wx.PostEvent(self._notify_window, TestEvent([11, 1, "Available"]))
-                        if r.value.NOX_SCR_AFTERTREATMENT_MONITORING.complete:
-                            wx.PostEvent(self._notify_window, TestEvent([11, 2, "Complete"]))
-                        else:
-                            wx.PostEvent(self._notify_window, TestEvent([11, 2, "Incomplete"]))
-
-                    if r.value.BOOST_PRESSURE_MONITORING.available:
-                        wx.PostEvent(self._notify_window, TestEvent([12, 1, "Available"]))
-                        if r.value.BOOST_PRESSURE_MONITORING.complete:
-                            wx.PostEvent(self._notify_window, TestEvent([12, 2, "Complete"]))
-                        else:
-                            wx.PostEvent(self._notify_window, TestEvent([12, 2, "Incomplete"]))
-
-                    if r.value.EXHAUST_GAS_SENSOR_MONITORING.available:
-                        wx.PostEvent(self._notify_window, TestEvent([13, 1, "Available"]))
-                        if r.value.EXHAUST_GAS_SENSOR_MONITORING.complete:
-                            wx.PostEvent(self._notify_window, TestEvent([13, 2, "Complete"]))
-                        else:
-                            wx.PostEvent(self._notify_window, TestEvent([13, 2, "Incomplete"]))
-
-                    if r.value.PM_FILTER_MONITORING.available:
-                        wx.PostEvent(self._notify_window, TestEvent([14, 1, "Available"]))
-                        if r.value.PM_FILTER_MONITORING.complete:
-                            wx.PostEvent(self._notify_window, TestEvent([14, 2, "Complete"]))
-                        else:
-                            wx.PostEvent(self._notify_window, TestEvent([14, 2, "Incomplete"]))
-
-                    response = self.connection.connection.query(obd.commands.MONITOR_MISFIRE_CYLINDER_1)
-                    if response.value != None:
-                        result = response.value.MISFIRE_COUNT
-                        wx.PostEvent(self._notify_window, TestEvent([15, 2, str(result)]))
-                    response = self.connection.connection.query(obd.commands.MONITOR_MISFIRE_CYLINDER_2)
-                    if response.value != None:
-                        result = response.value.MISFIRE_COUNT
-                        wx.PostEvent(self._notify_window, TestEvent([16, 2, str(result)]))
-                    response = self.connection.connection.query(obd.commands.MONITOR_MISFIRE_CYLINDER_3)
-                    if response.value != None:
-                        result = response.value.MISFIRE_COUNT
-                        wx.PostEvent(self._notify_window, TestEvent([17, 2, str(result)]))
-                    response = self.connection.connection.query(obd.commands.MONITOR_MISFIRE_CYLINDER_4)
-                    if response.value != None:
-                        result = response.value.MISFIRE_COUNT
-                        wx.PostEvent(self._notify_window, TestEvent([18, 2, str(result)]))
-                    response = self.connection.connection.query(obd.commands.MONITOR_MISFIRE_CYLINDER_5)
-                    if response.value != None:
-                        result = response.value.MISFIRE_COUNT
-                        wx.PostEvent(self._notify_window, TestEvent([19, 2, str(result)]))
-                    response = self.connection.connection.query(obd.commands.MONITOR_MISFIRE_CYLINDER_6)
-                    if response.value != None:
-                        result = response.value.MISFIRE_COUNT
-                        wx.PostEvent(self._notify_window, TestEvent([20, 2, str(result)]))
-                    response = self.connection.connection.query(obd.commands.MONITOR_MISFIRE_CYLINDER_7)
-                    if response.value != None:
-                        result = response.value.MISFIRE_COUNT
-                        wx.PostEvent(self._notify_window, TestEvent([21, 2, str(result)]))
-                    response = self.connection.connection.query(obd.commands.MONITOR_MISFIRE_CYLINDER_8)
-                    if response.value != None:
-                        result = response.value.MISFIRE_COUNT
-                        wx.PostEvent(self._notify_window, TestEvent([22, 2, str(result)]))
-                    response = self.connection.connection.query(obd.commands.MONITOR_MISFIRE_CYLINDER_9)
-                    if response.value != None:
-                        result = response.value.MISFIRE_COUNT
-                        wx.PostEvent(self._notify_window, TestEvent([23, 2, str(result)]))
-                    response = self.connection.connection.query(obd.commands.MONITOR_MISFIRE_CYLINDER_10)
-                    if response.value != None:
-                        result = response.value.MISFIRE_COUNT
-                        wx.PostEvent(self._notify_window, TestEvent([24, 2, str(result)]))
-                    response = self.connection.connection.query(obd.commands.MONITOR_MISFIRE_CYLINDER_11)
-                    if response.value != None:
-                        result = response.value.MISFIRE_COUNT
-                        wx.PostEvent(self._notify_window, TestEvent([25, 2, str(result)]))
-                    response = self.connection.connection.query(obd.commands.MONITOR_MISFIRE_CYLINDER_12)
-                    if response.value != None:
-                        result = response.value.MISFIRE_COUNT
-                        wx.PostEvent(self._notify_window, TestEvent([26, 2, str(result)]))
+                    wx.PostEvent(self._notify_window, TestEvent({
+                        "kind": "complete", **counts,
+                    }))
 
                 except:
+                    self._notify_window.tests_refresh_requested = False
+                    wx.PostEvent(self._notify_window, TestEvent({"kind": "error"}))
                     traceback.print_exc()
-
-
-                """
-                "MISFIRE_MONITORING",
-                "FUEL_SYSTEM_MONITORING",
-                "COMPONENT_MONITORING",
-                "CATALYST_MONITORING",
-                "HEATED_CATALYST_MONITORING",
-                "EVAPORATIVE_SYSTEM_MONITORING",
-                "SECONDARY_AIR_SYSTEM_MONITORING",
-                "OXYGEN_SENSOR_MONITORING",
-                "OXYGEN_SENSOR_HEATER_MONITORING",
-                "EGR_VVT_SYSTEM_MONITORING",
-                "NMHC_CATALYST_MONITORING",
-                "NOX_SCR_AFTERTREATMENT_MONITORING",
-                "BOOST_PRESSURE_MONITORING",
-                "EXHAUST_GAS_SENSOR_MONITORING",
-                "PM_FILTER_MONITORING"
-                """
 
             elif curstate == 2:  # show sensor tab
                 r = self.connection.connection.query(obd.commands.RPM)
@@ -549,9 +459,6 @@ class SensorProducer(threading.Thread):
                         if r.value == None and sens[0].command != b"0103":
                             #reconnect()
                             continue
-                        wx.PostEvent(self._notify_window, ResultEvent([counter, 0, sens[0].command]))
-                        wx.PostEvent(self._notify_window, ResultEvent([counter, 1, str(sens[1])]))
-
                         if sens[0].command == b"0101" or sens[0].command == b"0141":
                             wx.PostEvent(self._notify_window, ResultEvent([counter, 2, "MIL ON: " + str(
                                 r.value.MIL) + ", DTC Count: " + str(r.value.DTC_count) + ", Ignition type: " + str(
@@ -594,25 +501,12 @@ class SensorProducer(threading.Thread):
                 if prevstate != 3:
 
                     wx.PostEvent(self._notify_window, DTCEvent(0))  # clear list
-                    r = self.connection.connection.query(obd.commands.GET_DTC)
-                    DTCCODES = []
-                    print ("DTCCODES:",r.value)
-                    if r.value != None:
-                        for dtccode in r.value:
-                            DTCCODES.append((dtccode[0], "Active", dtccode[1]))
-                    r = self.connection.connection.query(obd.commands.FREEZE_DTC)
-                    print ("FREEZECODES:",r.value)
-                    if r.value != None:
-                        dtccode = r.value
-                        if "P0000" not in dtccode:
-                            DTCCODES.append((dtccode[0], "Passive", dtccode[1]))
-
-                    print ("DTCcodes and FREEZEcodes:", DTCCODES)
-                    if len(DTCCODES) > 0:
-                        for dtccode in DTCCODES:
-                            wx.PostEvent(self._notify_window, DTCEvent(dtccode))
-                    elif len(DTCCODES) == 0:
-                        wx.PostEvent(self._notify_window, DTCEvent(["", "", "No DTC codes (codes cleared)"]))
+                    dtc_codes, counts = self._collect_dtc_results(
+                        self.connection.connection
+                    )
+                    for dtccode in dtc_codes:
+                        wx.PostEvent(self._notify_window, DTCEvent(dtccode))
+                    wx.PostEvent(self._notify_window, DTCEvent({"counts": counts}))
 
             elif curstate == 4:  # show freezeframe tab
                 r = self.connection.connection.query(obd.commands.RPM)
@@ -663,6 +557,9 @@ class SensorProducer(threading.Thread):
                     self.graph_emit_counter = 0
                     self.graph_stream_active_last = False
                     first_time_graph = False
+
+                if self._notify_window.graph_interaction_paused:
+                    continue
 
                 if not self._notify_window.graph_streaming_enabled:
                     if self.graph_stream_active_last:
@@ -720,7 +617,7 @@ class SensorProducer(threading.Thread):
 
                     plot_series.append((series["x"], series["y"], series["unit"], series["desc"], command_key))
 
-                if self.graph_emit_counter < 2 or (self.graph_emit_counter % 2) == 0:
+                if self.graph_emit_counter < 2 or (self.graph_emit_counter % 4) == 0:
                     plot_snapshot = [
                         (tuple(series[0]), tuple(series[1]), series[2], series[3], series[4])
                         for series in plot_series
@@ -1703,7 +1600,7 @@ class SensorProducer(threading.Thread):
     """
 
     def stop(self):
-        #self._notify_window.ThreadControl = 666
+        self._notify_window.ThreadControl = 666
 
         try: # if stop is called before any connection port is not defined (and not connected )
             self.connection.connection.close()
@@ -1712,13 +1609,14 @@ class SensorProducer(threading.Thread):
 
         #if self.port != None: #if stop is called before any connection port is not defined (and not connected )
         #  self.port.close()
-        wx.PostEvent(self._notify_window, StatusEvent([0, 1, "Disconnected"]))
-        wx.PostEvent(self._notify_window, StatusEvent([1, 1, "----"]))
-        wx.PostEvent(self._notify_window, StatusEvent([2, 1, "----"]))
-        wx.PostEvent(self._notify_window, StatusEvent([3, 1, "----"]))
-        wx.PostEvent(self._notify_window, StatusEvent([4, 1, "----"]))
-        wx.PostEvent(self._notify_window, StatusEvent([5, 1, "----"]))
-        wx.PostEvent(self._notify_window, CloseEvent([]))
+        if not getattr(self._notify_window, "_shutdown_started", False):
+            wx.PostEvent(self._notify_window, StatusEvent([0, 1, "Disconnected"]))
+            wx.PostEvent(self._notify_window, StatusEvent([1, 1, "----"]))
+            wx.PostEvent(self._notify_window, StatusEvent([2, 1, "----"]))
+            wx.PostEvent(self._notify_window, StatusEvent([3, 1, "----"]))
+            wx.PostEvent(self._notify_window, StatusEvent([4, 1, "----"]))
+            wx.PostEvent(self._notify_window, StatusEvent([5, 1, "----"]))
+            wx.PostEvent(self._notify_window, CloseEvent([]))
         print("Sensor producer has stopped.")
 
 # class producer end

@@ -49,6 +49,7 @@ from debugEvent import *
 from graph_ui import GraphUIMixin
 from sensor_worker import SensorProducer
 from obd2_codes import pcodes
+from ui_theme import ActionCard, AppTheme, ModernButton
 
 from wx.lib.mixins.listctrl import ListCtrlAutoWidthMixin
 import obd
@@ -107,6 +108,24 @@ TESTS = ["MISFIRE_MONITORING",
     "EXHAUST_GAS_SENSOR_MONITORING",
     "PM_FILTER_MONITORING"]
 
+TEST_LABELS = [
+    "Misfire monitoring",
+    "Fuel system monitoring",
+    "Component monitoring",
+    "Catalyst monitoring",
+    "Heated catalyst monitoring",
+    "Evaporative system monitoring",
+    "Secondary air system monitoring",
+    "Oxygen sensor monitoring",
+    "Oxygen sensor heater monitoring",
+    "EGR / VVT system monitoring",
+    "NMHC catalyst monitoring",
+    "NOx / SCR aftertreatment monitoring",
+    "Boost pressure monitoring",
+    "Exhaust gas sensor monitoring",
+    "Particulate filter monitoring",
+]
+
 
 
 class MyApp(GraphUIMixin, wx.App):
@@ -127,13 +146,13 @@ class MyApp(GraphUIMixin, wx.App):
     }
 
     def _build_bottom_status_toolbar(self):
-        self.bottom_toolbar = wx.Panel(self.frame, -1)
-        self.bottom_toolbar.SetBackgroundColour(wx.Colour(24, 31, 42))
+        self.bottom_toolbar = wx.Panel(self.content_panel, -1)
+        self.bottom_toolbar.SetBackgroundColour(self.theme.sidebar)
         self.bottom_toolbar_values = {}
 
         toolbar_sizer = wx.BoxSizer(wx.HORIZONTAL)
         self.bottom_toolbar.SetSizer(toolbar_sizer)
-        self.bottom_toolbar.SetMinSize((-1, 82))
+        self.bottom_toolbar.SetMinSize((-1, 64))
 
         toolbar_fields = [
             ("link", "Link", "Disconnected"),
@@ -148,11 +167,11 @@ class MyApp(GraphUIMixin, wx.App):
             field_sizer = wx.BoxSizer(wx.VERTICAL)
 
             title = wx.StaticText(self.bottom_toolbar, -1, label.upper())
-            title.SetForegroundColour(wx.Colour(155, 168, 186))
+            title.SetForegroundColour(self.theme.sidebar_muted)
             title.SetFont(wx.Font(8, wx.FONTFAMILY_SWISS, wx.FONTSTYLE_NORMAL, wx.FONTWEIGHT_NORMAL))
 
             value_widget = wx.StaticText(self.bottom_toolbar, -1, value)
-            value_widget.SetForegroundColour(wx.Colour(236, 242, 255))
+            value_widget.SetForegroundColour(self.theme.sidebar_text)
             value_widget.SetFont(wx.Font(12, wx.FONTFAMILY_SWISS, wx.FONTSTYLE_NORMAL, wx.FONTWEIGHT_BOLD))
 
             self.bottom_toolbar_values[key] = value_widget
@@ -177,12 +196,154 @@ class MyApp(GraphUIMixin, wx.App):
             if key in self.bottom_toolbar_values:
                 self.bottom_toolbar_values[key].SetLabel(value)
         self.bottom_toolbar.Layout()
+        self._update_connection_visuals("Disconnected")
 
     def _update_bottom_status(self, status_index, value):
         status_key = self.STATUS_TOOLBAR_MAP.get(status_index)
         if status_key and status_key in self.bottom_toolbar_values:
             self.bottom_toolbar_values[status_key].SetLabel(str(value))
             self.bottom_toolbar.Layout()
+
+    def _update_connection_visuals(self, state_text):
+        state = str(state_text).strip()
+        normalized = state.lower()
+        if "connected" in normalized and "disconnected" not in normalized:
+            label = "●  Connected"
+            colour = self.theme.success
+        elif "connecting" in normalized:
+            label = "●  Connecting"
+            colour = self.theme.warning
+        elif "fail" in normalized or "error" in normalized:
+            label = "●  Connection failed"
+            colour = self.theme.danger
+        else:
+            label = "●  Disconnected"
+            colour = self.theme.muted
+
+        for control_name in ("header_connection_status", "home_connection_status"):
+            control = getattr(self, control_name, None)
+            if control is not None:
+                control.SetLabel(label)
+                control.SetForegroundColour(colour)
+
+        if hasattr(self, "header_connect_button"):
+            self.header_connect_button.SetLabel("Disconnect" if label == "●  Connected" else "Connect")
+            self.header_connect_button.SetVariant("danger" if label == "●  Connected" else "primary")
+
+    def _build_content_header(self):
+        self.content_header = wx.Panel(self.content_panel)
+        self.content_header.SetBackgroundColour(self.theme.surface)
+        self.content_header.SetMinSize((-1, 64))
+        header_sizer = wx.BoxSizer(wx.HORIZONTAL)
+
+        self.header_menu_button = ModernButton(
+            self.content_header, "☰", self.theme, variant="ghost", size=(44, 38)
+        )
+        self.header_menu_button.SetMinSize((44, 38))
+        self.header_menu_button.SetFont(self.theme.font(16))
+        self.header_menu_button.SetToolTip("Open navigation")
+        self.header_menu_button.Bind(wx.EVT_BUTTON, self._toggle_sidebar)
+
+        self.page_title = wx.StaticText(self.content_header, label="Overview")
+        self.page_title.SetForegroundColour(self.theme.text)
+        self.page_title.SetFont(self.theme.font(20, bold=True))
+
+        self.header_connection_status = wx.StaticText(self.content_header, label="●  Disconnected")
+        self.header_connection_status.SetForegroundColour(self.theme.muted)
+        self.header_connection_status.SetFont(self.theme.font(10, bold=True))
+
+        self.header_connect_button = ModernButton(
+            self.content_header, "Connect", self.theme, variant="primary"
+        )
+        self.header_connect_button.SetMinSize((110, 38))
+        self.header_connect_button.Bind(wx.EVT_BUTTON, self._on_header_connection_action)
+
+        self.header_configure_button = ModernButton(
+            self.content_header, "Configure", self.theme, variant="secondary"
+        )
+        self.header_configure_button.SetMinSize((110, 38))
+        self.header_configure_button.Bind(wx.EVT_BUTTON, self.Configure)
+
+        header_sizer.Add(self.header_menu_button, 0, wx.ALIGN_CENTER_VERTICAL | wx.LEFT, 16)
+        header_sizer.Add(self.page_title, 0, wx.ALIGN_CENTER_VERTICAL | wx.LEFT, 12)
+        header_sizer.AddStretchSpacer()
+        header_sizer.Add(self.header_connection_status, 0, wx.ALIGN_CENTER_VERTICAL | wx.RIGHT, 16)
+        header_sizer.Add(self.header_configure_button, 0, wx.ALIGN_CENTER_VERTICAL | wx.RIGHT, 8)
+        header_sizer.Add(self.header_connect_button, 0, wx.ALIGN_CENTER_VERTICAL | wx.RIGHT, 16)
+        self.content_header.SetSizer(header_sizer)
+
+    def _toggle_sidebar(self, event=None):
+        self._sidebar_open = not self._sidebar_open
+        self.sidebar_panel.Show(self._sidebar_open)
+        self.header_menu_button.SetToolTip(
+            "Close navigation" if self._sidebar_open else "Open navigation"
+        )
+        self.shell_panel.Layout()
+
+    def _on_header_connection_action(self, event):
+        if self.senprod and self.senprod.is_alive():
+            self.OnDisconnect(event)
+        else:
+            self.OpenPort(event)
+
+    def _build_sidebar(self):
+        self.sidebar_panel = wx.Panel(self.shell_panel)
+        self.sidebar_panel.SetBackgroundColour(self.theme.sidebar)
+        self.sidebar_panel.SetMinSize((220, -1))
+        sidebar_sizer = wx.BoxSizer(wx.VERTICAL)
+
+        brand = wx.StaticText(self.sidebar_panel, label="pyOBD")
+        brand.SetForegroundColour(self.theme.sidebar_text)
+        brand.SetFont(self.theme.font(21, bold=True))
+        subtitle = wx.StaticText(self.sidebar_panel, label="VEHICLE DIAGNOSTICS")
+        subtitle.SetForegroundColour(self.theme.sidebar_muted)
+        subtitle.SetFont(self.theme.font(8, bold=True))
+        sidebar_sizer.Add(brand, 0, wx.LEFT | wx.RIGHT | wx.TOP, 22)
+        sidebar_sizer.Add(subtitle, 0, wx.LEFT | wx.RIGHT | wx.TOP | wx.BOTTOM, 22)
+
+        primary_items = [
+            ("Overview", self.home_panel),
+            ("Live Data", self.sensors_panel),
+            ("Diagnostics", self.DTCpanel),
+            ("Readiness", self.tests_panel),
+            ("Freeze Frame", self.freezeframe),
+            ("Graphs", self.graph_panel),
+            ("Vehicle", self.status),
+        ]
+        secondary_items = [
+            ("Activity Log", self.trace),
+            ("About", self.about_panel),
+        ]
+        self.sidebar_buttons = {}
+
+        def add_item(label, page):
+            button = ModernButton(
+                self.sidebar_panel,
+                label,
+                self.theme,
+                variant="sidebar",
+                align="left",
+            )
+            button.SetMinSize((-1, 44))
+            button.SetFont(self.theme.font(11, bold=label == "Overview"))
+            button.Bind(wx.EVT_BUTTON, lambda _event, target=page, title=label: self._go_to_page(target, title))
+            sidebar_sizer.Add(button, 0, wx.EXPAND | wx.LEFT | wx.RIGHT | wx.BOTTOM, 10)
+            self.sidebar_buttons[page] = button
+
+        for label, page in primary_items:
+            add_item(label, page)
+        sidebar_sizer.AddStretchSpacer()
+        for label, page in secondary_items:
+            add_item(label, page)
+        sidebar_sizer.AddSpacer(12)
+        self.sidebar_panel.SetSizer(sidebar_sizer)
+
+    def _refresh_sidebar_selection(self, selected_page):
+        for page, button in getattr(self, "sidebar_buttons", {}).items():
+            selected = page is selected_page
+            button.SetVariant("sidebar_active" if selected else "sidebar")
+            button.SetFont(self.theme.font(11, bold=selected))
+            button.Refresh()
 
     def _apply_touch_friendly_style(self):
         self.touch_font = wx.Font(11, wx.FONTFAMILY_SWISS, wx.FONTSTYLE_NORMAL, wx.FONTWEIGHT_NORMAL)
@@ -191,11 +352,9 @@ class MyApp(GraphUIMixin, wx.App):
         self.home_tile_font = wx.Font(14, wx.FONTFAMILY_SWISS, wx.FONTSTYLE_NORMAL, wx.FONTWEIGHT_BOLD)
         # Keep native tabs and their labels on the same system theme, including
         # dark themes where a fixed light background hides the tab text.
-        tab_background = wx.SystemSettings.GetColour(wx.SYS_COLOUR_BTNFACE)
-        tab_foreground = wx.SystemSettings.GetColour(wx.SYS_COLOUR_BTNTEXT)
-        self.frame.SetBackgroundColour(tab_background)
-        self.nb.SetBackgroundColour(tab_background)
-        self.nb.SetForegroundColour(tab_foreground)
+        self.frame.SetBackgroundColour(self.theme.window)
+        self.nb.SetBackgroundColour(self.theme.window)
+        self.nb.SetForegroundColour(self.theme.text)
         self.frame.SetFont(self.touch_font)
 
         try:
@@ -207,6 +366,7 @@ class MyApp(GraphUIMixin, wx.App):
         controls = [
             self.status,
             self.OBDTests,
+            self.misfire_tests,
             self.sensors,
             self.freezeframe,
             self.dtc,
@@ -219,11 +379,14 @@ class MyApp(GraphUIMixin, wx.App):
             controls.append(self.graphs8_list_ctrl)
         for control in controls:
             control.SetFont(self.touch_font)
+            self.theme.style_list(control)
 
         self.GetDTCButton.SetMinSize((140, 40))
         self.GetDTCButton.SetFont(self.touch_font_bold)
         self.ClearDTCButton.SetMinSize((140, 40))
         self.ClearDTCButton.SetFont(self.touch_font_bold)
+        self.LookupDTCButton.SetMinSize((140, 40))
+        self.LookupDTCButton.SetFont(self.touch_font_bold)
 
         if hasattr(self, "add_graph_pid_button"):
             self.add_graph_pid_button.SetFont(self.touch_font_bold)
@@ -239,7 +402,7 @@ class MyApp(GraphUIMixin, wx.App):
             self.home_services_button.SetFont(self.home_tile_font)
             self.home_graphs_button.SetFont(self.home_tile_font)
 
-    def _go_to_page(self, page):
+    def _go_to_page(self, page, title=None):
         page_index = wx.NOT_FOUND
         for i in range(self.nb.GetPageCount()):
             if self.nb.GetPage(i) is page:
@@ -248,86 +411,78 @@ class MyApp(GraphUIMixin, wx.App):
 
         if page_index != wx.NOT_FOUND:
             self.nb.SetSelection(page_index)
+            if title is None:
+                title = {
+                    self.home_panel: "Overview",
+                    self.sensors_panel: "Live Data",
+                    self.DTCpanel: "Diagnostics",
+                    self.tests_panel: "Readiness",
+                    self.freezeframe: "Freeze Frame",
+                    self.graph_panel: "Graphs",
+                    self.status: "Vehicle",
+                    self.trace: "Activity Log",
+                    self.about_panel: "About",
+                }.get(page, "pyOBD")
+            if hasattr(self, "page_title"):
+                self.page_title.SetLabel(title)
+            self._refresh_sidebar_selection(page)
 
-    def _swap_notebook_pages(self, title_a, title_b):
-        idx_a = wx.NOT_FOUND
-        idx_b = wx.NOT_FOUND
-        for i in range(self.nb.GetPageCount()):
-            page_title = self.nb.GetPageText(i)
-            if page_title == title_a:
-                idx_a = i
-            elif page_title == title_b:
-                idx_b = i
-
-        if idx_a == wx.NOT_FOUND or idx_b == wx.NOT_FOUND or idx_a == idx_b:
-            return
-
-        if idx_a > idx_b:
-            idx_a, idx_b = idx_b, idx_a
-            title_a, title_b = title_b, title_a
-
-        page_a = self.nb.GetPage(idx_a)
-        page_b = self.nb.GetPage(idx_b)
-
-        self.nb.RemovePage(idx_b)
-        self.nb.RemovePage(idx_a)
-        self.nb.InsertPage(idx_a, page_b, title_b)
-        self.nb.InsertPage(idx_b, page_a, title_a)
-
-    def _create_home_tile(self, parent, label, bg_colour, fg_colour, handler):
-        button = wx.Button(parent, -1, label)
-        button.SetMinSize((260, 130))
-        button.SetBackgroundColour(bg_colour)
-        button.SetForegroundColour(fg_colour)
-        button.Bind(wx.EVT_BUTTON, handler)
-        return button
+    def _create_home_tile(self, parent, label, description, colour, hover_colour, handler):
+        return ActionCard(
+            parent,
+            self.theme,
+            label,
+            description,
+            colour,
+            hover_colour,
+            handler,
+        )
 
     def build_home_page(self):
         self.home_panel = wx.Panel(self.nb, -1)
-        self.home_panel.SetBackgroundColour(wx.Colour(236, 240, 245))
-        self.home_panel.SetForegroundColour(wx.Colour(24, 31, 42))
+        self.home_panel.SetBackgroundColour(self.theme.window)
+        self.home_panel.SetForegroundColour(self.theme.text)
 
         root_sizer = wx.BoxSizer(wx.VERTICAL)
-        header_sizer = wx.BoxSizer(wx.VERTICAL)
-        grid = wx.GridBagSizer(16, 16)
-
-        self.home_title = wx.StaticText(self.home_panel, -1, "pyOBD Home — Modified by FareBrothers")
-        self.home_title.SetForegroundColour(wx.Colour(24, 31, 42))
+        actions_label = wx.StaticText(self.home_panel, label="Quick actions")
+        actions_label.SetForegroundColour(self.theme.text)
+        actions_label.SetFont(self.theme.font(13, bold=True))
+        actions = wx.GridBagSizer(12, 12)
 
         self.home_scan_button = self._create_home_tile(
             self.home_panel,
-            "SCAN\nDTC",
-            wx.Colour(25, 118, 210),
-            wx.Colour(255, 255, 255),
+            "Scan trouble codes",
+            "Read and manage diagnostic trouble codes.",
+            self.theme.accent,
+            self.theme.accent_hover,
             self.OnHomeScan,
         )
         self.home_services_button = self._create_home_tile(
             self.home_panel,
-            "SERVICES",
-            wx.Colour(46, 125, 50),
-            wx.Colour(255, 255, 255),
-            self.OnHomeServices,
+            "View live data",
+            "Monitor real-time vehicle sensor readings.",
+            self.theme.success,
+            self.theme.success_hover,
+            self.OnHomeSensors,
         )
         self.home_graphs_button = self._create_home_tile(
             self.home_panel,
-            "GRAPHS",
-            wx.Colour(2, 136, 209),
-            wx.Colour(255, 255, 255),
+            "Open graphs",
+            "Visualize selected sensor readings over time.",
+            self.theme.info,
+            self.theme.info_hover,
             self.OnHomeGraphs,
         )
+        actions.Add(self.home_scan_button, pos=(0, 0), flag=wx.EXPAND)
+        actions.Add(self.home_services_button, pos=(0, 1), flag=wx.EXPAND)
+        actions.Add(self.home_graphs_button, pos=(1, 0), span=(1, 2), flag=wx.EXPAND)
+        actions.AddGrowableCol(0, 1)
+        actions.AddGrowableCol(1, 1)
+        actions.AddGrowableRow(0, 1)
+        actions.AddGrowableRow(1, 1)
 
-        header_sizer.Add(self.home_title, 0, wx.BOTTOM, 4)
-
-        grid.Add(self.home_scan_button, (0, 0), span=(1, 1), flag=wx.EXPAND)
-        grid.Add(self.home_services_button, (0, 1), span=(1, 1), flag=wx.EXPAND)
-        grid.Add(self.home_graphs_button, (1, 0), span=(1, 2), flag=wx.EXPAND)
-        grid.AddGrowableCol(0, 1)
-        grid.AddGrowableCol(1, 1)
-        grid.AddGrowableRow(0, 1)
-        grid.AddGrowableRow(1, 1)
-
-        root_sizer.Add(header_sizer, 0, wx.ALL, 18)
-        root_sizer.Add(grid, 1, wx.EXPAND | wx.LEFT | wx.RIGHT | wx.BOTTOM, 18)
+        root_sizer.Add(actions_label, 0, wx.ALL, 24)
+        root_sizer.Add(actions, 1, wx.EXPAND | wx.LEFT | wx.RIGHT | wx.BOTTOM, 24)
         self.home_panel.SetSizer(root_sizer)
 
         self.nb.AddPage(self.home_panel, "Home")
@@ -338,8 +493,16 @@ class MyApp(GraphUIMixin, wx.App):
     def OnHomeServices(self, event):
         self._go_to_page(self.status)
 
+    def OnHomeSensors(self, event):
+        self._go_to_page(self.sensors_panel)
+
     def OnHomeGraphs(self, event):
         self._go_to_page(self.graph_panel)
+
+    def RefreshTests(self, event=None):
+        self.tests_refresh_requested = True
+        self.tests_status_label.SetLabel("Reading monitor status…")
+        self.RefreshTestsButton.Enable(False)
 
 
     def sensor_control_on(self):  # after connection enable few buttons
@@ -350,23 +513,10 @@ class MyApp(GraphUIMixin, wx.App):
         self.dtcmenu.Enable(ID_CLEAR, True)
         self.GetDTCButton.Enable(True)
         self.ClearDTCButton.Enable(True)
-
-        def sensor_toggle(e):
-            sel = e.m_itemIndex
-            state = self.senprod.active[sel]
-            print (sel, state)
-            if   state == 0:
-                self.senprod.on(sel)
-                self.sensors.SetItem(sel, 1, "1")
-            elif state == 1:
-                self.senprod.off(sel)
-                self.sensors.SetItem(sel, 1, "0")
-            else:
-                traceback.print_exc()
-                #debug("Incorrect sensor state")
-
-        self.sensors.Bind(wx.EVT_LIST_ITEM_ACTIVATED, sensor_toggle, id=self.sensor_id)
-
+        self.RefreshTestsButton.Enable(True)
+        self.tests_status_label.SetLabel("Ready to check monitors")
+        if self.dtc.GetItemCount() == 0:
+            self.dtc_status_label.SetLabel("Ready to scan")
 
     def sensor_control_off(self):  # after disconnect disable few buttons
         self.dtcmenu.Enable(ID_GETC, False)
@@ -376,6 +526,9 @@ class MyApp(GraphUIMixin, wx.App):
         self.settingmenu.Enable(ID_RESET, True)
         self.GetDTCButton.Enable(False)
         self.ClearDTCButton.Enable(False)
+        self.dtc_status_label.SetLabel("Connect to scan vehicle")
+        self.RefreshTestsButton.Enable(False)
+        self.tests_status_label.SetLabel("Connect to check monitors")
         # http://pyserial.sourceforge.net/                                                    empty function
         # EVT_LIST_ITEM_ACTIVATED(self.sensors,self.sensor_id, lambda : None)
 
@@ -383,18 +536,150 @@ class MyApp(GraphUIMixin, wx.App):
 
 
     def build_sensor_page(self):
-        HOFFSET_LIST = 0
         tID = wx.NewIdRef(count=1)
         self.sensor_id = tID
-        self.sensors = self.MyListCtrl(self.nb, tID, pos=wx.Point(0, HOFFSET_LIST), style=
-                        wx.LC_REPORT |
-                        wx.SUNKEN_BORDER |
-                        wx.LC_HRULES |
-                        wx.LC_SINGLE_SEL)
-        self.sensors.InsertColumn(0, "PID", width=70)
-        self.sensors.InsertColumn(1, "Sensor", format=wx.LIST_FORMAT_LEFT, width=320)
-        self.sensors.InsertColumn(2, "Value", width=60)
-        self.nb.AddPage(self.sensors, "Sensors")
+        self.sensor_rows = []
+        self.sensor_visible_indices = []
+        self.sensor_selected_sources = set()
+        self._rebuilding_sensor_list = False
+        self.sensor_filter_timer = None
+
+        self.sensors_panel = wx.Panel(self.nb)
+        self.sensors_panel.SetBackgroundColour(self.theme.window)
+        toolbar = wx.BoxSizer(wx.HORIZONTAL)
+        self.sensor_search = wx.SearchCtrl(self.sensors_panel, style=wx.TE_PROCESS_ENTER)
+        self.sensor_search.SetDescriptiveText("Search PID or sensor")
+        self.sensor_search.ShowCancelButton(True)
+        self.sensor_search.SetMinSize((280, 40))
+        self.sensor_count_label = wx.StaticText(self.sensors_panel, label="Waiting for vehicle data")
+        self.sensor_count_label.SetForegroundColour(self.theme.muted)
+        self.sensor_add_graph_button = ModernButton(
+            self.sensors_panel, "Add selected to graph", self.theme, variant="primary"
+        )
+        self.sensor_add_graph_button.SetMinSize((180, 40))
+
+        toolbar.Add(self.sensor_search, 0, wx.RIGHT, 12)
+        toolbar.Add(self.sensor_count_label, 0, wx.ALIGN_CENTER_VERTICAL)
+        toolbar.AddStretchSpacer()
+        toolbar.Add(self.sensor_add_graph_button, 0)
+
+        self.sensors = self.MyListCtrl(
+            self.sensors_panel,
+            tID,
+            style=wx.LC_REPORT | wx.BORDER_NONE | wx.LC_HRULES,
+        )
+        self.sensors.InsertColumn(0, "PID", width=100)
+        self.sensors.InsertColumn(1, "Sensor", format=wx.LIST_FORMAT_LEFT, width=420)
+        self.sensors.InsertColumn(2, "Value", format=wx.LIST_FORMAT_RIGHT, width=220)
+
+        root = wx.BoxSizer(wx.VERTICAL)
+        root.Add(toolbar, 0, wx.EXPAND | wx.ALL, 16)
+        root.Add(self.sensors, 1, wx.EXPAND | wx.LEFT | wx.RIGHT | wx.BOTTOM, 16)
+        self.sensors_panel.SetSizer(root)
+
+        self.sensor_search.Bind(wx.EVT_TEXT, self._schedule_sensor_filter)
+        self.sensor_add_graph_button.Bind(wx.EVT_BUTTON, self._add_selected_sensors_to_graph)
+        self.sensors.Bind(wx.EVT_LIST_ITEM_SELECTED, self._on_sensor_selected)
+        self.sensors.Bind(wx.EVT_LIST_ITEM_DESELECTED, self._on_sensor_deselected)
+        self.nb.AddPage(self.sensors_panel, "Sensors")
+
+    def _schedule_sensor_filter(self, event=None):
+        if self._shutdown_started:
+            return
+        if self.sensor_filter_timer and self.sensor_filter_timer.IsRunning():
+            self.sensor_filter_timer.Stop()
+        self.sensor_filter_timer = wx.CallLater(150, self._apply_sensor_filter)
+
+    def _apply_sensor_filter(self):
+        self.sensor_filter_timer = None
+        if self._shutdown_started:
+            return
+        query = self.sensor_search.GetValue().strip().lower()
+        self._capture_sensor_selection()
+
+        self._rebuilding_sensor_list = True
+        self.sensors.Freeze()
+        self.sensors.DeleteAllItems()
+        self.sensor_visible_indices = []
+        for source_index, row in enumerate(self.sensor_rows):
+            searchable = f"{row[0]} {row[1]}".lower()
+            if query and query not in searchable:
+                continue
+            view_index = self.sensors.InsertItem(self.sensors.GetItemCount(), row[0])
+            self.sensors.SetItem(view_index, 1, row[1])
+            self.sensors.SetItem(view_index, 2, row[2])
+            self.sensor_visible_indices.append(source_index)
+        self.sensor_selected_sources.intersection_update(self.sensor_visible_indices)
+        for view_index, source_index in enumerate(self.sensor_visible_indices):
+            if source_index in self.sensor_selected_sources:
+                self.sensors.Select(view_index)
+        self.sensors.Thaw()
+        self._rebuilding_sensor_list = False
+
+        visible = len(self.sensor_visible_indices)
+        total = len(self.sensor_rows)
+        self.sensor_count_label.SetLabel(f"{visible} of {total} PIDs" if total else "Waiting for vehicle data")
+
+    def _selected_sensor_rows(self):
+        selected = []
+        index = self.sensors.GetFirstSelected()
+        while index != wx.NOT_FOUND:
+            selected.append(index)
+            index = self.sensors.GetNextSelected(index)
+        return selected
+
+    def _capture_sensor_selection(self):
+        for view_index in self._selected_sensor_rows():
+            if 0 <= view_index < len(self.sensor_visible_indices):
+                self.sensor_selected_sources.add(self.sensor_visible_indices[view_index])
+
+    def _on_sensor_selected(self, event):
+        if not self._rebuilding_sensor_list:
+            view_index = event.GetIndex()
+            if 0 <= view_index < len(self.sensor_visible_indices):
+                self.sensor_selected_sources.add(self.sensor_visible_indices[view_index])
+        event.Skip()
+
+    def _on_sensor_deselected(self, event):
+        if not self._rebuilding_sensor_list:
+            view_index = event.GetIndex()
+            if 0 <= view_index < len(self.sensor_visible_indices):
+                self.sensor_selected_sources.discard(self.sensor_visible_indices[view_index])
+        event.Skip()
+
+    def _add_selected_sensors_to_graph(self, event=None):
+        self._capture_sensor_selection()
+        selected_sources = {
+            source_index
+            for source_index in self.sensor_selected_sources
+            if 0 <= source_index < len(self.sensor_rows)
+        }
+        if not selected_sources:
+            wx.MessageBox(
+                "Select one or more PIDs first.",
+                "Live Data",
+                wx.OK | wx.ICON_INFORMATION,
+            )
+            return
+
+        selected_pids = {
+            self.sensor_rows[source_index][0].strip().upper()
+            for source_index in selected_sources
+        }
+
+        catalog_indices = [
+            index
+            for index, command in enumerate(self.graph_command_catalog)
+            if command.command.decode(errors="ignore").upper() in selected_pids
+        ]
+        if not catalog_indices:
+            wx.MessageBox(
+                "The selected PID does not provide graph-compatible numeric data.",
+                "Live Data",
+                wx.OK | wx.ICON_INFORMATION,
+            )
+            return
+        self._add_graph_commands_by_catalog_indices(catalog_indices)
 
         """
         HOFFSET_LIST = 0
@@ -519,7 +804,7 @@ class MyApp(GraphUIMixin, wx.App):
         self.freezeframe_id = tID
         self.freezeframe = self.MyListCtrl(self.nb, tID, style=
                                      wx.LC_REPORT |
-                                     wx.SUNKEN_BORDER |
+                                     wx.BORDER_NONE |
                                      wx.LC_HRULES |
                                      wx.LC_SINGLE_SEL)
         self.freezeframe.InsertColumn(0, "PID", width=70)
@@ -588,37 +873,45 @@ class MyApp(GraphUIMixin, wx.App):
 
         """
         
-        HOFFSET_LIST = 30  # offset from the top of panel (space for buttons)
-        # tID = wx.NewId()
         tID = wx.NewIdRef(count=1)
         self.DTCpanel = wx.Panel(self.nb, -1)
-        self.GetDTCButton = wx.Button(self.DTCpanel, -1, "Get DTC", wx.Point(15, 0))
-        self.ClearDTCButton = wx.Button(self.DTCpanel, -1, "Clear DTC", wx.Point(100, 0))
+        self.DTCpanel.SetBackgroundColour(self.theme.window)
+        self.GetDTCButton = ModernButton(
+            self.DTCpanel, "Scan codes", self.theme, variant="primary"
+        )
+        self.ClearDTCButton = ModernButton(
+            self.DTCpanel, "Clear codes", self.theme, variant="danger"
+        )
+        self.LookupDTCButton = ModernButton(
+            self.DTCpanel, "Code lookup", self.theme, variant="secondary"
+        )
+        self.dtc_status_label = wx.StaticText(self.DTCpanel, label="Connect to scan vehicle")
+        self.dtc_status_label.SetForegroundColour(self.theme.muted)
 
-        # bind functions to button click action
-        self.DTCpanel.Bind(wx.EVT_BUTTON, self.GetDTC, self.GetDTCButton)
-        self.DTCpanel.Bind(wx.EVT_BUTTON, self.QueryClear, self.ClearDTCButton)
+        self.GetDTCButton.Bind(wx.EVT_BUTTON, self.GetDTC)
+        self.ClearDTCButton.Bind(wx.EVT_BUTTON, self.QueryClear)
+        self.LookupDTCButton.Bind(wx.EVT_BUTTON, self.CodeLookup)
 
-        self.dtc = self.MyListCtrl(self.DTCpanel, tID, pos=wx.Point(0, HOFFSET_LIST),
-                                   style=wx.LC_REPORT | wx.SUNKEN_BORDER | wx.LC_HRULES | wx.LC_SINGLE_SEL)
+        self.dtc = self.MyListCtrl(
+            self.DTCpanel,
+            tID,
+            style=wx.LC_REPORT | wx.BORDER_NONE | wx.LC_HRULES | wx.LC_SINGLE_SEL,
+        )
 
-        self.dtc.InsertColumn(0, "Code", width=100)
-        self.dtc.InsertColumn(1, "Status", width=100)
-        self.dtc.InsertColumn(2, "Trouble code")
+        self.dtc.InsertColumn(0, "Code", width=110)
+        self.dtc.InsertColumn(1, "Category", width=140)
+        self.dtc.InsertColumn(2, "Description", width=520)
 
+        toolbar = wx.BoxSizer(wx.HORIZONTAL)
+        toolbar.Add(self.GetDTCButton, 0, wx.RIGHT, 8)
+        toolbar.Add(self.ClearDTCButton, 0, wx.RIGHT, 8)
+        toolbar.Add(self.LookupDTCButton, 0, wx.RIGHT, 16)
+        toolbar.Add(self.dtc_status_label, 0, wx.ALIGN_CENTER_VERTICAL)
 
-        ####################################################################
-        # This little bit of magic keeps the list the same size as the frame
-        def OnPSize(e, win=self.DTCpanel):
-            self.DTCpanel.SetSize(e.GetSize())
-            self.dtc.SetSize(e.GetSize())
-            w, h = self.frame.GetSize()
-            # I have no idea where 70 comes from
-            # self.dtc.SetDimensions(0,HOFFSET_LIST, w-16 , h - 70 )
-            self.dtc.SetSize(0, HOFFSET_LIST, w - 16, h - 70)
-
-        self.DTCpanel.Bind(wx.EVT_SIZE, OnPSize)
-        ####################################################################
+        root = wx.BoxSizer(wx.VERTICAL)
+        root.Add(toolbar, 0, wx.EXPAND | wx.ALL, 16)
+        root.Add(self.dtc, 1, wx.EXPAND | wx.LEFT | wx.RIGHT | wx.BOTTOM, 16)
+        self.DTCpanel.SetSizer(root)
 
         self.nb.AddPage(self.DTCpanel, "DTC")
 
@@ -628,6 +921,8 @@ class MyApp(GraphUIMixin, wx.App):
 
     def OnInit(self):
         self.ThreadControl = 0  # say thread what to do
+        self._shutdown_started = False
+        self._sidebar_open = False
         self.COMPORT = 0
         self.senprod = None
         self.DEBUGLEVEL = 0  # debug everything
@@ -681,8 +976,9 @@ class MyApp(GraphUIMixin, wx.App):
             self.COMPORT,
         )
 
-        self.frame = wx.Frame(None, -1, "pyOBD-II v2.0")
-        ico = wx.Icon(resource_path('pyobd.ico'), wx.BITMAP_TYPE_ICO)
+        self.theme = AppTheme()
+        self.frame = wx.Frame(None, -1, "pyOBD v2.2 - Modified by Fare Brothers")
+        ico = wx.Icon(resource_path('pyobd.png'), wx.BITMAP_TYPE_PNG)
         self.frame.SetIcon(ico)
 
         EVT_RESULT(self, self.OnResult, EVT_RESULT_ID)
@@ -711,10 +1007,14 @@ class MyApp(GraphUIMixin, wx.App):
         EVT_RESULT(self, self.InsertFreezeframeRow, EVT_INSERT_FREEZEFRAME_ROW_ID)
         EVT_RESULT(self, self.OnFreezeframeResult, EVT_FREEZEFRAME_RESULT_ID)
 
-        # Main notebook frames
-        self.nb = wx.Notebook(self.frame, -1, style=wx.NB_TOP)
+        # Main application shell and page container.
+        self.shell_panel = wx.Panel(self.frame)
+        self.shell_panel.SetBackgroundColour(self.theme.window)
+        self.content_panel = wx.Panel(self.shell_panel)
+        self.content_panel.SetBackgroundColour(self.theme.window)
+        self.nb = wx.Simplebook(self.content_panel)
 
-        self.status = self.MyListCtrl(self.nb, tID, style=wx.LC_REPORT | wx.SUNKEN_BORDER)
+        self.status = self.MyListCtrl(self.nb, tID, style=wx.LC_REPORT | wx.BORDER_NONE)
         self.status.InsertColumn(0, "Description", width=200)
         self.status.InsertColumn(1, "Value")
         self.status.Append(["Link State", "Disconnnected"])
@@ -726,40 +1026,58 @@ class MyApp(GraphUIMixin, wx.App):
 
         self.nb.AddPage(self.status, "Status")
 
-        self.OBDTests = self.MyListCtrl(self.nb, tID, style=wx.LC_REPORT | wx.SUNKEN_BORDER)
-        self.OBDTests.InsertColumn(0, "Description", width=300)
-        self.OBDTests.InsertColumn(1, "Available")
-        self.OBDTests.InsertColumn(2, "Complete")
-        self.nb.AddPage(self.OBDTests, "Tests")
+        self.tests_refresh_requested = False
+        self.tests_panel = wx.Panel(self.nb)
+        self.tests_panel.SetBackgroundColour(self.theme.window)
+        tests_root = wx.BoxSizer(wx.VERTICAL)
+        tests_toolbar = wx.BoxSizer(wx.HORIZONTAL)
+        self.tests_status_label = wx.StaticText(
+            self.tests_panel, label="Connect to check monitors"
+        )
+        self.tests_status_label.SetForegroundColour(self.theme.muted)
+        self.RefreshTestsButton = ModernButton(
+            self.tests_panel, "Refresh", self.theme, variant="primary"
+        )
+        self.RefreshTestsButton.Enable(False)
+        self.RefreshTestsButton.Bind(wx.EVT_BUTTON, self.RefreshTests)
+        tests_toolbar.Add(self.tests_status_label, 1, wx.ALIGN_CENTER_VERTICAL)
+        tests_toolbar.Add(self.RefreshTestsButton, 0)
 
+        tests_help = wx.StaticText(
+            self.tests_panel,
+            label=(
+                "Readiness shows which emissions monitors have completed. "
+                "Mode 06 shows onboard test results when supported. "
+                "Clearing diagnostic codes resets readiness."
+            ),
+        )
+        tests_help.SetForegroundColour(self.theme.muted)
 
-        self.OBDTests.Append(["MISFIRE_MONITORING", "---", "---"])
-        self.OBDTests.Append(["FUEL_SYSTEM_MONITORING", "---", "---"])
-        self.OBDTests.Append(["COMPONENT_MONITORING", "---", "---"])
-        self.OBDTests.Append(["CATALYST_MONITORING", "---", "---"])
-        self.OBDTests.Append(["HEATED_CATALYST_MONITORING", "---", "---"])
-        self.OBDTests.Append(["EVAPORATIVE_SYSTEM_MONITORING", "---", "---"])
-        self.OBDTests.Append(["SECONDARY_AIR_SYSTEM_MONITORING", "---", "---"])
-        self.OBDTests.Append(["OXYGEN_SENSOR_MONITORING", "---", "---"])
-        self.OBDTests.Append(["OXYGEN_SENSOR_HEATER_MONITORING", "---", "---"])
-        self.OBDTests.Append(["EGR_VVT_SYSTEM_MONITORING", "---", "---"])
-        self.OBDTests.Append(["NMHC_CATALYST_MONITORING", "---", "---"])
-        self.OBDTests.Append(["NOX_SCR_AFTERTREATMENT_MONITORING", "---", "---"])
-        self.OBDTests.Append(["BOOST_PRESSURE_MONITORING", "---", "---"])
-        self.OBDTests.Append(["EXHAUST_GAS_SENSOR_MONITORING", "---", "---"])
-        self.OBDTests.Append(["PM_FILTER_MONITORING", "---", "---"])
-        self.OBDTests.Append(["MISFIRE CYLINDER 1", "---", "---"])
-        self.OBDTests.Append(["MISFIRE CYLINDER 2", "---", "---"])
-        self.OBDTests.Append(["MISFIRE CYLINDER 3", "---", "---"])
-        self.OBDTests.Append(["MISFIRE CYLINDER 4", "---", "---"])
-        self.OBDTests.Append(["MISFIRE CYLINDER 5", "---", "---"])
-        self.OBDTests.Append(["MISFIRE CYLINDER 6", "---", "---"])
-        self.OBDTests.Append(["MISFIRE CYLINDER 7", "---", "---"])
-        self.OBDTests.Append(["MISFIRE CYLINDER 8", "---", "---"])
-        self.OBDTests.Append(["MISFIRE CYLINDER 9", "---", "---"])
-        self.OBDTests.Append(["MISFIRE CYLINDER 10", "---", "---"])
-        self.OBDTests.Append(["MISFIRE CYLINDER 11", "---", "---"])
-        self.OBDTests.Append(["MISFIRE CYLINDER 12", "---", "---"])
+        self.tests_notebook = wx.Notebook(self.tests_panel)
+        self.OBDTests = self.MyListCtrl(
+            self.tests_notebook, wx.NewIdRef(), style=wx.LC_REPORT | wx.BORDER_NONE
+        )
+        self.OBDTests.InsertColumn(0, "Monitor", width=330)
+        self.OBDTests.InsertColumn(1, "Supported", width=110)
+        self.OBDTests.InsertColumn(2, "Status", width=140)
+        for label in TEST_LABELS:
+            self.OBDTests.Append([label, "—", "—"])
+
+        self.misfire_tests = self.MyListCtrl(
+            self.tests_notebook, wx.NewIdRef(), style=wx.LC_REPORT | wx.BORDER_NONE
+        )
+        self.misfire_tests.InsertColumn(0, "Monitor", width=330)
+        self.misfire_tests.InsertColumn(1, "Mode 06 result", width=180)
+        for cylinder in range(1, 13):
+            self.misfire_tests.Append([f"Cylinder {cylinder}", "—"])
+
+        self.tests_notebook.AddPage(self.OBDTests, "Readiness")
+        self.tests_notebook.AddPage(self.misfire_tests, "Misfire Results")
+        tests_root.Add(tests_toolbar, 0, wx.EXPAND | wx.ALL, 20)
+        tests_root.Add(tests_help, 0, wx.LEFT | wx.RIGHT | wx.BOTTOM, 20)
+        tests_root.Add(self.tests_notebook, 1, wx.EXPAND | wx.LEFT | wx.RIGHT | wx.BOTTOM, 20)
+        self.tests_panel.SetSizer(tests_root)
+        self.nb.AddPage(self.tests_panel, "Readiness")
 
 
 
@@ -772,21 +1090,33 @@ class MyApp(GraphUIMixin, wx.App):
 
         self.build_graph_page()
         # Legacy 4-Graphs and 8-Graphs pages removed.
-        self.trace = self.MyListCtrl(self.nb, tID, style=wx.LC_REPORT | wx.SUNKEN_BORDER)
+        self.trace = self.MyListCtrl(self.nb, tID, style=wx.LC_REPORT | wx.BORDER_NONE)
         self.trace.InsertColumn(0, "Level", width=40)
         self.trace.InsertColumn(1, "Message")
         self.nb.AddPage(self.trace, "Trace")
         self.TraceDebug(1, "Application started")
         self.about_panel = build_about_page(self.nb)
         self.build_home_page()
-        self._swap_notebook_pages("Home", "Status")
 
+        self._build_sidebar()
+        self._build_content_header()
         self._build_bottom_status_toolbar()
         self._set_bottom_status_defaults()
 
+        content_sizer = wx.BoxSizer(wx.VERTICAL)
+        content_sizer.Add(self.content_header, 0, wx.EXPAND | wx.LEFT | wx.RIGHT | wx.TOP, 20)
+        content_sizer.Add(self.nb, 1, wx.EXPAND | wx.ALL, 20)
+        content_sizer.Add(self.bottom_toolbar, 0, wx.EXPAND)
+        self.content_panel.SetSizer(content_sizer)
+
+        shell_sizer = wx.BoxSizer(wx.HORIZONTAL)
+        shell_sizer.Add(self.sidebar_panel, 0, wx.EXPAND)
+        shell_sizer.Add(self.content_panel, 1, wx.EXPAND)
+        self.sidebar_panel.Show(self._sidebar_open)
+        self.shell_panel.SetSizer(shell_sizer)
+
         self.main_sizer = wx.BoxSizer(wx.VERTICAL)
-        self.main_sizer.Add(self.nb, 1, wx.EXPAND | wx.ALL, 8)
-        self.main_sizer.Add(self.bottom_toolbar, 0, wx.EXPAND | wx.LEFT | wx.RIGHT | wx.BOTTOM, 8)
+        self.main_sizer.Add(self.shell_panel, 1, wx.EXPAND)
         self.frame.SetSizer(self.main_sizer)
 
         self._apply_touch_friendly_style()
@@ -824,7 +1154,7 @@ class MyApp(GraphUIMixin, wx.App):
 
         self.frame.SetMenuBar(self.menuBar)  # Adding the MenuBar to the Frame content.
 
-        self.frame.Bind(wx.EVT_MENU, self.OnExit, id=ID_EXIT)  # attach the menu-event ID_EXIT to the
+        self.frame.Bind(wx.EVT_MENU, self.OnExitMenu, id=ID_EXIT)
         self.frame.Bind(wx.EVT_MENU, self.QueryClear, id=ID_CLEAR)
         self.frame.Bind(wx.EVT_MENU, self.Configure, id=ID_CONFIG)
         self.frame.Bind(wx.EVT_MENU, self.OpenPort, id=ID_RESET)
@@ -834,6 +1164,7 @@ class MyApp(GraphUIMixin, wx.App):
         self.frame.Bind(wx.EVT_MENU, self.OnHelpAbout, id=ID_HELP_ABOUT)
         self.frame.Bind(wx.EVT_MENU, self.OnHelpVisit, id=ID_HELP_VISIT)
         self.frame.Bind(wx.EVT_MENU, self.OnHelpOrder, id=ID_HELP_ORDER)
+        self.frame.Bind(wx.EVT_CLOSE, self.OnWindowClose)
 
         self.SetTopWindow(self.frame)
 
@@ -873,7 +1204,21 @@ class MyApp(GraphUIMixin, wx.App):
         self.HelpAboutDlg.Destroy()
 
     def OnResult(self, event):
-        self.sensors.SetItem(event.data[0], event.data[1], event.data[2])
+        source_index, column, value = event.data
+        while len(self.sensor_rows) <= source_index:
+            self.sensor_rows.append(["", "", ""])
+        if isinstance(value, bytes):
+            value = value.decode(errors="ignore")
+        value = str(value)
+        changed = self.sensor_rows[source_index][column] != value
+        self.sensor_rows[source_index][column] = value
+
+        query_active = bool(self.sensor_search.GetValue().strip())
+        if query_active and column in (0, 1) and changed:
+            self._schedule_sensor_filter()
+        elif source_index in self.sensor_visible_indices:
+            view_index = self.sensor_visible_indices.index(source_index)
+            self.sensors.SetItem(view_index, column, value)
 
     def OnFreezeframeResult(self, event):
         self.freezeframe.SetItem(event.data[0], event.data[1], event.data[2])
@@ -888,6 +1233,7 @@ class MyApp(GraphUIMixin, wx.App):
             # Drive UI control state from actual connection state notifications.
             if event.data[0] == 0:
                 state_text = str(event.data[2])
+                self._update_connection_visuals(state_text)
                 if state_text == "Car connected!":
                     self.sensor_control_on()
                 elif state_text == "Disconnected":
@@ -895,7 +1241,30 @@ class MyApp(GraphUIMixin, wx.App):
                     self._set_graph_streaming(False)
 
     def OnTests(self, event):
-        self.OBDTests.SetItem(event.data[0], event.data[1], event.data[2])
+        data = event.data
+        if not isinstance(data, dict):
+            self.OBDTests.SetItem(data[0], data[1], data[2])
+            return
+        if data["kind"] == "readiness":
+            self.OBDTests.SetItem(data["index"], 1, "Yes" if data["supported"] else "No")
+            self.OBDTests.SetItem(data["index"], 2, data["status"])
+            colour = {
+                "Ready": self.theme.success,
+                "Not ready": self.theme.warning,
+                "Unsupported": self.theme.muted,
+            }[data["status"]]
+            self.OBDTests.SetItemTextColour(data["index"], colour)
+        elif data["kind"] == "misfire":
+            self.misfire_tests.SetItem(data["index"], 1, data["result"])
+        elif data["kind"] == "complete":
+            self.tests_status_label.SetLabel(
+                f"{data['ready']} ready  •  {data['not_ready']} not ready  •  "
+                f"{data['unsupported']} unsupported"
+            )
+            self.RefreshTestsButton.Enable(True)
+        elif data["kind"] == "error":
+            self.tests_status_label.SetLabel("Unable to read monitor status")
+            self.RefreshTestsButton.Enable(True)
 
     """
     def OnCombo(self, event):
@@ -906,7 +1275,17 @@ class MyApp(GraphUIMixin, wx.App):
     """
     def InsertSensorRow(self, event):
         counter = event.data
-        self.sensors.InsertItem(counter, "")
+        while len(self.sensor_rows) <= counter:
+            self.sensor_rows.append(["", "", ""])
+        if self.sensor_search.GetValue().strip():
+            self._schedule_sensor_filter()
+            return
+        if counter not in self.sensor_visible_indices:
+            view_index = self.sensors.InsertItem(self.sensors.GetItemCount(), "")
+            self.sensor_visible_indices.append(counter)
+            self.sensors.SetItem(view_index, 1, "")
+            self.sensors.SetItem(view_index, 2, "")
+        self.sensor_count_label.SetLabel(f"{len(self.sensor_visible_indices)} of {len(self.sensor_rows)} PIDs")
 
     def InsertFreezeframeRow(self, event):
         counter = event.data
@@ -1039,6 +1418,9 @@ class MyApp(GraphUIMixin, wx.App):
         self.combobox_graphs8_set_sel_finished = True
     def OnClose(self, event):
 
+        if self._shutdown_started:
+            return
+
         #while self.senprod.state != "finished":
         #    time.sleep(0.1)
         print("on close!")
@@ -1065,35 +1447,16 @@ class MyApp(GraphUIMixin, wx.App):
                     pass
 
         self.sensors.DeleteAllItems()
+        self.sensor_rows.clear()
+        self.sensor_visible_indices.clear()
+        self.sensor_selected_sources.clear()
+        self.sensor_count_label.SetLabel("Waiting for vehicle data")
         self.freezeframe.DeleteAllItems()
-        self.OBDTests.DeleteAllItems()
-        self.OBDTests.Append(["MISFIRE_MONITORING", "---", "---"])
-        self.OBDTests.Append(["FUEL_SYSTEM_MONITORING", "---", "---"])
-        self.OBDTests.Append(["COMPONENT_MONITORING", "---", "---"])
-        self.OBDTests.Append(["CATALYST_MONITORING", "---", "---"])
-        self.OBDTests.Append(["HEATED_CATALYST_MONITORING", "---", "---"])
-        self.OBDTests.Append(["EVAPORATIVE_SYSTEM_MONITORING", "---", "---"])
-        self.OBDTests.Append(["SECONDARY_AIR_SYSTEM_MONITORING", "---", "---"])
-        self.OBDTests.Append(["OXYGEN_SENSOR_MONITORING", "---", "---"])
-        self.OBDTests.Append(["OXYGEN_SENSOR_HEATER_MONITORING", "---", "---"])
-        self.OBDTests.Append(["EGR_VVT_SYSTEM_MONITORING", "---", "---"])
-        self.OBDTests.Append(["NMHC_CATALYST_MONITORING", "---", "---"])
-        self.OBDTests.Append(["NOX_SCR_AFTERTREATMENT_MONITORING", "---", "---"])
-        self.OBDTests.Append(["BOOST_PRESSURE_MONITORING", "---", "---"])
-        self.OBDTests.Append(["EXHAUST_GAS_SENSOR_MONITORING", "---", "---"])
-        self.OBDTests.Append(["PM_FILTER_MONITORING", "---", "---"])
-        self.OBDTests.Append(["MISFIRE CYLINDER 1", "---", "---"])
-        self.OBDTests.Append(["MISFIRE CYLINDER 2", "---", "---"])
-        self.OBDTests.Append(["MISFIRE CYLINDER 3", "---", "---"])
-        self.OBDTests.Append(["MISFIRE CYLINDER 4", "---", "---"])
-        self.OBDTests.Append(["MISFIRE CYLINDER 5", "---", "---"])
-        self.OBDTests.Append(["MISFIRE CYLINDER 6", "---", "---"])
-        self.OBDTests.Append(["MISFIRE CYLINDER 7", "---", "---"])
-        self.OBDTests.Append(["MISFIRE CYLINDER 8", "---", "---"])
-        self.OBDTests.Append(["MISFIRE CYLINDER 9", "---", "---"])
-        self.OBDTests.Append(["MISFIRE CYLINDER 10", "---", "---"])
-        self.OBDTests.Append(["MISFIRE CYLINDER 11", "---", "---"])
-        self.OBDTests.Append(["MISFIRE CYLINDER 12", "---", "---"])
+        for row in range(self.OBDTests.GetItemCount()):
+            self.OBDTests.SetItem(row, 1, "—")
+            self.OBDTests.SetItem(row, 2, "—")
+        for row in range(self.misfire_tests.GetItemCount()):
+            self.misfire_tests.SetItem(row, 1, "—")
         self.dtc.DeleteAllItems()
 
         reset_list_if_present("graphs_list_ctrl", 4)
@@ -1397,6 +1760,20 @@ class MyApp(GraphUIMixin, wx.App):
     def OnDtc(self, event):
         if event.data == 0:  # signal, that DTC was cleared
             self.dtc.DeleteAllItems()
+            self.dtc_status_label.SetLabel("Scanning diagnostic trouble codes…")
+            self.GetDTCButton.Enable(False)
+        elif isinstance(event.data, dict):
+            counts = event.data.get("counts", {})
+            total = sum(counts.values())
+            if total:
+                self.dtc_status_label.SetLabel(
+                    f"{counts.get('Stored', 0)} stored  •  "
+                    f"{counts.get('Pending', 0)} pending  •  "
+                    f"{counts.get('Permanent', 0)} permanent"
+                )
+            else:
+                self.dtc_status_label.SetLabel("No diagnostic trouble codes reported")
+            self.GetDTCButton.Enable(True)
         else:
             self.dtc.Append(event.data)
 
@@ -1416,6 +1793,7 @@ class MyApp(GraphUIMixin, wx.App):
         if self.senprod:
             if self.senprod.is_alive():  # signal current producers to finish
                 self.senprod.stop()
+                self.senprod.join(timeout=2.0)
         self.ThreadControl = 0
 
         # Prevent reconfigure/reconnect clicks while connection attempt is in progress.
@@ -1427,7 +1805,9 @@ class MyApp(GraphUIMixin, wx.App):
         self.senprod.start()
 
     def GetDTC(self, e):
-        self.nb.SetSelection(3)
+        self._go_to_page(self.DTCpanel)
+        self.dtc_status_label.SetLabel("Scanning diagnostic trouble codes…")
+        self.GetDTCButton.Enable(False)
         self.ThreadControl = 2
 
     def AddDTC(self, code):
@@ -1438,7 +1818,7 @@ class MyApp(GraphUIMixin, wx.App):
     def CodeLookup(self, e=None):
         id = 0
         diag = wx.Frame(None, id, title="Diagnostic Trouble Codes")
-        ico = wx.Icon(resource_path('pyobd.ico'), wx.BITMAP_TYPE_ICO)
+        ico = wx.Icon(resource_path('pyobd.png'), wx.BITMAP_TYPE_PNG)
         diag.SetIcon(ico)
         tree = wx.TreeCtrl(diag, id, style=wx.TR_HAS_BUTTONS)
 
@@ -1458,28 +1838,19 @@ class MyApp(GraphUIMixin, wx.App):
         diag.Show(True)
 
     def QueryClear(self, e):
-        id = 0
-        diag = wx.Dialog(self.frame, id, title="Clear DTC?")
-
-        sizer = wx.BoxSizer(wx.VERTICAL)
-        sizer.Add(wx.StaticText(diag, -1, "Are you sure you wish to"), 0)
-        sizer.Add(wx.StaticText(diag, -1, "clear all DTC codes and "), 0)
-        sizer.Add(wx.StaticText(diag, -1, "freeze frame data?      "), 0)
-        box = wx.BoxSizer(wx.HORIZONTAL)
-        box.Add(wx.Button(diag, wx.ID_OK, "Ok"), 0)
-        box.Add(wx.Button(diag, wx.ID_CANCEL, "Cancel"), 0)
-
-        sizer.Add(box, 0)
-        diag.SetSizer(sizer)
-        diag.SetAutoLayout(True)
-        sizer.Fit(diag)
-        r = diag.ShowModal()
-        if r == wx.ID_OK:
+        result = wx.MessageBox(
+            "Clear stored and pending codes and freeze-frame data?\n\n"
+            "Readiness monitors will reset. Permanent codes cannot be cleared by a scan tool.",
+            "Clear diagnostic codes",
+            wx.YES_NO | wx.NO_DEFAULT | wx.ICON_WARNING,
+            self.frame,
+        )
+        if result == wx.YES:
             self.ClearDTC()
 
     def ClearDTC(self):
         self.ThreadControl = 1
-        self.nb.SetSelection(3)
+        self._go_to_page(self.DTCpanel)
 
     def try_port(self, portStr):
         """returns boolean for port availability"""
@@ -1901,12 +2272,20 @@ class MyApp(GraphUIMixin, wx.App):
         sizer.Add(note_text, 0, wx.LEFT | wx.RIGHT | wx.TOP, 8)
 
         link_and_buttons = wx.BoxSizer(wx.HORIZONTAL)
-        self.OpenLinkButton = wx.Button(diag, -1, "Order OBD adapter", size=(160, 30))
+        self.OpenLinkButton = ModernButton(
+            diag, "Order OBD adapter", self.theme, variant="secondary", size=(160, 40)
+        )
         diag.Bind(wx.EVT_BUTTON, self.OnHelpOrder, self.OpenLinkButton)
         link_and_buttons.Add(self.OpenLinkButton, 0, wx.RIGHT, 10)
         link_and_buttons.AddStretchSpacer(1)
-        link_and_buttons.Add(wx.Button(diag, wx.ID_OK), 0, wx.RIGHT, 6)
-        link_and_buttons.Add(wx.Button(diag, wx.ID_CANCEL), 0)
+        ok_button = ModernButton(diag, "Save", self.theme, variant="primary", id=wx.ID_OK)
+        cancel_button = ModernButton(
+            diag, "Cancel", self.theme, variant="secondary", id=wx.ID_CANCEL
+        )
+        ok_button.Bind(wx.EVT_BUTTON, lambda _event: diag.EndModal(wx.ID_OK))
+        cancel_button.Bind(wx.EVT_BUTTON, lambda _event: diag.EndModal(wx.ID_CANCEL))
+        link_and_buttons.Add(ok_button, 0, wx.RIGHT, 6)
+        link_and_buttons.Add(cancel_button, 0)
         sizer.Add(link_and_buttons, 0, wx.EXPAND | wx.ALL, 8)
 
         if (self.COMPORT != 0) and (self.COMPORT in ports):
@@ -2031,10 +2410,22 @@ class MyApp(GraphUIMixin, wx.App):
             # write configuration to cfg file
             self.config.write(open(self.configfilepath, 'w'))
 
-    def OnExit(self, e=None):
+    def OnExitMenu(self, event=None):
+        self.frame.Close()
+
+    def OnWindowClose(self, event):
+        if self._shutdown_started:
+            event.Skip()
+            return
+
+        self._shutdown_started = True
+        if self.sensor_filter_timer and self.sensor_filter_timer.IsRunning():
+            self.sensor_filter_timer.Stop()
         self.ThreadControl = 666
-        time.sleep(0.1)
-        os._exit(0)
+        if self.senprod and self.senprod.is_alive():
+            self.senprod.stop()
+            self.senprod.join(timeout=2.0)
+        event.Skip()
 
 
 def main():

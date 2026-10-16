@@ -32,6 +32,12 @@ class FakeListControl:
     def DeleteAllItems(self):
         self.rows = []
 
+    def Freeze(self):
+        pass
+
+    def Thaw(self):
+        pass
+
     def InsertItem(self, index, value):
         self.rows.insert(index, [value, "", ""])
 
@@ -56,6 +62,7 @@ class GraphHarness(GraphUIMixin):
         self.selected_graph_commands = commands
         self.isolated_graph_command_key = None
         self.graph_individual_mode = False
+        self.panel = None
         self.graph_list_ctrl = FakeListControl(selected)
         self.graph_view_button = FakeButton()
         for index, command in enumerate(commands):

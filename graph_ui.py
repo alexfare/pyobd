@@ -4,6 +4,7 @@ import wx
 from wx.lib import plot as wxplot
 
 import obd
+from ui_theme import ModernButton
 
 
 GRAPH_COLOURS = ["blue", "red", "green", "orange", "purple", "brown", "black", "cyan"]
@@ -30,6 +31,7 @@ class GraphUIMixin:
         self.graph_streaming_enabled = bool(enabled)
         if hasattr(self, "graph_play_button"):
             self.graph_play_button.SetLabel("Stop" if self.graph_streaming_enabled else "Play")
+            self.graph_play_button.SetVariant("danger" if self.graph_streaming_enabled else "success")
 
         if not self.graph_streaming_enabled:
             for row in range(self.graph_list_ctrl.GetItemCount()):
@@ -60,6 +62,7 @@ class GraphUIMixin:
 
     def _refresh_graph_selection_ui(self):
         selected_keys = set(self._selected_graph_keys()) if hasattr(self, "graph_list_ctrl") else set()
+        self.graph_list_ctrl.Freeze()
         self.graph_list_ctrl.DeleteAllItems()
         for index, command in enumerate(self.selected_graph_commands):
             self.graph_list_ctrl.InsertItem(index, command.command.decode(errors="ignore"))
@@ -67,33 +70,39 @@ class GraphUIMixin:
             self.graph_list_ctrl.SetItem(index, 2, "---")
             if command.command in selected_keys:
                 self.graph_list_ctrl.Select(index)
+        self.graph_list_ctrl.Thaw()
 
         valid_keys = {command.command for command in self.selected_graph_commands}
         if self.isolated_graph_command_key not in valid_keys:
             self.isolated_graph_command_key = None
-        self._rebuild_graph_canvases()
+        if self.graph_individual_mode or self.panel is None:
+            self._rebuild_graph_canvases()
 
     def _add_graph_commands_by_catalog_indices(self, catalog_indices):
-        added_count = 0
+        existing_keys = {command.command for command in self.selected_graph_commands}
+        additions = []
         for index in catalog_indices:
             if not 0 <= index < len(self.graph_command_catalog):
                 continue
             command = self.graph_command_catalog[index]
-            if command not in self.selected_graph_commands:
-                self.selected_graph_commands.append(command)
-                added_count += 1
+            if command.command not in existing_keys:
+                additions.append(command)
+                existing_keys.add(command.command)
 
-        if added_count:
+        if additions:
+            self.selected_graph_commands.extend(additions)
             self._refresh_graph_selection_ui()
-        return added_count
+        return len(additions)
 
     def _show_add_graph_pid_dialog(self):
         dialog = wx.Dialog(self.frame, -1, "Add PID", size=(680, 540))
         root = wx.BoxSizer(wx.VERTICAL)
         search_ctrl = wx.TextCtrl(dialog)
         list_box = wx.ListBox(dialog, style=wx.LB_EXTENDED)
-        add_button = wx.Button(dialog, label="Add Selected")
-        done_button = wx.Button(dialog, wx.ID_CANCEL, "Done")
+        add_button = ModernButton(dialog, "Add Selected", self.theme, variant="primary")
+        done_button = ModernButton(
+            dialog, "Done", self.theme, variant="secondary", id=wx.ID_CANCEL
+        )
 
         button_row = wx.BoxSizer(wx.HORIZONTAL)
         button_row.Add(add_button)
@@ -120,15 +129,20 @@ class GraphUIMixin:
         def update_filter(_event=None):
             selected_catalog_indices.update(current_catalog_indices())
             query = search_ctrl.GetValue().strip().lower()
-            list_box.Clear()
             filtered_indices.clear()
+            labels = []
+            existing_keys = {command.command for command in self.selected_graph_commands}
             for index, label in enumerate(self.graph_command_labels):
-                if not query or query in label.lower():
+                command = self.graph_command_catalog[index]
+                if command.command not in existing_keys and (not query or query in label.lower()):
                     filtered_indices.append(index)
-                    list_box.Append(label)
+                    labels.append(label)
+            list_box.Freeze()
+            list_box.Set(labels)
             for view_index, catalog_index in enumerate(filtered_indices):
                 if catalog_index in selected_catalog_indices:
                     list_box.SetSelection(view_index)
+            list_box.Thaw()
 
         def add_selected(_event=None):
             selected_catalog_indices.update(current_catalog_indices())
@@ -142,11 +156,16 @@ class GraphUIMixin:
 
         search_ctrl.Bind(wx.EVT_TEXT, update_filter)
         add_button.Bind(wx.EVT_BUTTON, add_selected)
+        done_button.Bind(wx.EVT_BUTTON, lambda _event: dialog.EndModal(wx.ID_CANCEL))
         list_box.Bind(wx.EVT_LISTBOX_DCLICK, add_selected)
-        update_filter()
-        search_ctrl.SetFocus()
-        dialog.ShowModal()
-        dialog.Destroy()
+        self.graph_interaction_paused = True
+        try:
+            update_filter()
+            search_ctrl.SetFocus()
+            dialog.ShowModal()
+        finally:
+            self.graph_interaction_paused = False
+            dialog.Destroy()
 
     def OnAddGraphPid(self, _event):
         self._show_add_graph_pid_dialog()
@@ -274,10 +293,19 @@ class GraphUIMixin:
         root = wx.BoxSizer(wx.VERTICAL)
         toolbar = wx.BoxSizer(wx.HORIZONTAL)
 
-        self.add_graph_pid_button = wx.Button(self.graph_panel, label="Add PID")
-        self.remove_graph_pid_button = wx.Button(self.graph_panel, label="Remove Selected")
-        self.graph_play_button = wx.Button(self.graph_panel, label="Play")
-        self.graph_view_button = wx.Button(self.graph_panel, label="▦", size=(48, 42))
+        self.add_graph_pid_button = ModernButton(
+            self.graph_panel, "Add PID", self.theme, variant="primary"
+        )
+        self.remove_graph_pid_button = ModernButton(
+            self.graph_panel, "Remove Selected", self.theme, variant="danger"
+        )
+        self.remove_graph_pid_button.SetMinSize((160, 40))
+        self.graph_play_button = ModernButton(
+            self.graph_panel, "Play", self.theme, variant="success"
+        )
+        self.graph_view_button = ModernButton(
+            self.graph_panel, "▦", self.theme, variant="secondary", size=(48, 42)
+        )
         self.graph_individual_mode = False
         view_font = self.graph_view_button.GetFont()
         view_font.SetPointSize(18)
@@ -292,7 +320,7 @@ class GraphUIMixin:
         self.graph_list_ctrl = self.MyListCtrl(
             self.graph_panel,
             wx.NewIdRef(),
-            style=wx.LC_REPORT | wx.SUNKEN_BORDER | wx.LC_HRULES,
+            style=wx.LC_REPORT | wx.BORDER_NONE | wx.LC_HRULES,
         )
         self.graph_list_ctrl.InsertColumn(0, "PID", width=80)
         self.graph_list_ctrl.InsertColumn(1, "Sensor", width=360)
@@ -314,6 +342,7 @@ class GraphUIMixin:
 
         self._build_graph_command_catalog()
         self.graph_streaming_enabled = False
+        self.graph_interaction_paused = False
         self.add_graph_pid_button.Bind(wx.EVT_BUTTON, self.OnAddGraphPid)
         self.remove_graph_pid_button.Bind(wx.EVT_BUTTON, self.OnRemoveGraphPid)
         self.graph_play_button.Bind(wx.EVT_BUTTON, self.OnToggleGraphStreaming)

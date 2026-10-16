@@ -18,7 +18,7 @@ install -d \
 cp -R dist/pyOBD/. "$package_root/opt/pyobd/"
 install -m 755 packaging/linux/pyobd "$package_root/usr/bin/pyobd"
 install -m 644 packaging/linux/pyobd.desktop "$package_root/usr/share/applications/pyobd.desktop"
-install -m 644 pyobd.ico "$package_root/usr/share/pixmaps/pyobd.ico"
+install -m 644 pyobd.png "$package_root/usr/share/pixmaps/pyobd.png"
 install -m 644 COPYING "$package_root/usr/share/doc/pyobd/copyright"
 
 installed_size="$(du -sk "$package_root" | cut -f1)"
