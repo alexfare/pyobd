@@ -291,7 +291,10 @@ logger = logging.getLogger(__name__)
 
 class OBDConnection:
 
-    def __init__(self,portnum,_notify_window, baud, SERTIMEOUT,RECONNATTEMPTS, FAST):
+    def __init__(
+        self, portnum, _notify_window, baud, SERTIMEOUT, RECONNATTEMPTS, FAST,
+        attempt_status=None, cancel_check=None,
+    ):
         self._notify_window = _notify_window
         if baud == 'AUTO':
             baud = None
@@ -339,6 +342,12 @@ class OBDConnection:
             port_attempts = [portnum] * max_attempts
 
         for counter, candidate_port in enumerate(port_attempts, start=1):
+            if cancel_check and cancel_check():
+                break
+            if attempt_status:
+                wx.PostEvent(self._notify_window, StatusEvent([
+                    0, 1, f"{attempt_status} ({counter}/{len(port_attempts)})..."
+                ]))
             wx.PostEvent(self._notify_window, DebugEvent([2, "Connection attempt:" + str(counter) + " (" + str(candidate_port) + ")"]))
             try:
                 self.connection.close()
@@ -366,6 +375,8 @@ class OBDConnection:
 
             self.connection.close()
             self.connection = _DisconnectedConnection("Not Connected")
+            if cancel_check and cancel_check():
+                break
             time.sleep(0.2)
 
     def _normalize_adapter_target(self, portnum):

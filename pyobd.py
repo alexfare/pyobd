@@ -211,9 +211,18 @@ class MyApp(GraphUIMixin, wx.App):
         if "connected" in normalized and "disconnected" not in normalized:
             label = "●  Connected"
             colour = self.theme.success
+        elif "disconnecting" in normalized:
+            label = "●  Disconnecting"
+            colour = self.theme.warning
+        elif "reconnecting" in normalized:
+            label = "●  Reconnecting"
+            colour = self.theme.warning
         elif "connecting" in normalized:
             label = "●  Connecting"
             colour = self.theme.warning
+        elif "lost" in normalized:
+            label = "●  Connection lost"
+            colour = self.theme.danger
         elif "fail" in normalized or "error" in normalized:
             label = "●  Connection failed"
             colour = self.theme.danger
@@ -228,8 +237,26 @@ class MyApp(GraphUIMixin, wx.App):
                 control.SetForegroundColour(colour)
 
         if hasattr(self, "header_connect_button"):
-            self.header_connect_button.SetLabel("Disconnect" if label == "●  Connected" else "Connect")
-            self.header_connect_button.SetVariant("danger" if label == "●  Connected" else "primary")
+            active = label in (
+                "●  Connected", "●  Connecting", "●  Reconnecting", "●  Disconnecting"
+            )
+            self.header_connect_button.SetLabel(
+                "Disconnect" if label == "●  Connected" else "Cancel" if active else "Connect"
+            )
+            self.header_connect_button.SetVariant("danger" if active else "primary")
+
+    def sensor_control_reconnecting(self):
+        self._stop_sensor_recording()
+        self._set_graph_streaming(False)
+        self.settingmenu.Enable(ID_CONFIG, False)
+        self.settingmenu.Enable(ID_RESET, False)
+        self.settingmenu.Enable(ID_DISCONNECT, True)
+        self.dtcmenu.Enable(ID_GETC, False)
+        self.dtcmenu.Enable(ID_CLEAR, False)
+        self.GetDTCButton.Enable(False)
+        self.ClearDTCButton.Enable(False)
+        self.RefreshTestsButton.Enable(False)
+        self.sensor_record_button.Enable(False)
 
     def _build_content_header(self):
         self.content_header = wx.Panel(self.content_panel)
@@ -1397,10 +1424,13 @@ class MyApp(GraphUIMixin, wx.App):
             # Drive UI control state from actual connection state notifications.
             if event.data[0] == 0:
                 state_text = str(event.data[2])
+                normalized_state = state_text.strip().lower()
                 self._update_connection_visuals(state_text)
                 if state_text == "Car connected!":
                     self.sensor_control_on()
-                elif state_text == "Disconnected":
+                elif "reconnecting" in normalized_state or "connection lost" in normalized_state:
+                    self.sensor_control_reconnecting()
+                elif state_text in ("Disconnected", "Connection failed"):
                     self.sensor_control_off()
                     self._set_graph_streaming(False)
 
@@ -1944,8 +1974,10 @@ class MyApp(GraphUIMixin, wx.App):
     def OnDisconnect(self, event):  # disconnect connection to ECU
         self._stop_sensor_recording()
         try:
-            self.ThreadControl = 666
-            time.sleep(0.1)
+            if self.senprod and self.senprod.is_alive():
+                self.senprod.stop()
+            else:
+                self.ThreadControl = 666
 
         except:
             traceback.print_exc()
@@ -1959,6 +1991,9 @@ class MyApp(GraphUIMixin, wx.App):
             if self.senprod.is_alive():  # signal current producers to finish
                 self.senprod.stop()
                 self.senprod.join(timeout=2.0)
+                if self.senprod.is_alive():
+                    self._update_connection_visuals("Disconnecting...")
+                    return
         self.ThreadControl = 0
 
         # Prevent reconfigure/reconnect clicks while connection attempt is in progress.
