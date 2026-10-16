@@ -370,6 +370,7 @@ class DashboardUIMixin:
         self.dashboard_canvas = wx.ScrolledWindow(
             self.dashboard_panel, style=wx.HSCROLL | wx.VSCROLL | wx.BORDER_NONE
         )
+        self.dashboard_canvas.SetBackgroundStyle(wx.BG_STYLE_PAINT)
         self.dashboard_canvas.SetBackgroundColour(self.theme.window)
         self.dashboard_canvas.SetScrollRate(10, 10)
         root.Add(toolbar, 0, wx.EXPAND | wx.ALL, 12)
