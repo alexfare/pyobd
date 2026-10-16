@@ -43,6 +43,13 @@ class SensorProducer(threading.Thread):
             return list(commands)
         return [command for command in commands if command.command == isolated_key]
 
+    def _post_graph_event(self, data):
+        if getattr(self._notify_window, "graph_event_pending", False):
+            return False
+        self._notify_window.graph_event_pending = True
+        wx.PostEvent(self._notify_window, GraphEvent(data))
+        return True
+
     @staticmethod
     def _readiness_results(status_value):
         counts = {"ready": 0, "not_ready": 0, "unsupported": 0}
@@ -265,7 +272,7 @@ class SensorProducer(threading.Thread):
                 self.graph_series = {}
                 self.graph_counter = 0
                 self.first_time_graph_plot = True
-                wx.PostEvent(self._notify_window, GraphEvent([[], self.graph_counter, self.first_time_graph_plot]))
+                self._post_graph_event([[], self.graph_counter, self.first_time_graph_plot])
                 self.first_time_graph_plot = False
 
 
@@ -555,10 +562,14 @@ class SensorProducer(threading.Thread):
                     self.graph_counter = 0
                     self.graph_series = {}
                     self.graph_emit_counter = 0
+                    self.graph_last_draw_at = 0.0
+                    self.graph_last_value_at = 0.0
                     self.graph_stream_active_last = False
                     first_time_graph = False
 
                 if self._notify_window.graph_interaction_paused:
+                    time_end = datetime.datetime.now()
+                    first_time = False
                     continue
 
                 if not self._notify_window.graph_streaming_enabled:
@@ -567,8 +578,10 @@ class SensorProducer(threading.Thread):
                         self.graph_emit_counter = 0
                         self.graph_series = {}
                         self.first_time_graph_plot = True
-                        wx.PostEvent(self._notify_window, GraphEvent([[], 0, self.first_time_graph_plot]))
+                        self._post_graph_event([[], 0, self.first_time_graph_plot])
                     self.graph_stream_active_last = False
+                    time_end = datetime.datetime.now()
+                    first_time = False
                     continue
 
                 self.graph_stream_active_last = True
@@ -577,6 +590,8 @@ class SensorProducer(threading.Thread):
                 isolated_key = getattr(self._notify_window, "isolated_graph_command_key", None)
                 selected_commands = self._graph_commands_to_poll(selected_commands, isolated_key)
                 selected_keys = {command.command for command in selected_commands}
+                graph_now = time.monotonic()
+                emit_values = graph_now - self.graph_last_value_at >= 0.2
 
                 for stale_key in list(self.graph_series.keys()):
                     if stale_key not in selected_keys:
@@ -595,7 +610,7 @@ class SensorProducer(threading.Thread):
 
                     r = self.connection.connection.query(command)
                     if r.value is None:
-                        if self.graph_emit_counter < 2 or (self.graph_emit_counter % 3) == 0:
+                        if emit_values:
                             wx.PostEvent(self._notify_window, GraphValueEvent([command_key, 2, "No data"]))
                         continue
 
@@ -612,18 +627,24 @@ class SensorProducer(threading.Thread):
                     series["unit"] = unit
                     series["desc"] = command.desc
 
-                    if self.graph_emit_counter < 2 or (self.graph_emit_counter % 3) == 0:
+                    if emit_values:
                         wx.PostEvent(self._notify_window, GraphValueEvent([command_key, 2, value_text]))
 
                     plot_series.append((series["x"], series["y"], series["unit"], series["desc"], command_key))
 
-                if self.graph_emit_counter < 2 or (self.graph_emit_counter % 4) == 0:
+                if emit_values:
+                    self.graph_last_value_at = graph_now
+
+                if graph_now - self.graph_last_draw_at >= 0.25:
                     plot_snapshot = [
                         (tuple(series[0]), tuple(series[1]), series[2], series[3], series[4])
                         for series in plot_series
                     ]
-                    wx.PostEvent(self._notify_window, GraphEvent([plot_snapshot, self.graph_counter, self.first_time_graph_plot]))
-                    self.first_time_graph_plot = False
+                    if self._post_graph_event([
+                        plot_snapshot, self.graph_counter, self.first_time_graph_plot
+                    ]):
+                        self.graph_last_draw_at = graph_now
+                        self.first_time_graph_plot = False
                 self.graph_emit_counter = self.graph_emit_counter + 1
                 self.graph_counter = self.graph_counter + 1
 

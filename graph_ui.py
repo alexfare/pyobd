@@ -499,6 +499,7 @@ class GraphUIMixin:
         self._refresh_graph_preset_choice()
         self.graph_streaming_enabled = False
         self.graph_interaction_paused = False
+        self.graph_event_pending = False
         self.add_graph_pid_button.Bind(wx.EVT_BUTTON, self.OnAddGraphPid)
         self.remove_graph_pid_button.Bind(wx.EVT_BUTTON, self.OnRemoveGraphPid)
         self.graph_play_button.Bind(wx.EVT_BUTTON, self.OnToggleGraphStreaming)
@@ -547,7 +548,6 @@ class GraphUIMixin:
                         command.desc,
                         graph_counter,
                     )
-                self.graph_plot_host.FitInside()
             else:
                 visible_series = plot_series
                 title = "Live Graphs"
@@ -561,6 +561,8 @@ class GraphUIMixin:
                 self._draw_series(self.panel, visible_series, title, graph_counter)
         except Exception:
             self._clear_graph_canvases()
+        finally:
+            self.graph_event_pending = False
 
     def OnGraphValue(self, event):
         command_key, column, value = event.data
