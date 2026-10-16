@@ -5,4 +5,5 @@
 /build/
 /dist/
 /installer-dist/
+/third-party-licenses/
 *.spec

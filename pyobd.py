@@ -6,6 +6,8 @@
 # Copyright 2004 Donour Sizemore (donour@uchicago.edu)
 # Copyright 2009 Secons Ltd. (www.obdtester.com)
 # Copyright 2021 Jure Poljsak (https://github.com/barracuda-fsh/pyobd) 
+# Modified by FareBrothers, LLC.
+# Modifications made from 2026-04-05 through 2026-10-16.
 #
 # This file is part of pyOBD.
 #
@@ -46,7 +48,7 @@ import configparser  # safe application configuration
 import webbrowser  # open browser from python
 import csv
 
-from about_ui import ABOUT_DIALOG_TEXT, build_about_page
+from about_ui import APP_VERSION, ABOUT_DIALOG_TEXT, build_about_page
 from app_events import *
 from debugEvent import *
 from dashboard_ui import DashboardUIMixin
@@ -78,7 +80,6 @@ ID_HELP_ABOUT = 508
 ID_HELP_VISIT = 509
 ID_HELP_ORDER = 510
 
-APP_VERSION = "2.2.0"
 RELEASE_API_URL = "https://api.github.com/repos/alexfare/pyobd/releases/latest"
 RELEASES_URL = "https://github.com/alexfare/pyobd/releases/latest"
 
@@ -1499,7 +1500,7 @@ class MyApp(DashboardUIMixin, GraphUIMixin, wx.App):
         # sizer.Fit(HelpAboutDlg)
         # HelpAboutDlg.ShowModal()
 
-        self.HelpAboutDlg = wx.MessageDialog(self.frame, Text, 'About', wx.OK | wx.ICON_INFORMATION)
+        self.HelpAboutDlg = wx.MessageDialog(self.frame, Text, 'About pyOBD', wx.OK | wx.ICON_INFORMATION)
         self.HelpAboutDlg.ShowModal()
         self.HelpAboutDlg.Destroy()
 

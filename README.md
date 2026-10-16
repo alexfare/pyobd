@@ -1,5 +1,7 @@
 # pyOBD
 
+> Modified by FareBrothers, LLC. Modifications made from 2026-04-05 through 2026-10-16.
+
 An open-source OBD-II diagnostic app for viewing engine sensors, readiness tests,
 trouble codes, freeze-frame data, and live graphs. Includes a demo mode without
 an adapter. Modified by FareBrothers, based on
