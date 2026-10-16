@@ -101,7 +101,18 @@ jobs:
             --team-id "$APPLE_TEAM_ID" \
             --password "$APPLE_APP_SPECIFIC_PASSWORD" \
             --wait
-          xcrun stapler staple "$dmg_path"
+          for attempt in 1 2 3 4 5; do
+            if xcrun stapler staple "$dmg_path"; then
+              break
+            fi
+            if [ "$attempt" -eq 5 ]; then
+              echo "Stapling failed after $attempt attempts."
+              exit 1
+            fi
+            delay=$((attempt * 15))
+            echo "Stapling attempt $attempt failed; retrying in ${delay} seconds."
+            sleep "$delay"
+          done
           xcrun stapler validate "$dmg_path"
       - uses: actions/upload-artifact@v7
         with:
