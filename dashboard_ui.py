@@ -2,6 +2,7 @@
 
 import json
 import math
+import re
 import time
 
 import wx
@@ -692,8 +693,8 @@ class DashboardUIMixin:
         delete_item = menu.Append(wx.ID_ANY, "Delete dashboard")
         delete_item.Enable(len(self.dashboard_layouts) > 1)
         menu.AppendSeparator()
-        import_item = menu.Append(wx.ID_ANY, "Import layouts")
-        export_item = menu.Append(wx.ID_ANY, "Export layouts")
+        import_item = menu.Append(wx.ID_ANY, "Import dashboard")
+        export_item = menu.Append(wx.ID_ANY, "Export dashboard")
         menu.Bind(wx.EVT_MENU, self._new_dashboard, new_item)
         menu.Bind(wx.EVT_MENU, self._rename_dashboard, rename_item)
         menu.Bind(wx.EVT_MENU, self._delete_dashboard, delete_item)
@@ -703,11 +704,13 @@ class DashboardUIMixin:
         menu.Destroy()
 
     def _export_dashboard_layouts(self, _event=None):
+        filename = re.sub(r'[^\w .-]', "_", self.dashboard_current).strip(". ")
+        filename = f"{filename or 'Dashboard'}.pyOBD"
         dialog = wx.FileDialog(
             self.frame,
-            "Export Dashboard Layouts",
-            defaultFile="pyobd-dashboard-layouts.json",
-            wildcard="JSON files (*.json)|*.json",
+            "Export Dashboard",
+            defaultFile=filename,
+            wildcard="pyOBD dashboard (*.pyOBD)|*.pyOBD;*.pyobd",
             style=wx.FD_SAVE | wx.FD_OVERWRITE_PROMPT,
         )
         try:
@@ -717,9 +720,14 @@ class DashboardUIMixin:
                 "format": "pyobd-dashboard-layouts",
                 "version": 1,
                 "current": self.dashboard_current,
-                "layouts": self.dashboard_layouts,
+                "layouts": {
+                    self.dashboard_current: self.dashboard_layouts[self.dashboard_current]
+                },
             }
-            with open(dialog.GetPath(), "w", encoding="utf-8") as export_file:
+            export_path = dialog.GetPath()
+            if not export_path.lower().endswith(".pyobd"):
+                export_path += ".pyOBD"
+            with open(export_path, "w", encoding="utf-8") as export_file:
                 json.dump(payload, export_file, indent=2)
         except OSError as error:
             wx.MessageBox(
@@ -732,8 +740,11 @@ class DashboardUIMixin:
     def _import_dashboard_layouts(self, _event=None):
         dialog = wx.FileDialog(
             self.frame,
-            "Import Dashboard Layouts",
-            wildcard="JSON files (*.json)|*.json",
+            "Import Dashboard",
+            wildcard=(
+                "pyOBD dashboard (*.pyOBD)|*.pyOBD;*.pyobd|"
+                "Legacy JSON dashboard (*.json)|*.json"
+            ),
             style=wx.FD_OPEN | wx.FD_FILE_MUST_EXIST,
         )
         try:
