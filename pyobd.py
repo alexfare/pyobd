@@ -291,8 +291,11 @@ class MyApp(VehicleProfilesMixin, DashboardUIMixin, GraphUIMixin, wx.App):
         self.header_connection_status.SetFont(self.theme.font(10, bold=True))
 
         self.header_vehicle_profile = wx.StaticText(
-            self.content_header, label="No vehicle profile"
+            self.content_header,
+            label="No vehicle profile",
+            style=wx.ST_ELLIPSIZE_END,
         )
+        self.header_vehicle_profile.SetMaxSize((180, -1))
         self.header_vehicle_profile.SetForegroundColour(self.theme.muted)
         self.header_vehicle_profile.SetFont(self.theme.font(10))
 
@@ -463,6 +466,8 @@ class MyApp(VehicleProfilesMixin, DashboardUIMixin, GraphUIMixin, wx.App):
             self.home_graphs_button.SetFont(self.home_tile_font)
 
     def _go_to_page(self, page, title=None):
+        if page is getattr(self, "vehicle_profiles_panel", None):
+            self._refresh_vehicle_profile_list(self.active_vehicle_profile)
         page_index = wx.NOT_FOUND
         for i in range(self.nb.GetPageCount()):
             if self.nb.GetPage(i) is page:

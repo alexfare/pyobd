@@ -4,7 +4,8 @@
 
 - [x] Save VIN, nickname, year, make, model, and notes.
 - [x] Automatically select a vehicle profile by VIN.
-- [ ] Save preferred adapter settings, dashboards, and PID presets per vehicle.
+- [x] Save and automatically select a default dashboard per vehicle.
+- [ ] Save preferred adapter settings and PID presets per vehicle.
 - [ ] Add recent-session history for recordings, scans, DTCs, and connection dates.
 - [ ] Browse, rename, export, and remove saved sessions.
 - [ ] Replay recorded CSV sessions through Graphs and Dashboard.

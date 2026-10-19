@@ -10,6 +10,10 @@ from ui_theme import ModernButton
 
 
 class VehicleProfilesMixin:
+    @staticmethod
+    def _normalize_vin(vin):
+        return re.sub(r"[^A-Za-z0-9]", "", str(vin)).upper()
+
     def _load_vehicle_profiles(self):
         if not self.config.has_section("pyOBD"):
             self.vehicle_profiles = {}
@@ -60,6 +64,12 @@ class VehicleProfilesMixin:
         for field, control in self.vehicle_profile_fields.items():
             control.ChangeValue(str(profile.get(field, "")))
             control.Enable(bool(profile_id))
+        dashboard_names = sorted(self.dashboard_layouts, key=str.casefold)
+        self.vehicle_profile_dashboard_choice.Set(["No default"] + dashboard_names)
+        default_dashboard = str(profile.get("default_dashboard", ""))
+        selection = dashboard_names.index(default_dashboard) + 1 if default_dashboard in dashboard_names else 0
+        self.vehicle_profile_dashboard_choice.SetSelection(selection)
+        self.vehicle_profile_dashboard_choice.Enable(bool(profile_id))
         self.vehicle_profile_save_button.Enable(bool(profile_id))
         self.vehicle_profile_delete_button.Enable(bool(profile_id))
         self.vehicle_profile_status.SetLabel(
@@ -75,24 +85,43 @@ class VehicleProfilesMixin:
             )
         header = getattr(self, "header_vehicle_profile", None)
         if header:
-            header.SetLabel(label)
+            header.SetLabel(label if len(label) <= 22 else f"{label[:21]}…")
+            header.SetToolTip(label)
+            header.GetParent().Layout()
 
     def _activate_vehicle_profile_for_vin(self, vin):
-        normalized_vin = re.sub(r"[^A-Za-z0-9]", "", str(vin)).upper()
+        normalized_vin = self._normalize_vin(vin)
         if not normalized_vin:
             return False
         for profile_id, profile in self.vehicle_profiles.items():
-            profile_vin = re.sub(r"[^A-Za-z0-9]", "", str(profile.get("vin", ""))).upper()
+            profile_vin = self._normalize_vin(profile.get("vin", ""))
             if profile_vin and profile_vin == normalized_vin:
                 self.active_vehicle_profile = profile_id
                 self._save_vehicle_profiles()
                 self._refresh_vehicle_profile_list(profile_id)
+                self._apply_vehicle_default_dashboard(profile)
                 self.vehicle_profile_status.SetLabel("Selected automatically from the connected VIN.")
                 return True
         self.active_vehicle_profile = ""
         self._save_vehicle_profiles()
         self._refresh_vehicle_profile_list()
         return False
+
+    def _apply_vehicle_default_dashboard(self, profile):
+        dashboard = str(profile.get("default_dashboard", ""))
+        if dashboard not in self.dashboard_layouts:
+            return
+        self.dashboard_current = dashboard
+        self._save_dashboard_layouts()
+        self._refresh_dashboard_choices()
+        self._rebuild_dashboard()
+
+    def _connected_vehicle_vin(self):
+        try:
+            vin = self._normalize_vin(self.status.GetItemText(4, 1))
+        except (AttributeError, RuntimeError):
+            return ""
+        return vin if vin and vin not in {"NONE", "UNKNOWN"} else ""
 
     def OnVehicleProfileSelected(self, _event):
         selection = self.vehicle_profile_list.GetSelection()
@@ -105,12 +134,13 @@ class VehicleProfilesMixin:
     def OnNewVehicleProfile(self, _event):
         profile_id = uuid.uuid4().hex
         self.vehicle_profiles[profile_id] = {
-            "vin": "",
+            "vin": self._connected_vehicle_vin(),
             "nickname": "",
             "year": "",
             "make": "",
             "model": "",
             "notes": "",
+            "default_dashboard": "",
         }
         self.active_vehicle_profile = profile_id
         self._save_vehicle_profiles()
@@ -131,6 +161,12 @@ class VehicleProfilesMixin:
         }
         profile["vin"] = vin
         profile["year"] = year
+        dashboard_selection = self.vehicle_profile_dashboard_choice.GetSelection()
+        profile["default_dashboard"] = (
+            self.vehicle_profile_dashboard_choice.GetString(dashboard_selection)
+            if dashboard_selection > 0
+            else ""
+        )
         self.vehicle_profiles[self.active_vehicle_profile] = profile
         self._save_vehicle_profiles()
         self._refresh_vehicle_profile_list(self.active_vehicle_profile)
@@ -218,6 +254,9 @@ class VehicleProfilesMixin:
         notes = wx.TextCtrl(form_panel, style=wx.TE_MULTILINE)
         notes.SetMinSize((-1, 130))
         self.vehicle_profile_fields["notes"] = notes
+        dashboard_label = wx.StaticText(form_panel, label="Default dashboard")
+        dashboard_label.SetForegroundColour(self.theme.text)
+        self.vehicle_profile_dashboard_choice = wx.Choice(form_panel)
         self.vehicle_profile_save_button = ModernButton(
             form_panel, "Save profile", self.theme, variant="primary"
         )
@@ -229,6 +268,13 @@ class VehicleProfilesMixin:
         form_root.Add(grid, 0, wx.EXPAND | wx.LEFT | wx.RIGHT | wx.BOTTOM, 20)
         form_root.Add(notes_label, 0, wx.LEFT | wx.RIGHT | wx.BOTTOM, 6)
         form_root.Add(notes, 0, wx.EXPAND | wx.LEFT | wx.RIGHT | wx.BOTTOM, 20)
+        form_root.Add(dashboard_label, 0, wx.LEFT | wx.RIGHT | wx.BOTTOM, 6)
+        form_root.Add(
+            self.vehicle_profile_dashboard_choice,
+            0,
+            wx.EXPAND | wx.LEFT | wx.RIGHT | wx.BOTTOM,
+            20,
+        )
         form_root.Add(self.vehicle_profile_save_button, 0, wx.LEFT | wx.RIGHT | wx.BOTTOM, 10)
         form_root.Add(self.vehicle_profile_status, 0, wx.LEFT | wx.RIGHT | wx.BOTTOM, 20)
         form_panel.SetSizer(form_root)
