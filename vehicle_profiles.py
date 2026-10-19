@@ -65,6 +65,34 @@ class VehicleProfilesMixin:
         self.vehicle_profile_status.SetLabel(
             "Select a vehicle or create a new profile." if not profile_id else ""
         )
+        self._update_active_vehicle_header()
+
+    def _update_active_vehicle_header(self):
+        label = "No vehicle profile"
+        if self.active_vehicle_profile in self.vehicle_profiles:
+            label = self._vehicle_profile_name(
+                self.vehicle_profiles[self.active_vehicle_profile]
+            )
+        header = getattr(self, "header_vehicle_profile", None)
+        if header:
+            header.SetLabel(label)
+
+    def _activate_vehicle_profile_for_vin(self, vin):
+        normalized_vin = re.sub(r"[^A-Za-z0-9]", "", str(vin)).upper()
+        if not normalized_vin:
+            return False
+        for profile_id, profile in self.vehicle_profiles.items():
+            profile_vin = re.sub(r"[^A-Za-z0-9]", "", str(profile.get("vin", ""))).upper()
+            if profile_vin and profile_vin == normalized_vin:
+                self.active_vehicle_profile = profile_id
+                self._save_vehicle_profiles()
+                self._refresh_vehicle_profile_list(profile_id)
+                self.vehicle_profile_status.SetLabel("Selected automatically from the connected VIN.")
+                return True
+        self.active_vehicle_profile = ""
+        self._save_vehicle_profiles()
+        self._refresh_vehicle_profile_list()
+        return False
 
     def OnVehicleProfileSelected(self, _event):
         selection = self.vehicle_profile_list.GetSelection()

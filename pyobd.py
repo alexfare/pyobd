@@ -290,6 +290,12 @@ class MyApp(VehicleProfilesMixin, DashboardUIMixin, GraphUIMixin, wx.App):
         self.header_connection_status.SetForegroundColour(self.theme.muted)
         self.header_connection_status.SetFont(self.theme.font(10, bold=True))
 
+        self.header_vehicle_profile = wx.StaticText(
+            self.content_header, label="No vehicle profile"
+        )
+        self.header_vehicle_profile.SetForegroundColour(self.theme.muted)
+        self.header_vehicle_profile.SetFont(self.theme.font(10))
+
         self.header_connect_button = ModernButton(
             self.content_header, "Connect", self.theme, variant="primary"
         )
@@ -305,10 +311,12 @@ class MyApp(VehicleProfilesMixin, DashboardUIMixin, GraphUIMixin, wx.App):
         header_sizer.Add(self.header_menu_button, 0, wx.ALIGN_CENTER_VERTICAL | wx.LEFT, 16)
         header_sizer.Add(self.page_title, 0, wx.ALIGN_CENTER_VERTICAL | wx.LEFT, 12)
         header_sizer.AddStretchSpacer()
+        header_sizer.Add(self.header_vehicle_profile, 0, wx.ALIGN_CENTER_VERTICAL | wx.RIGHT, 16)
         header_sizer.Add(self.header_connection_status, 0, wx.ALIGN_CENTER_VERTICAL | wx.RIGHT, 16)
         header_sizer.Add(self.header_configure_button, 0, wx.ALIGN_CENTER_VERTICAL | wx.RIGHT, 8)
         header_sizer.Add(self.header_connect_button, 0, wx.ALIGN_CENTER_VERTICAL | wx.RIGHT, 16)
         self.content_header.SetSizer(header_sizer)
+        self._update_active_vehicle_header()
 
     def _toggle_sidebar(self, event=None):
         self._sidebar_open = not self._sidebar_open
@@ -350,10 +358,6 @@ class MyApp(VehicleProfilesMixin, DashboardUIMixin, GraphUIMixin, wx.App):
             ("Vehicles", self.vehicle_profiles_panel),
             ("Connection", self.status),
         ]
-        secondary_items = [
-            ("Activity Log", self.trace),
-            ("About", self.about_panel),
-        ]
         self.sidebar_buttons = {}
 
         def add_item(label, page):
@@ -373,8 +377,24 @@ class MyApp(VehicleProfilesMixin, DashboardUIMixin, GraphUIMixin, wx.App):
         for label, page in primary_items:
             add_item(label, page)
         sidebar_sizer.AddStretchSpacer()
-        for label, page in secondary_items:
-            add_item(label, page)
+        add_item("Activity Log", self.trace)
+        self.sidebar_update_button = ModernButton(
+            self.sidebar_panel,
+            "Update",
+            self.theme,
+            variant="sidebar",
+            align="left",
+        )
+        self.sidebar_update_button.SetMinSize((-1, 44))
+        self.sidebar_update_button.SetFont(self.theme.font(11))
+        self.sidebar_update_button.Bind(wx.EVT_BUTTON, self.OnHomeUpdate)
+        sidebar_sizer.Add(
+            self.sidebar_update_button,
+            0,
+            wx.EXPAND | wx.LEFT | wx.RIGHT | wx.BOTTOM,
+            10,
+        )
+        add_item("About", self.about_panel)
         sidebar_sizer.AddSpacer(12)
         self.sidebar_panel.SetSizer(sidebar_sizer)
 
@@ -528,21 +548,21 @@ class MyApp(VehicleProfilesMixin, DashboardUIMixin, GraphUIMixin, wx.App):
             self.theme.danger.ChangeLightness(85),
             self.OnHomeDiagnostics,
         )
-        update_colour = wx.Colour(126, 34, 206)
-        self.home_update_button = self._create_home_tile(
+        vehicle_colour = wx.Colour(126, 34, 206)
+        self.home_vehicle_button = self._create_home_tile(
             self.home_panel,
-            "Update",
+            "Vehicles",
             "",
-            update_colour,
-            update_colour.ChangeLightness(85),
-            self.OnHomeUpdate,
+            vehicle_colour,
+            vehicle_colour.ChangeLightness(85),
+            self.OnHomeVehicles,
         )
         actions.Add(self.home_scan_button, pos=(0, 0), flag=wx.EXPAND)
         actions.Add(self.home_services_button, pos=(0, 1), flag=wx.EXPAND)
         actions.Add(self.home_graphs_button, pos=(0, 2), flag=wx.EXPAND)
         actions.Add(self.home_readiness_button, pos=(1, 0), flag=wx.EXPAND)
         actions.Add(self.home_diagnostics_button, pos=(1, 1), flag=wx.EXPAND)
-        actions.Add(self.home_update_button, pos=(1, 2), flag=wx.EXPAND)
+        actions.Add(self.home_vehicle_button, pos=(1, 2), flag=wx.EXPAND)
         actions.AddGrowableCol(0, 1)
         actions.AddGrowableCol(1, 1)
         actions.AddGrowableCol(2, 1)
@@ -575,12 +595,14 @@ class MyApp(VehicleProfilesMixin, DashboardUIMixin, GraphUIMixin, wx.App):
     def OnHomeDiagnostics(self, event):
         self._go_to_page(self.DTCpanel)
 
+    def OnHomeVehicles(self, event):
+        self._go_to_page(self.vehicle_profiles_panel)
+
     def OnHomeUpdate(self, event):
         if getattr(self, "update_check_in_progress", False):
             return
         self.update_check_in_progress = True
-        self.home_update_button.title.SetLabel("Checking…")
-        self.home_update_button.Layout()
+        self.sidebar_update_button.SetLabel("Checking…")
 
         def check_release():
             try:
@@ -608,13 +630,12 @@ class MyApp(VehicleProfilesMixin, DashboardUIMixin, GraphUIMixin, wx.App):
 
     def _finish_update_check(self, latest_version, release_url, error):
         try:
-            if not self.frame or self.frame.IsBeingDeleted() or not self.home_update_button:
+            if not self.frame or self.frame.IsBeingDeleted():
                 return
         except RuntimeError:
             return
         self.update_check_in_progress = False
-        self.home_update_button.title.SetLabel("Update")
-        self.home_update_button.Layout()
+        self.sidebar_update_button.SetLabel("Update")
         if error:
             wx.MessageBox(
                 f"Unable to check for updates.\n\n{error}",
@@ -1537,6 +1558,8 @@ class MyApp(VehicleProfilesMixin, DashboardUIMixin, GraphUIMixin, wx.App):
         else:
             self.status.SetItem(event.data[0], event.data[1], event.data[2])
             self._update_bottom_status(event.data[0], event.data[2])
+            if event.data[0] == 4:
+                self._activate_vehicle_profile_for_vin(event.data[2])
             # Drive UI control state from actual connection state notifications.
             if event.data[0] == 0:
                 state_text = str(event.data[2])
