@@ -43,6 +43,13 @@ class SensorProducer(threading.Thread):
             return list(commands)
         return [command for command in commands if command.command == isolated_key]
 
+    def _post_graph_event(self, data):
+        if getattr(self._notify_window, "graph_event_pending", False):
+            return False
+        self._notify_window.graph_event_pending = True
+        wx.PostEvent(self._notify_window, GraphEvent(data))
+        return True
+
     @staticmethod
     def _readiness_results(status_value):
         counts = {"ready": 0, "not_ready": 0, "unsupported": 0}
@@ -97,25 +104,42 @@ class SensorProducer(threading.Thread):
         self.demo_mode = str(portName).upper() == "DEMO"
         threading.Thread.__init__(self)
         self.state = "started"
+        self.disconnect_status = "Disconnected"
+        self._stop_notified = False
 
     @staticmethod
     def _is_connected_status(status):
         return status in ("Car Connected", OBDStatus.CAR_CONNECTED)
 
-    def initCommunication(self):
+    def initCommunication(self, reconnecting=False):
         try:
             self.connection.close()
         except:
             pass
-        wx.PostEvent(self._notify_window, StatusEvent([0, 1, "Connecting...."]))
-        self.connection = obd_io.OBDConnection(self.portName, self._notify_window, self.baudrate, self.SERTIMEOUT,self.RECONNATTEMPTS, self.FAST)
+        status_text = "Reconnecting..." if reconnecting else "Connecting..."
+        wx.PostEvent(self._notify_window, StatusEvent([0, 1, status_text]))
+        self.connection = obd_io.OBDConnection(
+            self.portName,
+            self._notify_window,
+            self.baudrate,
+            self.SERTIMEOUT,
+            self.RECONNATTEMPTS,
+            self.FAST,
+            attempt_status="Reconnecting" if reconnecting else None,
+            cancel_check=lambda: self._notify_window.ThreadControl == 666,
+        )
+        if self._notify_window.ThreadControl == 666:
+            try:
+                self.connection.close()
+            except Exception:
+                pass
+            return None
         current_status = self.connection.connection.status()
         if not self._is_connected_status(current_status):  # Cant open serial port
             print(current_status)
             #wx.PostEvent(self._notify_window, StatusEvent([666]))  # signal apl, that communication was disconnected
             #wx.PostEvent(self._notify_window, StatusEvent([0, 1, "Error cant connect..."]))
             #self.state="finished"
-            self.stop()
             return None
         elif self._is_connected_status(current_status):
             wx.PostEvent(self._notify_window, DebugEvent([1, "Communication initialized..."]))
@@ -148,6 +172,7 @@ class SensorProducer(threading.Thread):
         if self.initCommunication() != "OK":
             self._notify_window.ThreadControl = 666
             self.state = "finished"
+            self.stop("Connection failed")
             return None
 
         self.baudrate = self.connection.connection.interface.baudrate()
@@ -180,6 +205,7 @@ class SensorProducer(threading.Thread):
         self.graph_dirty8_6 = False
         self.graph_dirty8_7 = False
         self.graph_dirty8_8 = False
+        self.dashboard_last_emit_at = 0.0
         #sensor_list = []
         misfire_cylinder_supported = True
         first_time=True
@@ -233,9 +259,16 @@ class SensorProducer(threading.Thread):
 
         init_all_graphs()
         def reconnect():
+            if self._notify_window.ThreadControl == 666:
+                return False
             init_all_graphs()
-            if self.initCommunication() != "OK":
+            self.disconnect_status = "Connection lost"
+            wx.PostEvent(self._notify_window, StatusEvent([0, 1, "Connection lost"]))
+            if self.initCommunication(reconnecting=True) != "OK":
                 self._notify_window.ThreadControl = 666
+                return False
+            self.disconnect_status = "Disconnected"
+            return True
 
         while self._notify_window.ThreadControl != 666:
             if not self._is_connected_status(self.connection.connection.status()):
@@ -265,7 +298,7 @@ class SensorProducer(threading.Thread):
                 self.graph_series = {}
                 self.graph_counter = 0
                 self.first_time_graph_plot = True
-                wx.PostEvent(self._notify_window, GraphEvent([[], self.graph_counter, self.first_time_graph_plot]))
+                self._post_graph_event([[], self.graph_counter, self.first_time_graph_plot])
                 self.first_time_graph_plot = False
 
 
@@ -555,10 +588,15 @@ class SensorProducer(threading.Thread):
                     self.graph_counter = 0
                     self.graph_series = {}
                     self.graph_emit_counter = 0
+                    self.graph_last_draw_at = 0.0
+                    self.graph_last_value_at = 0.0
+                    self.graph_last_health_at = 0.0
                     self.graph_stream_active_last = False
                     first_time_graph = False
 
                 if self._notify_window.graph_interaction_paused:
+                    time_end = datetime.datetime.now()
+                    first_time = False
                     continue
 
                 if not self._notify_window.graph_streaming_enabled:
@@ -567,8 +605,10 @@ class SensorProducer(threading.Thread):
                         self.graph_emit_counter = 0
                         self.graph_series = {}
                         self.first_time_graph_plot = True
-                        wx.PostEvent(self._notify_window, GraphEvent([[], 0, self.first_time_graph_plot]))
+                        self._post_graph_event([[], 0, self.first_time_graph_plot])
                     self.graph_stream_active_last = False
+                    time_end = datetime.datetime.now()
+                    first_time = False
                     continue
 
                 self.graph_stream_active_last = True
@@ -577,6 +617,15 @@ class SensorProducer(threading.Thread):
                 isolated_key = getattr(self._notify_window, "isolated_graph_command_key", None)
                 selected_commands = self._graph_commands_to_poll(selected_commands, isolated_key)
                 selected_keys = {command.command for command in selected_commands}
+                graph_now = time.monotonic()
+                emit_values = graph_now - self.graph_last_value_at >= 0.2
+
+                if graph_now - self.graph_last_health_at >= 1.0:
+                    health_response = self.connection.connection.query(obd.commands.RPM)
+                    self.graph_last_health_at = graph_now
+                    if health_response.value is None:
+                        reconnect()
+                        continue
 
                 for stale_key in list(self.graph_series.keys()):
                     if stale_key not in selected_keys:
@@ -595,7 +644,7 @@ class SensorProducer(threading.Thread):
 
                     r = self.connection.connection.query(command)
                     if r.value is None:
-                        if self.graph_emit_counter < 2 or (self.graph_emit_counter % 3) == 0:
+                        if emit_values:
                             wx.PostEvent(self._notify_window, GraphValueEvent([command_key, 2, "No data"]))
                         continue
 
@@ -612,18 +661,24 @@ class SensorProducer(threading.Thread):
                     series["unit"] = unit
                     series["desc"] = command.desc
 
-                    if self.graph_emit_counter < 2 or (self.graph_emit_counter % 3) == 0:
+                    if emit_values:
                         wx.PostEvent(self._notify_window, GraphValueEvent([command_key, 2, value_text]))
 
                     plot_series.append((series["x"], series["y"], series["unit"], series["desc"], command_key))
 
-                if self.graph_emit_counter < 2 or (self.graph_emit_counter % 4) == 0:
+                if emit_values:
+                    self.graph_last_value_at = graph_now
+
+                if graph_now - self.graph_last_draw_at >= 0.25:
                     plot_snapshot = [
                         (tuple(series[0]), tuple(series[1]), series[2], series[3], series[4])
                         for series in plot_series
                     ]
-                    wx.PostEvent(self._notify_window, GraphEvent([plot_snapshot, self.graph_counter, self.first_time_graph_plot]))
-                    self.first_time_graph_plot = False
+                    if self._post_graph_event([
+                        plot_snapshot, self.graph_counter, self.first_time_graph_plot
+                    ]):
+                        self.graph_last_draw_at = graph_now
+                        self.first_time_graph_plot = False
                 self.graph_emit_counter = self.graph_emit_counter + 1
                 self.graph_counter = self.graph_counter + 1
 
@@ -1570,12 +1625,38 @@ class SensorProducer(threading.Thread):
                 if r.value == None:
                     reconnect()
                     continue
+            elif (
+                hasattr(self._notify_window, "dashboard_page_index")
+                and curstate == self._notify_window.dashboard_page_index
+            ):
+                dashboard_now = time.monotonic()
+                if (
+                    dashboard_now - self.dashboard_last_emit_at >= 0.2
+                    and not self._notify_window.dashboard_event_pending
+                ):
+                    values = []
+                    for command in list(self._notify_window.dashboard_poll_commands):
+                        response = self.connection.connection.query(command)
+                        if response.value is None:
+                            continue
+                        magnitude, unit, value_text = self._notify_window.get_measurement_components(
+                            response.value
+                        )
+                        values.append({
+                            "pid": command.command.decode(errors="ignore").upper(),
+                            "magnitude": magnitude,
+                            "unit": unit,
+                            "text": value_text,
+                        })
+                    self._notify_window.dashboard_event_pending = True
+                    wx.PostEvent(self._notify_window, DashboardValuesEvent(values))
+                    self.dashboard_last_emit_at = dashboard_now
             time_end = datetime.datetime.now()
             first_time = False
 
         self.state = "finished"
         print ("state is finished")
-        self.stop()
+        self.stop(self.disconnect_status)
 
 
 
@@ -1599,7 +1680,8 @@ class SensorProducer(threading.Thread):
             self.off(i)
     """
 
-    def stop(self):
+    def stop(self, status_text="Disconnected"):
+        self.disconnect_status = status_text
         self._notify_window.ThreadControl = 666
 
         try: # if stop is called before any connection port is not defined (and not connected )
@@ -1609,8 +1691,12 @@ class SensorProducer(threading.Thread):
 
         #if self.port != None: #if stop is called before any connection port is not defined (and not connected )
         #  self.port.close()
-        if not getattr(self._notify_window, "_shutdown_started", False):
-            wx.PostEvent(self._notify_window, StatusEvent([0, 1, "Disconnected"]))
+        if (
+            not self._stop_notified
+            and not getattr(self._notify_window, "_shutdown_started", False)
+        ):
+            self._stop_notified = True
+            wx.PostEvent(self._notify_window, StatusEvent([0, 1, status_text]))
             wx.PostEvent(self._notify_window, StatusEvent([1, 1, "----"]))
             wx.PostEvent(self._notify_window, StatusEvent([2, 1, "----"]))
             wx.PostEvent(self._notify_window, StatusEvent([3, 1, "----"]))

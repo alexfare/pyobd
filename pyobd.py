@@ -6,6 +6,8 @@
 # Copyright 2004 Donour Sizemore (donour@uchicago.edu)
 # Copyright 2009 Secons Ltd. (www.obdtester.com)
 # Copyright 2021 Jure Poljsak (https://github.com/barracuda-fsh/pyobd) 
+# Modified by FareBrothers, LLC.
+# Modifications made from 2026-04-05 through 2026-10-16.
 #
 # This file is part of pyOBD.
 #
@@ -38,14 +40,18 @@ import serial
 import re
 import json
 import subprocess
+import urllib.error
+import urllib.request
 from serial.tools import list_ports
 import time
 import configparser  # safe application configuration
 import webbrowser  # open browser from python
+import csv
 
-from about_ui import ABOUT_DIALOG_TEXT, build_about_page
+from about_ui import APP_VERSION, ABOUT_DIALOG_TEXT, build_about_page
 from app_events import *
 from debugEvent import *
+from dashboard_ui import DashboardUIMixin
 from graph_ui import GraphUIMixin
 from sensor_worker import SensorProducer
 from obd2_codes import pcodes
@@ -73,6 +79,9 @@ ID_DISCONNECT = 507
 ID_HELP_ABOUT = 508
 ID_HELP_VISIT = 509
 ID_HELP_ORDER = 510
+
+RELEASE_API_URL = "https://api.github.com/repos/alexfare/pyobd/releases/latest"
+RELEASES_URL = "https://github.com/alexfare/pyobd/releases/latest"
 
 lock = threading.Lock()
 
@@ -128,7 +137,7 @@ TEST_LABELS = [
 
 
 
-class MyApp(GraphUIMixin, wx.App):
+class MyApp(DashboardUIMixin, GraphUIMixin, wx.App):
     # A listctrl which auto-resizes the column boxes to fill
     class MyListCtrl(wx.ListCtrl, ListCtrlAutoWidthMixin):
         def __init__(self, parent, id, pos=wx.DefaultPosition,
@@ -210,9 +219,18 @@ class MyApp(GraphUIMixin, wx.App):
         if "connected" in normalized and "disconnected" not in normalized:
             label = "●  Connected"
             colour = self.theme.success
+        elif "disconnecting" in normalized:
+            label = "●  Disconnecting"
+            colour = self.theme.warning
+        elif "reconnecting" in normalized:
+            label = "●  Reconnecting"
+            colour = self.theme.warning
         elif "connecting" in normalized:
             label = "●  Connecting"
             colour = self.theme.warning
+        elif "lost" in normalized:
+            label = "●  Connection lost"
+            colour = self.theme.danger
         elif "fail" in normalized or "error" in normalized:
             label = "●  Connection failed"
             colour = self.theme.danger
@@ -227,8 +245,27 @@ class MyApp(GraphUIMixin, wx.App):
                 control.SetForegroundColour(colour)
 
         if hasattr(self, "header_connect_button"):
-            self.header_connect_button.SetLabel("Disconnect" if label == "●  Connected" else "Connect")
-            self.header_connect_button.SetVariant("danger" if label == "●  Connected" else "primary")
+            active = label in (
+                "●  Connected", "●  Connecting", "●  Reconnecting", "●  Disconnecting"
+            )
+            self.header_connect_button.SetLabel(
+                "Disconnect" if label == "●  Connected" else "Cancel" if active else "Connect"
+            )
+            self.header_connect_button.SetVariant("danger" if active else "primary")
+
+    def sensor_control_reconnecting(self):
+        self._stop_sensor_recording()
+        self._set_graph_streaming(False)
+        self._reset_dashboard_values()
+        self.settingmenu.Enable(ID_CONFIG, False)
+        self.settingmenu.Enable(ID_RESET, False)
+        self.settingmenu.Enable(ID_DISCONNECT, True)
+        self.dtcmenu.Enable(ID_GETC, False)
+        self.dtcmenu.Enable(ID_CLEAR, False)
+        self.GetDTCButton.Enable(False)
+        self.ClearDTCButton.Enable(False)
+        self.RefreshTestsButton.Enable(False)
+        self.sensor_record_button.Enable(False)
 
     def _build_content_header(self):
         self.content_header = wx.Panel(self.content_panel)
@@ -303,6 +340,7 @@ class MyApp(GraphUIMixin, wx.App):
 
         primary_items = [
             ("Overview", self.home_panel),
+            ("Dashboard", self.dashboard_panel),
             ("Live Data", self.sensors_panel),
             ("Diagnostics", self.DTCpanel),
             ("Readiness", self.tests_panel),
@@ -414,6 +452,7 @@ class MyApp(GraphUIMixin, wx.App):
             if title is None:
                 title = {
                     self.home_panel: "Overview",
+                    self.dashboard_panel: "Dashboard",
                     self.sensors_panel: "Live Data",
                     self.DTCpanel: "Diagnostics",
                     self.tests_panel: "Readiness",
@@ -444,51 +483,79 @@ class MyApp(GraphUIMixin, wx.App):
         self.home_panel.SetForegroundColour(self.theme.text)
 
         root_sizer = wx.BoxSizer(wx.VERTICAL)
-        actions_label = wx.StaticText(self.home_panel, label="Quick actions")
-        actions_label.SetForegroundColour(self.theme.text)
-        actions_label.SetFont(self.theme.font(13, bold=True))
         actions = wx.GridBagSizer(12, 12)
 
         self.home_scan_button = self._create_home_tile(
             self.home_panel,
-            "Scan trouble codes",
-            "Read and manage diagnostic trouble codes.",
+            "Dashboard",
+            "",
             self.theme.accent,
             self.theme.accent_hover,
-            self.OnHomeScan,
+            self.OnHomeDashboard,
         )
         self.home_services_button = self._create_home_tile(
             self.home_panel,
-            "View live data",
-            "Monitor real-time vehicle sensor readings.",
+            "Live Data",
+            "",
             self.theme.success,
             self.theme.success_hover,
             self.OnHomeSensors,
         )
         self.home_graphs_button = self._create_home_tile(
             self.home_panel,
-            "Open graphs",
-            "Visualize selected sensor readings over time.",
+            "Graphs",
+            "",
             self.theme.info,
             self.theme.info_hover,
             self.OnHomeGraphs,
         )
+        self.home_readiness_button = self._create_home_tile(
+            self.home_panel,
+            "Readiness",
+            "",
+            self.theme.warning,
+            self.theme.warning.ChangeLightness(85),
+            self.OnHomeReadiness,
+        )
+        self.home_diagnostics_button = self._create_home_tile(
+            self.home_panel,
+            "Diagnostics",
+            "",
+            self.theme.danger,
+            self.theme.danger.ChangeLightness(85),
+            self.OnHomeDiagnostics,
+        )
+        update_colour = wx.Colour(126, 34, 206)
+        self.home_update_button = self._create_home_tile(
+            self.home_panel,
+            "Update",
+            "",
+            update_colour,
+            update_colour.ChangeLightness(85),
+            self.OnHomeUpdate,
+        )
         actions.Add(self.home_scan_button, pos=(0, 0), flag=wx.EXPAND)
         actions.Add(self.home_services_button, pos=(0, 1), flag=wx.EXPAND)
-        actions.Add(self.home_graphs_button, pos=(1, 0), span=(1, 2), flag=wx.EXPAND)
+        actions.Add(self.home_graphs_button, pos=(0, 2), flag=wx.EXPAND)
+        actions.Add(self.home_readiness_button, pos=(1, 0), flag=wx.EXPAND)
+        actions.Add(self.home_diagnostics_button, pos=(1, 1), flag=wx.EXPAND)
+        actions.Add(self.home_update_button, pos=(1, 2), flag=wx.EXPAND)
         actions.AddGrowableCol(0, 1)
         actions.AddGrowableCol(1, 1)
+        actions.AddGrowableCol(2, 1)
         actions.AddGrowableRow(0, 1)
         actions.AddGrowableRow(1, 1)
 
-        root_sizer.Add(actions_label, 0, wx.ALL, 24)
-        root_sizer.Add(actions, 1, wx.EXPAND | wx.LEFT | wx.RIGHT | wx.BOTTOM, 24)
+        root_sizer.Add(actions, 1, wx.EXPAND | wx.ALL, 24)
         self.home_panel.SetSizer(root_sizer)
 
         self.nb.AddPage(self.home_panel, "Home")
 
     def OnHomeScan(self, event):
         self.GetDTC(None)
+
+    def OnHomeDashboard(self, event):
+        self._go_to_page(self.dashboard_panel)
 
     def OnHomeServices(self, event):
         self._go_to_page(self.status)
@@ -498,6 +565,76 @@ class MyApp(GraphUIMixin, wx.App):
 
     def OnHomeGraphs(self, event):
         self._go_to_page(self.graph_panel)
+
+    def OnHomeReadiness(self, event):
+        self._go_to_page(self.tests_panel)
+
+    def OnHomeDiagnostics(self, event):
+        self._go_to_page(self.DTCpanel)
+
+    def OnHomeUpdate(self, event):
+        if getattr(self, "update_check_in_progress", False):
+            return
+        self.update_check_in_progress = True
+        self.home_update_button.title.SetLabel("Checking…")
+        self.home_update_button.Layout()
+
+        def check_release():
+            try:
+                request = urllib.request.Request(
+                    RELEASE_API_URL,
+                    headers={"Accept": "application/vnd.github+json", "User-Agent": "pyOBD"},
+                )
+                with urllib.request.urlopen(request, timeout=8) as response:
+                    release = json.loads(response.read().decode("utf-8"))
+                wx.CallAfter(
+                    self._finish_update_check,
+                    release.get("tag_name", ""),
+                    release.get("html_url", RELEASES_URL),
+                    None,
+                )
+            except (OSError, ValueError, urllib.error.URLError) as error:
+                wx.CallAfter(self._finish_update_check, "", RELEASES_URL, str(error))
+
+        threading.Thread(target=check_release, daemon=True).start()
+
+    @staticmethod
+    def _version_numbers(version):
+        numbers = [int(value) for value in re.findall(r"\d+", str(version))[:3]]
+        return tuple((numbers + [0, 0, 0])[:3])
+
+    def _finish_update_check(self, latest_version, release_url, error):
+        try:
+            if not self.frame or self.frame.IsBeingDeleted() or not self.home_update_button:
+                return
+        except RuntimeError:
+            return
+        self.update_check_in_progress = False
+        self.home_update_button.title.SetLabel("Update")
+        self.home_update_button.Layout()
+        if error:
+            wx.MessageBox(
+                f"Unable to check for updates.\n\n{error}",
+                "pyOBD Update", wx.OK | wx.ICON_ERROR,
+            )
+            return
+        if not latest_version:
+            wx.MessageBox(
+                "No published release was found.",
+                "pyOBD Update", wx.OK | wx.ICON_INFORMATION,
+            )
+            return
+        if self._version_numbers(latest_version) > self._version_numbers(APP_VERSION):
+            if wx.MessageBox(
+                f"pyOBD {latest_version} is available. Open the download page?",
+                "Update Available", wx.YES_NO | wx.ICON_INFORMATION,
+            ) == wx.YES:
+                webbrowser.open(release_url)
+            return
+        wx.MessageBox(
+            f"pyOBD {APP_VERSION} is up to date.",
+            "pyOBD Update", wx.OK | wx.ICON_INFORMATION,
+        )
 
     def RefreshTests(self, event=None):
         self.tests_refresh_requested = True
@@ -514,11 +651,14 @@ class MyApp(GraphUIMixin, wx.App):
         self.GetDTCButton.Enable(True)
         self.ClearDTCButton.Enable(True)
         self.RefreshTestsButton.Enable(True)
+        self.sensor_record_button.Enable(True)
         self.tests_status_label.SetLabel("Ready to check monitors")
         if self.dtc.GetItemCount() == 0:
             self.dtc_status_label.SetLabel("Ready to scan")
 
     def sensor_control_off(self):  # after disconnect disable few buttons
+        self._stop_sensor_recording()
+        self._reset_dashboard_values()
         self.dtcmenu.Enable(ID_GETC, False)
         self.dtcmenu.Enable(ID_CLEAR, False)
         self.settingmenu.Enable(ID_DISCONNECT, False)
@@ -528,6 +668,7 @@ class MyApp(GraphUIMixin, wx.App):
         self.ClearDTCButton.Enable(False)
         self.dtc_status_label.SetLabel("Connect to scan vehicle")
         self.RefreshTestsButton.Enable(False)
+        self.sensor_record_button.Enable(False)
         self.tests_status_label.SetLabel("Connect to check monitors")
         # http://pyserial.sourceforge.net/                                                    empty function
         # EVT_LIST_ITEM_ACTIVATED(self.sensors,self.sensor_id, lambda : None)
@@ -543,6 +684,12 @@ class MyApp(GraphUIMixin, wx.App):
         self.sensor_selected_sources = set()
         self._rebuilding_sensor_list = False
         self.sensor_filter_timer = None
+        self.sensor_record_file = None
+        self.sensor_record_writer = None
+        self.sensor_record_sources = set()
+        self.sensor_record_started_at = None
+        self.sensor_record_sample_count = 0
+        self.sensor_record_flush_count = 0
 
         self.sensors_panel = wx.Panel(self.nb)
         self.sensors_panel.SetBackgroundColour(self.theme.window)
@@ -550,17 +697,28 @@ class MyApp(GraphUIMixin, wx.App):
         self.sensor_search = wx.SearchCtrl(self.sensors_panel, style=wx.TE_PROCESS_ENTER)
         self.sensor_search.SetDescriptiveText("Search PID or sensor")
         self.sensor_search.ShowCancelButton(True)
-        self.sensor_search.SetMinSize((280, 40))
+        self.sensor_search.SetMinSize((220, 36))
         self.sensor_count_label = wx.StaticText(self.sensors_panel, label="Waiting for vehicle data")
         self.sensor_count_label.SetForegroundColour(self.theme.muted)
         self.sensor_add_graph_button = ModernButton(
-            self.sensors_panel, "Add selected to graph", self.theme, variant="primary"
+            self.sensors_panel, "Graph", self.theme, variant="primary", size=(88, 36)
         )
-        self.sensor_add_graph_button.SetMinSize((180, 40))
+        self.sensor_add_graph_button.SetToolTip("Add selected PIDs to Graphs")
+        self.sensor_record_status_label = wx.StaticText(
+            self.sensors_panel, label=""
+        )
+        self.sensor_record_status_label.SetForegroundColour(self.theme.muted)
+        self.sensor_record_status_label.Hide()
+        self.sensor_record_button = ModernButton(
+            self.sensors_panel, "Record", self.theme, variant="success", size=(88, 36)
+        )
+        self.sensor_record_button.SetToolTip("Record selected PIDs to CSV")
 
         toolbar.Add(self.sensor_search, 0, wx.RIGHT, 12)
         toolbar.Add(self.sensor_count_label, 0, wx.ALIGN_CENTER_VERTICAL)
         toolbar.AddStretchSpacer()
+        toolbar.Add(self.sensor_record_status_label, 0, wx.ALIGN_CENTER_VERTICAL | wx.RIGHT, 12)
+        toolbar.Add(self.sensor_record_button, 0, wx.RIGHT, 8)
         toolbar.Add(self.sensor_add_graph_button, 0)
 
         self.sensors = self.MyListCtrl(
@@ -579,9 +737,150 @@ class MyApp(GraphUIMixin, wx.App):
 
         self.sensor_search.Bind(wx.EVT_TEXT, self._schedule_sensor_filter)
         self.sensor_add_graph_button.Bind(wx.EVT_BUTTON, self._add_selected_sensors_to_graph)
+        self.sensor_record_button.Bind(wx.EVT_BUTTON, self._toggle_sensor_recording)
         self.sensors.Bind(wx.EVT_LIST_ITEM_SELECTED, self._on_sensor_selected)
         self.sensors.Bind(wx.EVT_LIST_ITEM_DESELECTED, self._on_sensor_deselected)
+        self.sensor_record_timer = wx.Timer(self.sensors_panel)
+        self.sensors_panel.Bind(
+            wx.EVT_TIMER, self._update_sensor_recording_status, self.sensor_record_timer
+        )
         self.nb.AddPage(self.sensors_panel, "Sensors")
+
+    def _toggle_sensor_recording(self, event=None):
+        if self.sensor_record_file:
+            self._stop_sensor_recording()
+            return
+
+        self._capture_sensor_selection()
+        selected_sources = {
+            source_index
+            for source_index in self.sensor_selected_sources
+            if 0 <= source_index < len(self.sensor_rows)
+        }
+        if not selected_sources:
+            wx.MessageBox(
+                "Select one or more PIDs first.",
+                "Live Data Recording",
+                wx.OK | wx.ICON_INFORMATION,
+            )
+            return
+
+        default_name = datetime.datetime.now().strftime("pyobd-session-%Y%m%d-%H%M%S.csv")
+        default_dir = wx.StandardPaths.Get().GetDocumentsDir()
+        dialog = wx.FileDialog(
+            self.frame,
+            "Save Live Data recording",
+            defaultDir=default_dir if os.path.isdir(default_dir) else "",
+            defaultFile=default_name,
+            wildcard="CSV files (*.csv)|*.csv",
+            style=wx.FD_SAVE | wx.FD_OVERWRITE_PROMPT,
+        )
+        try:
+            if dialog.ShowModal() != wx.ID_OK:
+                return
+            path = dialog.GetPath()
+        finally:
+            dialog.Destroy()
+
+        try:
+            self.sensor_record_file = open(path, "w", newline="", encoding="utf-8")
+            self.sensor_record_writer = csv.writer(self.sensor_record_file)
+            self.sensor_record_writer.writerow(
+                ["Timestamp", "Elapsed Seconds", "PID", "Sensor", "Value"]
+            )
+        except OSError as error:
+            if self.sensor_record_file:
+                self.sensor_record_file.close()
+            self.sensor_record_file = None
+            self.sensor_record_writer = None
+            wx.MessageBox(
+                f"Unable to create the recording file.\n\n{error}",
+                "Live Data Recording",
+                wx.OK | wx.ICON_ERROR,
+            )
+            return
+
+        self.sensor_record_sources = selected_sources
+        self.sensor_record_started_at = time.monotonic()
+        self.sensor_record_sample_count = 0
+        self.sensor_record_flush_count = 0
+        self.sensor_record_button.SetLabel("Stop")
+        self.sensor_record_button.SetVariant("danger")
+        self.sensor_record_button.SetToolTip("Stop and save recording")
+        self.sensor_record_status_label.Show()
+        self.sensor_record_timer.Start(500)
+        self._update_sensor_recording_status()
+
+    def _update_sensor_recording_status(self, event=None):
+        if not self.sensor_record_file or self.sensor_record_started_at is None:
+            return
+        elapsed = max(0, int(time.monotonic() - self.sensor_record_started_at))
+        hours, remainder = divmod(elapsed, 3600)
+        minutes, seconds = divmod(remainder, 60)
+        elapsed_text = (
+            f"{hours:02d}:{minutes:02d}:{seconds:02d}"
+            if hours
+            else f"{minutes:02d}:{seconds:02d}"
+        )
+        self.sensor_record_status_label.SetLabel(
+            f"{elapsed_text}  •  {self.sensor_record_sample_count} samples"
+        )
+        self.sensors_panel.Layout()
+
+    def _record_sensor_value(self, source_index):
+        if (
+            not self.sensor_record_writer
+            or source_index not in self.sensor_record_sources
+            or not 0 <= source_index < len(self.sensor_rows)
+        ):
+            return
+        row = self.sensor_rows[source_index]
+        try:
+            self.sensor_record_writer.writerow([
+                datetime.datetime.now().astimezone().isoformat(timespec="milliseconds"),
+                f"{time.monotonic() - self.sensor_record_started_at:.3f}",
+                row[0],
+                row[1],
+                row[2],
+            ])
+            self.sensor_record_sample_count += 1
+            self.sensor_record_flush_count += 1
+            if self.sensor_record_flush_count >= 25:
+                self.sensor_record_file.flush()
+                self.sensor_record_flush_count = 0
+        except (OSError, ValueError) as error:
+            self._stop_sensor_recording("Recording stopped: unable to write file")
+            wx.MessageBox(
+                f"Unable to continue the recording.\n\n{error}",
+                "Live Data Recording",
+                wx.OK | wx.ICON_ERROR,
+            )
+
+    def _stop_sensor_recording(self, status=None):
+        if not self.sensor_record_file:
+            return
+        if self.sensor_record_timer.IsRunning():
+            self.sensor_record_timer.Stop()
+        recorded_file = self.sensor_record_file
+        sample_count = self.sensor_record_sample_count
+        try:
+            recorded_file.flush()
+            recorded_file.close()
+        except OSError:
+            pass
+        self.sensor_record_file = None
+        self.sensor_record_writer = None
+        self.sensor_record_sources.clear()
+        self.sensor_record_started_at = None
+        self.sensor_record_flush_count = 0
+        self.sensor_record_button.SetLabel("Record")
+        self.sensor_record_button.SetVariant("success")
+        self.sensor_record_button.SetToolTip("Record selected PIDs to CSV")
+        self.sensor_record_status_label.Show()
+        self.sensor_record_status_label.SetLabel(
+            status or f"Saved {sample_count} samples"
+        )
+        self.sensors_panel.Layout()
 
     def _schedule_sensor_filter(self, event=None):
         if self._shutdown_started:
@@ -977,7 +1276,7 @@ class MyApp(GraphUIMixin, wx.App):
         )
 
         self.theme = AppTheme()
-        self.frame = wx.Frame(None, -1, "pyOBD v2.2 - Modified by Fare Brothers")
+        self.frame = wx.Frame(None, -1, f"pyOBD v{APP_VERSION} - Modified by Fare Brothers")
         ico = wx.Icon(resource_path('pyobd.png'), wx.BITMAP_TYPE_PNG)
         self.frame.SetIcon(ico)
 
@@ -1006,6 +1305,7 @@ class MyApp(GraphUIMixin, wx.App):
         EVT_RESULT(self, self.InsertSensorRow, EVT_INSERT_SENSOR_ROW_ID)
         EVT_RESULT(self, self.InsertFreezeframeRow, EVT_INSERT_FREEZEFRAME_ROW_ID)
         EVT_RESULT(self, self.OnFreezeframeResult, EVT_FREEZEFRAME_RESULT_ID)
+        EVT_RESULT(self, self.OnDashboardValues, EVT_DASHBOARD_VALUES_ID)
 
         # Main application shell and page container.
         self.shell_panel = wx.Panel(self.frame)
@@ -1097,6 +1397,7 @@ class MyApp(GraphUIMixin, wx.App):
         self.TraceDebug(1, "Application started")
         self.about_panel = build_about_page(self.nb)
         self.build_home_page()
+        self.build_dashboard_page()
 
         self._build_sidebar()
         self._build_content_header()
@@ -1199,7 +1500,7 @@ class MyApp(GraphUIMixin, wx.App):
         # sizer.Fit(HelpAboutDlg)
         # HelpAboutDlg.ShowModal()
 
-        self.HelpAboutDlg = wx.MessageDialog(self.frame, Text, 'About', wx.OK | wx.ICON_INFORMATION)
+        self.HelpAboutDlg = wx.MessageDialog(self.frame, Text, 'About pyOBD', wx.OK | wx.ICON_INFORMATION)
         self.HelpAboutDlg.ShowModal()
         self.HelpAboutDlg.Destroy()
 
@@ -1212,6 +1513,8 @@ class MyApp(GraphUIMixin, wx.App):
         value = str(value)
         changed = self.sensor_rows[source_index][column] != value
         self.sensor_rows[source_index][column] = value
+        if column == 2:
+            self._record_sensor_value(source_index)
 
         query_active = bool(self.sensor_search.GetValue().strip())
         if query_active and column in (0, 1) and changed:
@@ -1233,10 +1536,13 @@ class MyApp(GraphUIMixin, wx.App):
             # Drive UI control state from actual connection state notifications.
             if event.data[0] == 0:
                 state_text = str(event.data[2])
+                normalized_state = state_text.strip().lower()
                 self._update_connection_visuals(state_text)
                 if state_text == "Car connected!":
                     self.sensor_control_on()
-                elif state_text == "Disconnected":
+                elif "reconnecting" in normalized_state or "connection lost" in normalized_state:
+                    self.sensor_control_reconnecting()
+                elif state_text in ("Disconnected", "Connection failed"):
                     self.sensor_control_off()
                     self._set_graph_streaming(False)
 
@@ -1778,9 +2084,12 @@ class MyApp(GraphUIMixin, wx.App):
             self.dtc.Append(event.data)
 
     def OnDisconnect(self, event):  # disconnect connection to ECU
+        self._stop_sensor_recording()
         try:
-            self.ThreadControl = 666
-            time.sleep(0.1)
+            if self.senprod and self.senprod.is_alive():
+                self.senprod.stop()
+            else:
+                self.ThreadControl = 666
 
         except:
             traceback.print_exc()
@@ -1794,6 +2103,9 @@ class MyApp(GraphUIMixin, wx.App):
             if self.senprod.is_alive():  # signal current producers to finish
                 self.senprod.stop()
                 self.senprod.join(timeout=2.0)
+                if self.senprod.is_alive():
+                    self._update_connection_visuals("Disconnecting...")
+                    return
         self.ThreadControl = 0
 
         # Prevent reconfigure/reconnect clicks while connection attempt is in progress.
@@ -2419,6 +2731,7 @@ class MyApp(GraphUIMixin, wx.App):
             return
 
         self._shutdown_started = True
+        self._stop_sensor_recording()
         if self.sensor_filter_timer and self.sensor_filter_timer.IsRunning():
             self.sensor_filter_timer.Stop()
         self.ThreadControl = 666

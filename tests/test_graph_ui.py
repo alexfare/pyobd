@@ -138,12 +138,12 @@ class GraphUITests(unittest.TestCase):
         self.assertEqual(graph.graph_list_ctrl.rows[1][2], "42 mph")
         self.assertEqual(graph.graph_list_ctrl.rows[0][2], "")
 
-    def test_about_dialog_credits_farebrothers(self):
-        self.assertIn("(C) 2025 FareBrothers, LLC", ABOUT_DIALOG_TEXT)
-        self.assertIn("DodgeOBD", ABOUT_DIALOG_TEXT)
-        self.assertIn("NissanOBD", ABOUT_DIALOG_TEXT)
-        self.assertIn("website hosting and game server hosting", ABOUT_DIALOG_TEXT)
-        self.assertIn("Operating since 2023", ABOUT_DIALOG_TEXT)
+    def test_about_dialog_describes_pyobd(self):
+        self.assertIn("pyOBD v2.3.0", ABOUT_DIALOG_TEXT)
+        self.assertIn("Open-source OBD-II diagnostics", ABOUT_DIALOG_TEXT)
+        self.assertIn("Maintained by FareBrothers, LLC", ABOUT_DIALOG_TEXT)
+        self.assertIn("GPL-2.0", ABOUT_DIALOG_TEXT)
+        self.assertNotIn("Great Lakes IT Services", ABOUT_DIALOG_TEXT)
 
     def test_worker_and_ui_share_graph_event_types(self):
         self.assertTrue(issubclass(GraphEvent, wx.PyEvent))

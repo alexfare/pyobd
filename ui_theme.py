@@ -203,7 +203,7 @@ class ActionCard(wx.Panel):
         self.colour = colour
         self.hover_colour = hover_colour
         self.hovered = False
-        self.SetMinSize((260, 110))
+        self.SetMinSize((220, 92))
         self.SetName(title)
         self.SetBackgroundColour(colour)
         self.SetBackgroundStyle(wx.BG_STYLE_PAINT)
@@ -212,19 +212,29 @@ class ActionCard(wx.Panel):
         self.title.SetFont(theme.font(15, bold=True))
         self.title.SetForegroundColour(wx.WHITE)
         self.title.SetBackgroundColour(colour)
-        self.description = wx.StaticText(self, label=description)
-        self.description.SetFont(theme.font(10))
-        self.description.SetForegroundColour(wx.Colour(226, 232, 240))
-        self.description.SetBackgroundColour(colour)
+        self.description = None
+        if description:
+            self.description = wx.StaticText(self, label=description)
+            self.description.SetFont(theme.font(10))
+            self.description.SetForegroundColour(wx.Colour(226, 232, 240))
+            self.description.SetBackgroundColour(colour)
 
         content = wx.BoxSizer(wx.VERTICAL)
         content.AddStretchSpacer()
-        content.Add(self.title, 0, wx.LEFT | wx.RIGHT, 24)
-        content.Add(self.description, 0, wx.LEFT | wx.RIGHT | wx.TOP, 24)
+        content.Add(self.title, 0, wx.ALIGN_CENTER_HORIZONTAL | wx.LEFT | wx.RIGHT, 24)
+        if self.description:
+            content.Add(
+                self.description,
+                0,
+                wx.ALIGN_CENTER_HORIZONTAL | wx.LEFT | wx.RIGHT | wx.TOP,
+                24,
+            )
         content.AddStretchSpacer()
         self.SetSizer(content)
 
         for control in (self, self.title, self.description):
+            if control is None:
+                continue
             control.SetCursor(wx.Cursor(wx.CURSOR_HAND))
             control.Bind(wx.EVT_ENTER_WINDOW, self._on_enter)
             control.Bind(wx.EVT_LEAVE_WINDOW, self._on_leave)
@@ -252,7 +262,8 @@ class ActionCard(wx.Panel):
         self.hovered = hovered
         background = self.hover_colour if hovered else self.colour
         self.title.SetBackgroundColour(background)
-        self.description.SetBackgroundColour(background)
+        if self.description:
+            self.description.SetBackgroundColour(background)
         self.Refresh()
 
     def _on_enter(self, event):
