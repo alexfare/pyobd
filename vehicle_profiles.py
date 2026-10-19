@@ -108,13 +108,9 @@ class VehicleProfilesMixin:
         return False
 
     def _apply_vehicle_default_dashboard(self, profile):
-        dashboard = str(profile.get("default_dashboard", ""))
-        if dashboard not in self.dashboard_layouts:
-            return
-        self.dashboard_current = dashboard
-        self._save_dashboard_layouts()
-        self._refresh_dashboard_choices()
-        self._rebuild_dashboard()
+        return self._select_dashboard_layout(
+            str(profile.get("default_dashboard", ""))
+        )
 
     def _connected_vehicle_vin(self):
         try:
@@ -130,6 +126,9 @@ class VehicleProfilesMixin:
         self.active_vehicle_profile = self.vehicle_profile_order[selection]
         self._show_vehicle_profile(self.active_vehicle_profile)
         self._save_vehicle_profiles()
+        self._apply_vehicle_default_dashboard(
+            self.vehicle_profiles[self.active_vehicle_profile]
+        )
 
     def OnNewVehicleProfile(self, _event):
         profile_id = uuid.uuid4().hex
@@ -170,6 +169,7 @@ class VehicleProfilesMixin:
         self.vehicle_profiles[self.active_vehicle_profile] = profile
         self._save_vehicle_profiles()
         self._refresh_vehicle_profile_list(self.active_vehicle_profile)
+        self._apply_vehicle_default_dashboard(profile)
         self.vehicle_profile_status.SetLabel("Vehicle profile saved.")
 
     def OnDeleteVehicleProfile(self, _event):
@@ -289,3 +289,7 @@ class VehicleProfilesMixin:
         self.vehicle_profile_save_button.Bind(wx.EVT_BUTTON, self.OnSaveVehicleProfile)
         self.vehicle_profile_delete_button.Bind(wx.EVT_BUTTON, self.OnDeleteVehicleProfile)
         self._refresh_vehicle_profile_list()
+        if self.active_vehicle_profile in self.vehicle_profiles:
+            self._apply_vehicle_default_dashboard(
+                self.vehicle_profiles[self.active_vehicle_profile]
+            )

@@ -299,6 +299,15 @@ class DashboardUIMixin:
         self.dashboard_layout_choice.Set(names)
         self.dashboard_layout_choice.SetSelection(names.index(self.dashboard_current))
 
+    def _select_dashboard_layout(self, name):
+        if name not in self.dashboard_layouts:
+            return False
+        self.dashboard_current = name
+        self._save_dashboard_layouts()
+        self._refresh_dashboard_choices()
+        self._rebuild_dashboard()
+        return True
+
     def _refresh_dashboard_poll_commands(self):
         catalog = self._dashboard_catalog()
         seen = set()
@@ -409,11 +418,9 @@ class DashboardUIMixin:
             dc.DrawLine(0, y, width, y)
 
     def OnDashboardLayoutSelected(self, _event):
-        selected = self.dashboard_layout_choice.GetStringSelection()
-        if selected in self.dashboard_layouts:
-            self.dashboard_current = selected
-            self._save_dashboard_layouts()
-            self._rebuild_dashboard()
+        self._select_dashboard_layout(
+            self.dashboard_layout_choice.GetStringSelection()
+        )
 
     def OnToggleDashboardEditing(self, _event):
         self.dashboard_editing = not self.dashboard_editing
