@@ -7,7 +7,7 @@
 # Copyright 2009 Secons Ltd. (www.obdtester.com)
 # Copyright 2021 Jure Poljsak (https://github.com/barracuda-fsh/pyobd) 
 # Modified by FareBrothers, LLC.
-# Modifications made from 2026-04-05 through 2026-10-16.
+# Modifications made from 2026-04-05 through 2026-10-19.
 #
 # This file is part of pyOBD.
 #
@@ -56,6 +56,7 @@ from graph_ui import GraphUIMixin
 from sensor_worker import SensorProducer
 from obd2_codes import pcodes
 from ui_theme import ActionCard, AppTheme, ModernButton
+from vehicle_profiles import VehicleProfilesMixin
 
 from wx.lib.mixins.listctrl import ListCtrlAutoWidthMixin
 import obd
@@ -137,7 +138,7 @@ TEST_LABELS = [
 
 
 
-class MyApp(DashboardUIMixin, GraphUIMixin, wx.App):
+class MyApp(VehicleProfilesMixin, DashboardUIMixin, GraphUIMixin, wx.App):
     # A listctrl which auto-resizes the column boxes to fill
     class MyListCtrl(wx.ListCtrl, ListCtrlAutoWidthMixin):
         def __init__(self, parent, id, pos=wx.DefaultPosition,
@@ -346,7 +347,8 @@ class MyApp(DashboardUIMixin, GraphUIMixin, wx.App):
             ("Readiness", self.tests_panel),
             ("Freeze Frame", self.freezeframe),
             ("Graphs", self.graph_panel),
-            ("Vehicle", self.status),
+            ("Vehicles", self.vehicle_profiles_panel),
+            ("Connection", self.status),
         ]
         secondary_items = [
             ("Activity Log", self.trace),
@@ -458,7 +460,8 @@ class MyApp(DashboardUIMixin, GraphUIMixin, wx.App):
                     self.tests_panel: "Readiness",
                     self.freezeframe: "Freeze Frame",
                     self.graph_panel: "Graphs",
-                    self.status: "Vehicle",
+                    self.vehicle_profiles_panel: "Vehicles",
+                    self.status: "Connection",
                     self.trace: "Activity Log",
                     self.about_panel: "About",
                 }.get(page, "pyOBD")
@@ -1398,6 +1401,7 @@ class MyApp(DashboardUIMixin, GraphUIMixin, wx.App):
         self.about_panel = build_about_page(self.nb)
         self.build_home_page()
         self.build_dashboard_page()
+        self.build_vehicle_profiles_page()
 
         self._build_sidebar()
         self._build_content_header()

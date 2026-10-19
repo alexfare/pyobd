@@ -2,7 +2,7 @@
 
 ## Vehicle profiles and sessions
 
-- [ ] Save VIN, nickname, year, make, model, and notes.
+- [x] Save VIN, nickname, year, make, model, and notes.
 - [ ] Automatically select a vehicle profile by VIN.
 - [ ] Save preferred adapter settings, dashboards, and PID presets per vehicle.
 - [ ] Add recent-session history for recordings, scans, DTCs, and connection dates.
