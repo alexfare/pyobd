@@ -1305,7 +1305,7 @@ class MyApp(VehicleProfilesMixin, DashboardUIMixin, GraphUIMixin, wx.App):
         )
 
         self.theme = AppTheme()
-        self.frame = wx.Frame(None, -1, f"pyOBD v{APP_VERSION} - Modified by Fare Brothers")
+        self.frame = wx.Frame(None, -1, f"pyOBD v{APP_VERSION} - Modified by FareBrothers,LLC")
         ico = wx.Icon(resource_path('pyobd.png'), wx.BITMAP_TYPE_PNG)
         self.frame.SetIcon(ico)
 
