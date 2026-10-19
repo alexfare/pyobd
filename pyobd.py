@@ -53,6 +53,7 @@ from app_events import *
 from debugEvent import *
 from dashboard_ui import DashboardUIMixin
 from graph_ui import GraphUIMixin
+from session_ui import SessionUIMixin
 from sensor_worker import SensorProducer
 from obd2_codes import pcodes
 from ui_theme import ActionCard, AppTheme, ModernButton
@@ -138,7 +139,7 @@ TEST_LABELS = [
 
 
 
-class MyApp(VehicleProfilesMixin, DashboardUIMixin, GraphUIMixin, wx.App):
+class MyApp(SessionUIMixin, VehicleProfilesMixin, DashboardUIMixin, GraphUIMixin, wx.App):
     # A listctrl which auto-resizes the column boxes to fill
     class MyListCtrl(wx.ListCtrl, ListCtrlAutoWidthMixin):
         def __init__(self, parent, id, pos=wx.DefaultPosition,
@@ -359,6 +360,7 @@ class MyApp(VehicleProfilesMixin, DashboardUIMixin, GraphUIMixin, wx.App):
             ("Freeze Frame", self.freezeframe),
             ("Graphs", self.graph_panel),
             ("Vehicles", self.vehicle_profiles_panel),
+            ("Sessions", self.sessions_panel),
             ("Connection", self.status),
         ]
         self.sidebar_buttons = {}
@@ -468,6 +470,8 @@ class MyApp(VehicleProfilesMixin, DashboardUIMixin, GraphUIMixin, wx.App):
     def _go_to_page(self, page, title=None):
         if page is getattr(self, "vehicle_profiles_panel", None):
             self._refresh_vehicle_profile_list(self.active_vehicle_profile)
+        elif page is getattr(self, "sessions_panel", None):
+            self._refresh_session_list()
         page_index = wx.NOT_FOUND
         for i in range(self.nb.GetPageCount()):
             if self.nb.GetPage(i) is page:
@@ -486,6 +490,7 @@ class MyApp(VehicleProfilesMixin, DashboardUIMixin, GraphUIMixin, wx.App):
                     self.freezeframe: "Freeze Frame",
                     self.graph_panel: "Graphs",
                     self.vehicle_profiles_panel: "Vehicles",
+                    self.sessions_panel: "Sessions",
                     self.status: "Connection",
                     self.trace: "Activity Log",
                     self.about_panel: "About",
@@ -719,6 +724,7 @@ class MyApp(VehicleProfilesMixin, DashboardUIMixin, GraphUIMixin, wx.App):
         self.sensor_record_started_at = None
         self.sensor_record_sample_count = 0
         self.sensor_record_flush_count = 0
+        self.sensor_record_session = None
 
         self.sensors_panel = wx.Panel(self.nb)
         self.sensors_panel.SetBackgroundColour(self.theme.window)
@@ -794,24 +800,22 @@ class MyApp(VehicleProfilesMixin, DashboardUIMixin, GraphUIMixin, wx.App):
             )
             return
 
-        default_name = datetime.datetime.now().strftime("pyobd-session-%Y%m%d-%H%M%S.csv")
-        default_dir = wx.StandardPaths.Get().GetDocumentsDir()
-        dialog = wx.FileDialog(
+        default_name = datetime.datetime.now().strftime("Session %b %d, %Y %I-%M %p")
+        dialog = wx.TextEntryDialog(
             self.frame,
-            "Save Live Data recording",
-            defaultDir=default_dir if os.path.isdir(default_dir) else "",
-            defaultFile=default_name,
-            wildcard="CSV files (*.csv)|*.csv",
-            style=wx.FD_SAVE | wx.FD_OVERWRITE_PROMPT,
+            "Name this Live Data recording.",
+            "New recorded session",
+            default_name,
         )
         try:
-            if dialog.ShowModal() != wx.ID_OK:
+            if dialog.ShowModal() != wx.ID_OK or not dialog.GetValue().strip():
                 return
-            path = dialog.GetPath()
+            session_name = dialog.GetValue().strip()
         finally:
             dialog.Destroy()
 
         try:
+            path, self.sensor_record_session = self._begin_recording_session(session_name)
             self.sensor_record_file = open(path, "w", newline="", encoding="utf-8")
             self.sensor_record_writer = csv.writer(self.sensor_record_file)
             self.sensor_record_writer.writerow(
@@ -822,6 +826,8 @@ class MyApp(VehicleProfilesMixin, DashboardUIMixin, GraphUIMixin, wx.App):
                 self.sensor_record_file.close()
             self.sensor_record_file = None
             self.sensor_record_writer = None
+            self._discard_recording_session(self.sensor_record_session)
+            self.sensor_record_session = None
             wx.MessageBox(
                 f"Unable to create the recording file.\n\n{error}",
                 "Live Data Recording",
@@ -892,6 +898,7 @@ class MyApp(VehicleProfilesMixin, DashboardUIMixin, GraphUIMixin, wx.App):
             self.sensor_record_timer.Stop()
         recorded_file = self.sensor_record_file
         sample_count = self.sensor_record_sample_count
+        duration_seconds = max(0, time.monotonic() - self.sensor_record_started_at)
         try:
             recorded_file.flush()
             recorded_file.close()
@@ -900,6 +907,10 @@ class MyApp(VehicleProfilesMixin, DashboardUIMixin, GraphUIMixin, wx.App):
         self.sensor_record_file = None
         self.sensor_record_writer = None
         self.sensor_record_sources.clear()
+        self._finish_recording_session(
+            self.sensor_record_session, sample_count, duration_seconds
+        )
+        self.sensor_record_session = None
         self.sensor_record_started_at = None
         self.sensor_record_flush_count = 0
         self.sensor_record_button.SetLabel("Record")
@@ -1428,6 +1439,7 @@ class MyApp(VehicleProfilesMixin, DashboardUIMixin, GraphUIMixin, wx.App):
         self.build_home_page()
         self.build_dashboard_page()
         self.build_vehicle_profiles_page()
+        self.build_sessions_page()
 
         self._build_sidebar()
         self._build_content_header()
