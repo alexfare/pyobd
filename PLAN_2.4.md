@@ -9,16 +9,16 @@
 - [x] Add recent-session history for Live Data recordings.
 - [ ] Add scan, DTC, and connection history.
 - [x] Browse, rename, export, and remove saved sessions.
-- [ ] Replay recorded CSV sessions through Graphs and Dashboard.
+- [x] Replay recorded CSV sessions through Graphs and Dashboard.
 
 ## Advanced diagnostics
 
-- [ ] Add a transport layer for physical and functional ECU addressing.
-- [ ] Support 11-bit and 29-bit CAN identifiers.
-- [ ] Add ISO-TP multi-frame request and response handling.
+- [x] Add a serialized read-only transport layer for physical and functional ECU addressing.
+- [x] Support 11-bit and 29-bit CAN identifiers.
+- [x] Use the adapter's ISO-TP multi-frame request and response handling.
 - [ ] Add UDS sessions, timing, tester-present messages, and negative-response decoding.
-- [ ] Serialize diagnostic requests so they cannot collide with Live Data polling.
-- [ ] Add adapter capability detection and raw communication logging.
+- [x] Serialize diagnostic requests so they cannot collide with Live Data polling.
+- [x] Add adapter capability detection and raw communication logging.
 - [ ] Discover available modules and display their addresses and identities.
 - [ ] Read enhanced module DTCs, status information, and available snapshots.
 - [ ] Read manufacturer-specific identifiers and sensor values through vehicle profiles.

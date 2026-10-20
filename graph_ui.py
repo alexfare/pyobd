@@ -193,6 +193,7 @@ class GraphUIMixin:
                     wx.OK | wx.ICON_INFORMATION,
                 )
                 return
+            self.graph_title_override = None
             self._set_graph_streaming(True)
         else:
             self._set_graph_streaming(False)
@@ -550,7 +551,7 @@ class GraphUIMixin:
                     )
             else:
                 visible_series = plot_series
-                title = "Live Graphs"
+                title = getattr(self, "graph_title_override", None) or "Live Graphs"
                 if self.isolated_graph_command_key is not None:
                     visible_series = [
                         series for series in plot_series

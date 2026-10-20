@@ -1,10 +1,14 @@
 """Recorded diagnostic session management."""
 
 import datetime
+import csv
 import json
 import os
 import re
 import shutil
+import time
+from collections import deque
+from types import SimpleNamespace
 
 import wx
 
@@ -12,6 +16,8 @@ from ui_theme import ModernButton
 
 
 class SessionUIMixin:
+    VALUE_PATTERN = re.compile(r"[-+]?(?:\d+(?:\.\d*)?|\.\d+)")
+
     def _session_directory(self):
         path = os.path.join(wx.StandardPaths.Get().GetUserDataDir(), "sessions")
         os.makedirs(path, exist_ok=True)
@@ -148,6 +154,148 @@ class SessionUIMixin:
             return None
         return self.recorded_sessions[index]
 
+    def _load_session_replay_rows(self, session):
+        rows = []
+        with open(session["csv_path"], "r", newline="", encoding="utf-8") as replay_file:
+            for row in csv.DictReader(replay_file):
+                try:
+                    elapsed = float(row.get("Elapsed Seconds", ""))
+                except (TypeError, ValueError):
+                    continue
+                pid_match = re.search(r"[0-9A-F]{4,8}", row.get("PID", "").upper())
+                if not pid_match:
+                    continue
+                value_text = row.get("Value", "").strip()
+                value_match = self.VALUE_PATTERN.search(value_text)
+                magnitude = float(value_match.group()) if value_match else None
+                unit = value_text[value_match.end():].strip() if value_match else ""
+                rows.append({
+                    "elapsed": max(0.0, elapsed),
+                    "pid": pid_match.group(),
+                    "sensor": row.get("Sensor", "").strip() or pid_match.group(),
+                    "magnitude": magnitude,
+                    "unit": unit,
+                    "text": value_text or "No data",
+                })
+        rows.sort(key=lambda item: item["elapsed"])
+        if rows:
+            first_elapsed = rows[0]["elapsed"]
+            for row in rows:
+                row["elapsed"] -= first_elapsed
+        return rows
+
+    def _prepare_replay_graph(self, rows, session):
+        catalog = {
+            command.command.decode(errors="ignore").upper(): command
+            for command in self.graph_command_catalog
+        }
+        pids = list(dict.fromkeys(row["pid"] for row in rows))
+        self.selected_graph_commands = [catalog[pid] for pid in pids if pid in catalog]
+        self.isolated_graph_command_key = None
+        self.graph_title_override = f'Replay: {session.get("name", "Session")}'
+        self._set_graph_streaming(False)
+        self._refresh_graph_selection_ui()
+        self.session_replay_series = {
+            pid: {
+                "x": deque(maxlen=450),
+                "y": deque(maxlen=450),
+                "unit": "value",
+                "sensor": next(row["sensor"] for row in rows if row["pid"] == pid),
+            }
+            for pid in pids
+            if pid in catalog
+        }
+
+    def _draw_session_replay(self, elapsed, force_graph=False):
+        if self.nb.GetCurrentPage() is self.dashboard_panel:
+            self.OnDashboardValues(SimpleNamespace(data=list(self.session_replay_values.values())))
+        if not force_graph and self.nb.GetCurrentPage() is not self.graph_panel:
+            return
+        plot_series = []
+        for pid, series in self.session_replay_series.items():
+            plot_series.append((
+                tuple(series["x"]),
+                tuple(series["y"]),
+                series["unit"],
+                series["sensor"],
+                pid.encode("ascii"),
+            ))
+        self.OnGraph(SimpleNamespace(data=[plot_series, max(1.0, elapsed), False]))
+
+    def _on_session_replay_timer(self, _event):
+        elapsed = time.monotonic() - self.session_replay_started_at
+        while self.session_replay_index < len(self.session_replay_rows):
+            row = self.session_replay_rows[self.session_replay_index]
+            if row["elapsed"] > elapsed:
+                break
+            self.session_replay_index += 1
+            self.session_replay_values[row["pid"]] = {
+                "pid": row["pid"],
+                "magnitude": row["magnitude"],
+                "unit": row["unit"],
+                "text": row["text"],
+            }
+            series = self.session_replay_series.get(row["pid"])
+            if series is not None and row["magnitude"] is not None:
+                series["x"].append(row["elapsed"])
+                series["y"].append(row["magnitude"])
+                series["unit"] = row["unit"] or "value"
+                self.OnGraphValue(SimpleNamespace(data=[
+                    row["pid"].encode("ascii"), 2, row["text"]
+                ]))
+        self._draw_session_replay(elapsed)
+        duration = self.session_replay_rows[-1]["elapsed"]
+        self.session_status_label.SetLabel(
+            f"Replaying {self.session_replay_session['name']}  •  "
+            f"{self._session_duration_label(min(elapsed, duration))} / "
+            f"{self._session_duration_label(duration)}"
+        )
+        if self.session_replay_index >= len(self.session_replay_rows):
+            self._draw_session_replay(duration, force_graph=True)
+            self._stop_session_replay("Replay complete")
+
+    def _stop_session_replay(self, status="Replay stopped"):
+        if hasattr(self, "session_replay_timer") and self.session_replay_timer.IsRunning():
+            self.session_replay_timer.Stop()
+        self.session_replay_button.SetLabel("Replay")
+        self.session_replay_button.SetVariant("success")
+        self.session_status_label.SetLabel(status)
+        self.session_replay_session = None
+
+    def OnReplaySession(self, _event):
+        if self.session_replay_timer.IsRunning():
+            self._stop_session_replay()
+            return
+        if self.senprod and self.senprod.is_alive():
+            wx.MessageBox(
+                "Disconnect from the vehicle before replaying a session.",
+                "Session replay",
+                wx.OK | wx.ICON_INFORMATION,
+            )
+            return
+        session = self._selected_recorded_session()
+        if not session:
+            return
+        try:
+            rows = self._load_session_replay_rows(session)
+        except OSError as error:
+            wx.MessageBox(f"Unable to open the session.\n\n{error}", "Session replay", wx.OK | wx.ICON_ERROR)
+            return
+        if not rows:
+            wx.MessageBox("This session has no replayable PID data.", "Session replay", wx.OK | wx.ICON_INFORMATION)
+            return
+        self.session_replay_session = session
+        self.session_replay_rows = rows
+        self.session_replay_index = 0
+        self.session_replay_values = {}
+        self.session_replay_started_at = time.monotonic()
+        self._prepare_replay_graph(rows, session)
+        self.session_replay_button.SetLabel("Stop")
+        self.session_replay_button.SetVariant("danger")
+        self._go_to_page(self.graph_panel, "Graphs Replay")
+        self.session_replay_timer.Start(33)
+        self._on_session_replay_timer(None)
+
     def OnRenameSession(self, _event):
         session = self._selected_recorded_session()
         if not session:
@@ -196,6 +344,9 @@ class SessionUIMixin:
             wx.YES_NO | wx.NO_DEFAULT | wx.ICON_WARNING,
         ) != wx.YES:
             return
+        active_replay = self.session_replay_session or {}
+        if active_replay.get("csv_path") == session.get("csv_path"):
+            self._stop_session_replay()
         for path in (session["csv_path"], session["metadata_path"]):
             try:
                 os.remove(path)
@@ -210,12 +361,16 @@ class SessionUIMixin:
         self.session_status_label = wx.StaticText(self.sessions_panel, label="No recorded sessions")
         self.session_status_label.SetForegroundColour(self.theme.muted)
         rename_button = ModernButton(self.sessions_panel, "Rename", self.theme, variant="secondary")
+        self.session_replay_button = ModernButton(
+            self.sessions_panel, "Replay", self.theme, variant="success"
+        )
         export_button = ModernButton(self.sessions_panel, "Export", self.theme, variant="primary")
         delete_button = ModernButton(self.sessions_panel, "Delete", self.theme, variant="danger")
 
         toolbar = wx.BoxSizer(wx.HORIZONTAL)
         toolbar.Add(self.session_status_label, 0, wx.ALIGN_CENTER_VERTICAL)
         toolbar.AddStretchSpacer()
+        toolbar.Add(self.session_replay_button, 0, wx.RIGHT, 8)
         toolbar.Add(rename_button, 0, wx.RIGHT, 8)
         toolbar.Add(export_button, 0, wx.RIGHT, 8)
         toolbar.Add(delete_button)
@@ -239,6 +394,12 @@ class SessionUIMixin:
         self.nb.AddPage(self.sessions_panel, "Sessions")
 
         rename_button.Bind(wx.EVT_BUTTON, self.OnRenameSession)
+        self.session_replay_button.Bind(wx.EVT_BUTTON, self.OnReplaySession)
         export_button.Bind(wx.EVT_BUTTON, self.OnExportSession)
         delete_button.Bind(wx.EVT_BUTTON, self.OnDeleteSession)
+        self.session_replay_session = None
+        self.session_replay_timer = wx.Timer(self.sessions_panel)
+        self.sessions_panel.Bind(
+            wx.EVT_TIMER, self._on_session_replay_timer, self.session_replay_timer
+        )
         self._refresh_session_list()

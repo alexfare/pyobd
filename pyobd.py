@@ -7,7 +7,7 @@
 # Copyright 2009 Secons Ltd. (www.obdtester.com)
 # Copyright 2021 Jure Poljsak (https://github.com/barracuda-fsh/pyobd) 
 # Modified by FareBrothers, LLC.
-# Modifications made from 2026-04-05 through 2026-10-19.
+# Modifications made from 2026-04-05 through 2026-10-20.
 #
 # This file is part of pyOBD.
 #
@@ -361,7 +361,6 @@ class MyApp(SessionUIMixin, VehicleProfilesMixin, DashboardUIMixin, GraphUIMixin
             ("Graphs", self.graph_panel),
             ("Vehicles", self.vehicle_profiles_panel),
             ("Sessions", self.sessions_panel),
-            ("Connection", self.status),
         ]
         self.sidebar_buttons = {}
 
@@ -468,6 +467,7 @@ class MyApp(SessionUIMixin, VehicleProfilesMixin, DashboardUIMixin, GraphUIMixin
             self.home_graphs_button.SetFont(self.home_tile_font)
 
     def _go_to_page(self, page, title=None):
+        self.tests_poll_cancelled = page is not self.tests_panel
         if page is getattr(self, "vehicle_profiles_panel", None):
             self._refresh_vehicle_profile_list(self.active_vehicle_profile)
         elif page is getattr(self, "sessions_panel", None):
@@ -671,9 +671,23 @@ class MyApp(SessionUIMixin, VehicleProfilesMixin, DashboardUIMixin, GraphUIMixin
         )
 
     def RefreshTests(self, event=None):
+        self.tests_active_section = (
+            "misfire" if self.tests_notebook.GetSelection() == 1 else "readiness"
+        )
+        self.tests_poll_cancelled = False
         self.tests_refresh_requested = True
-        self.tests_status_label.SetLabel("Reading monitor status…")
+        self.tests_status_label.SetLabel(
+            "Reading misfire results…"
+            if self.tests_active_section == "misfire"
+            else "Reading monitor status…"
+        )
         self.RefreshTestsButton.Enable(False)
+
+    def OnTestsPageChanged(self, event):
+        self.tests_active_section = "misfire" if event.GetSelection() == 1 else "readiness"
+        if self.senprod and self.senprod.is_alive():
+            self.RefreshTests()
+        event.Skip()
 
 
     def sensor_control_on(self):  # after connection enable few buttons
@@ -1367,6 +1381,8 @@ class MyApp(SessionUIMixin, VehicleProfilesMixin, DashboardUIMixin, GraphUIMixin
         self.nb.AddPage(self.status, "Status")
 
         self.tests_refresh_requested = False
+        self.tests_active_section = "readiness"
+        self.tests_poll_cancelled = True
         self.tests_panel = wx.Panel(self.nb)
         self.tests_panel.SetBackgroundColour(self.theme.window)
         tests_root = wx.BoxSizer(wx.VERTICAL)
@@ -1413,6 +1429,7 @@ class MyApp(SessionUIMixin, VehicleProfilesMixin, DashboardUIMixin, GraphUIMixin
 
         self.tests_notebook.AddPage(self.OBDTests, "Readiness")
         self.tests_notebook.AddPage(self.misfire_tests, "Misfire Results")
+        self.tests_notebook.Bind(wx.EVT_NOTEBOOK_PAGE_CHANGED, self.OnTestsPageChanged)
         tests_root.Add(tests_toolbar, 0, wx.EXPAND | wx.ALL, 20)
         tests_root.Add(tests_help, 0, wx.LEFT | wx.RIGHT | wx.BOTTOM, 20)
         tests_root.Add(self.tests_notebook, 1, wx.EXPAND | wx.LEFT | wx.RIGHT | wx.BOTTOM, 20)
@@ -1606,10 +1623,26 @@ class MyApp(SessionUIMixin, VehicleProfilesMixin, DashboardUIMixin, GraphUIMixin
             self.OBDTests.SetItemTextColour(data["index"], colour)
         elif data["kind"] == "misfire":
             self.misfire_tests.SetItem(data["index"], 1, data["result"])
+        elif data["kind"] == "misfire_reset":
+            self.misfire_tests.DeleteAllItems()
+            cylinders = data["cylinders"]
+            if cylinders:
+                for cylinder in cylinders:
+                    self.misfire_tests.Append([f"Cylinder {cylinder}", "Reading…"])
+            else:
+                self.misfire_tests.Append(["No supported cylinder monitors", "—"])
         elif data["kind"] == "complete":
             self.tests_status_label.SetLabel(
                 f"{data['ready']} ready  •  {data['not_ready']} not ready  •  "
                 f"{data['unsupported']} unsupported"
+            )
+            self.RefreshTestsButton.Enable(True)
+        elif data["kind"] == "misfire_complete":
+            count = data["count"]
+            self.tests_status_label.SetLabel(
+                f"{count} cylinder monitor{'s' if count != 1 else ''} updated"
+                if count
+                else "No supported per-cylinder misfire monitors"
             )
             self.RefreshTestsButton.Enable(True)
         elif data["kind"] == "error":
@@ -2775,6 +2808,7 @@ class MyApp(SessionUIMixin, VehicleProfilesMixin, DashboardUIMixin, GraphUIMixin
             return
 
         self._shutdown_started = True
+        self._stop_session_replay()
         self._stop_sensor_recording()
         if self.sensor_filter_timer and self.sensor_filter_timer.IsRunning():
             self.sensor_filter_timer.Stop()
