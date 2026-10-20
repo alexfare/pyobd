@@ -4,7 +4,6 @@
 [project]
 dependencies = [
     "wxPython>=4.2.1,<5",
-    "numpy>=1.23",
     "Pint>=0.20.1",
     "pyserial>=3.5,<4",
 ]

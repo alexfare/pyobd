@@ -14,7 +14,7 @@ from packaging.requirements import Requirement
 from packaging.utils import canonicalize_name
 
 
-ROOT_PACKAGES = ("wxPython", "numpy", "Pint", "pyserial", "PyInstaller", "Pillow")
+ROOT_PACKAGES = ("wxPython", "Pint", "pyserial", "PyInstaller", "Pillow")
 LICENSE_NAMES = re.compile(r"^(license|licence|copying|notice|authors)([._-].*)?$", re.I)
 
 
