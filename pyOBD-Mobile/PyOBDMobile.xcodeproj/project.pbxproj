@@ -9,6 +9,7 @@
 /* Begin PBXBuildFile section */
 		06448AD2A4F5CEA2478BABD4 /* Assets.xcassets in Resources */ = {isa = PBXBuildFile; fileRef = 6E98F4CA789CA9618A87EDE2 /* Assets.xcassets */; };
 		91EBFEE584708FFBBC7831A3 /* PyOBDMobileApp.swift in Sources */ = {isa = PBXBuildFile; fileRef = 9CF274BD2797F6059EED2C65 /* PyOBDMobileApp.swift */; };
+		A4C71D69E4B2496EB54A4E17 /* ConnectionManager.swift in Sources */ = {isa = PBXBuildFile; fileRef = B0B751E7D3494B2A908F9C32 /* ConnectionManager.swift */; };
 		EB034A882F9A9FE09ABE5971 /* ContentView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 302D888DDFAAD44FDEA7549E /* ContentView.swift */; };
 /* End PBXBuildFile section */
 
@@ -17,6 +18,7 @@
 		570B1A100B6118DE591BAC7D /* pyOBD Mobile.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = "pyOBD Mobile.app"; sourceTree = BUILT_PRODUCTS_DIR; };
 		6E98F4CA789CA9618A87EDE2 /* Assets.xcassets */ = {isa = PBXFileReference; lastKnownFileType = folder.assetcatalog; path = Assets.xcassets; sourceTree = "<group>"; };
 		9CF274BD2797F6059EED2C65 /* PyOBDMobileApp.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PyOBDMobileApp.swift; sourceTree = "<group>"; };
+		B0B751E7D3494B2A908F9C32 /* ConnectionManager.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ConnectionManager.swift; sourceTree = "<group>"; };
 /* End PBXFileReference section */
 
 /* Begin PBXGroup section */
@@ -56,6 +58,7 @@
 		2B4CF94C4FE3E5CE0AFE7AF0 /* App */ = {
 			isa = PBXGroup;
 			children = (
+				B0B751E7D3494B2A908F9C32 /* ConnectionManager.swift */,
 				302D888DDFAAD44FDEA7549E /* ContentView.swift */,
 				9CF274BD2797F6059EED2C65 /* PyOBDMobileApp.swift */,
 			);
@@ -132,6 +135,7 @@
 			isa = PBXSourcesBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
+				A4C71D69E4B2496EB54A4E17 /* ConnectionManager.swift in Sources */,
 				EB034A882F9A9FE09ABE5971 /* ContentView.swift in Sources */,
 				91EBFEE584708FFBBC7831A3 /* PyOBDMobileApp.swift in Sources */,
 			);
@@ -148,8 +152,8 @@
 				CODE_SIGN_IDENTITY = "iPhone Developer";
 				CODE_SIGN_STYLE = Automatic;
 				DEVELOPMENT_TEAM = GC6DD3L4UQ;
-				GENERATE_INFOPLIST_FILE = YES;
-				INFOPLIST_KEY_LSApplicationCategoryType = "public.app-category.utilities";
+				GENERATE_INFOPLIST_FILE = NO;
+				INFOPLIST_FILE = PyOBDMobile/Info.plist;
 				LD_RUNPATH_SEARCH_PATHS = (
 					"$(inherited)",
 					"@executable_path/Frameworks",
@@ -235,8 +239,8 @@
 				CODE_SIGN_IDENTITY = "iPhone Developer";
 				CODE_SIGN_STYLE = Automatic;
 				DEVELOPMENT_TEAM = GC6DD3L4UQ;
-				GENERATE_INFOPLIST_FILE = YES;
-				INFOPLIST_KEY_LSApplicationCategoryType = "public.app-category.utilities";
+				GENERATE_INFOPLIST_FILE = NO;
+				INFOPLIST_FILE = PyOBDMobile/Info.plist;
 				LD_RUNPATH_SEARCH_PATHS = (
 					"$(inherited)",
 					"@executable_path/Frameworks",
