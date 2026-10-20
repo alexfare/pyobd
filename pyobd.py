@@ -26,9 +26,6 @@
 # Foundation, Inc., 59 Temple Place, Suite 330, Boston, MA  02111-1307  USA
 ############################################################################
 
-import numpy as np
-from wx.lib import plot as wxplot
-import gc
 import traceback
 import wx
 import obd_io  # OBD2 funcs
@@ -437,10 +434,6 @@ class MyApp(SessionUIMixin, VehicleProfilesMixin, DashboardUIMixin, GraphUIMixin
             self.trace,
             self.graph_list_ctrl,
         ]
-        if hasattr(self, "graphs_list_ctrl"):
-            controls.append(self.graphs_list_ctrl)
-        if hasattr(self, "graphs8_list_ctrl"):
-            controls.append(self.graphs8_list_ctrl)
         for control in controls:
             control.SetFont(self.touch_font)
             self.theme.style_list(control)
@@ -480,6 +473,18 @@ class MyApp(SessionUIMixin, VehicleProfilesMixin, DashboardUIMixin, GraphUIMixin
 
         if page_index != wx.NOT_FOUND:
             self.nb.SetSelection(page_index)
+            self.active_polling_page = {
+                self.status: "status",
+                self.tests_panel: "tests",
+                self.sensors_panel: "sensors",
+                self.DTCpanel: "dtc",
+                self.freezeframe: "freeze_frame",
+                self.graph_panel: "graph",
+                self.home_panel: "overview",
+                self.dashboard_panel: "dashboard",
+            }.get(page, "idle")
+            if self.senprod and self.senprod.is_alive():
+                self.senprod.wake()
             if title is None:
                 title = {
                     self.home_panel: "Overview",
@@ -682,6 +687,8 @@ class MyApp(SessionUIMixin, VehicleProfilesMixin, DashboardUIMixin, GraphUIMixin
             else "Reading monitor status…"
         )
         self.RefreshTestsButton.Enable(False)
+        if self.senprod and self.senprod.is_alive():
+            self.senprod.wake()
 
     def OnTestsPageChanged(self, event):
         self.tests_active_section = "misfire" if event.GetSelection() == 1 else "readiness"
@@ -729,6 +736,7 @@ class MyApp(SessionUIMixin, VehicleProfilesMixin, DashboardUIMixin, GraphUIMixin
         self.sensor_id = tID
         self.sensor_rows = []
         self.sensor_visible_indices = []
+        self.sensor_view_by_source = {}
         self.sensor_selected_sources = set()
         self._rebuilding_sensor_list = False
         self.sensor_filter_timer = None
@@ -954,6 +962,7 @@ class MyApp(SessionUIMixin, VehicleProfilesMixin, DashboardUIMixin, GraphUIMixin
         self.sensors.Freeze()
         self.sensors.DeleteAllItems()
         self.sensor_visible_indices = []
+        self.sensor_view_by_source = {}
         for source_index, row in enumerate(self.sensor_rows):
             searchable = f"{row[0]} {row[1]}".lower()
             if query and query not in searchable:
@@ -962,6 +971,7 @@ class MyApp(SessionUIMixin, VehicleProfilesMixin, DashboardUIMixin, GraphUIMixin
             self.sensors.SetItem(view_index, 1, row[1])
             self.sensors.SetItem(view_index, 2, row[2])
             self.sensor_visible_indices.append(source_index)
+            self.sensor_view_by_source[source_index] = view_index
         self.sensor_selected_sources.intersection_update(self.sensor_visible_indices)
         for view_index, source_index in enumerate(self.sensor_visible_indices):
             if source_index in self.sensor_selected_sources:
@@ -1085,73 +1095,6 @@ class MyApp(SessionUIMixin, VehicleProfilesMixin, DashboardUIMixin, GraphUIMixin
 
         self.nb.AddPage(self.sensors_panel, "Sensors")
         """
-    def build_graphs_page(self):
-        HOFFSET_LIST = 0
-        # tID = wx.NewId()
-        tID = wx.NewIdRef(count=1)
-        self.graphs_id = tID
-        self.graphs_panel = wx.Panel(self.nb, -1)
-        self.graphs_list_ctrl = self.MyListCtrl(self.graphs_panel, tID, pos=wx.Point(0, HOFFSET_LIST),
-                                     style=
-                                     wx.LC_REPORT |
-                                     wx.SUNKEN_BORDER |
-                                     wx.LC_HRULES |
-                                     wx.LC_SINGLE_SEL)
-
-        self.graphs_list_ctrl.InsertColumn(0, "PID", width=70)
-        self.graphs_list_ctrl.InsertColumn(1, "Sensor", format=wx.LIST_FORMAT_LEFT, width=320)
-        self.graphs_list_ctrl.InsertColumn(2, "Value")
-
-        self.graphs_list_ctrl.InsertItem(0, "")
-        self.graphs_list_ctrl.InsertItem(1, "")
-        self.graphs_list_ctrl.InsertItem(2, "")
-        self.graphs_list_ctrl.InsertItem(3, "")
-        self.nb.AddPage(self.graphs_panel, "4-Graphs")
-        self.graphs_list_ctrl.SetSize(0, 0, 800, 126)
-        """
-        ####################################################################
-        # This little bit of magic keeps the list the same size as the frame
-        def OnPSize(e, win=self.graphs_panel):
-            self.graphs_panel.SetSize(e.GetSize())
-            self.graphs_list_ctrl.SetSize(e.GetSize())
-
-            w, h = self.frame.GetSize()
-
-            self.graphs_list_ctrl.SetSize(0, HOFFSET_LIST, w - 10, h - 35)
-
-        self.graphs_panel.Bind(wx.EVT_SIZE, OnPSize)
-        ####################################################################
-        """
-
-    def build_graphs8_page(self):
-        HOFFSET_LIST = 0
-        # tID = wx.NewId()
-        tID = wx.NewIdRef(count=1)
-        self.graphs8_id = tID
-        self.graphs8_panel = wx.Panel(self.nb, -1)
-        self.graphs8_list_ctrl = self.MyListCtrl(self.graphs8_panel, tID, pos=wx.Point(0, HOFFSET_LIST),
-                                                style=
-                                                wx.LC_REPORT |
-                                                wx.SUNKEN_BORDER |
-                                                wx.LC_HRULES |
-                                                wx.LC_SINGLE_SEL)
-
-        self.graphs8_list_ctrl.InsertColumn(0, "PID", width=70)
-        self.graphs8_list_ctrl.InsertColumn(1, "Sensor", format=wx.LIST_FORMAT_LEFT, width=320)
-        self.graphs8_list_ctrl.InsertColumn(2, "Value")
-
-        self.graphs8_list_ctrl.InsertItem(0, "")
-        self.graphs8_list_ctrl.InsertItem(1, "")
-        self.graphs8_list_ctrl.InsertItem(2, "")
-        self.graphs8_list_ctrl.InsertItem(3, "")
-        self.graphs8_list_ctrl.InsertItem(4, "")
-        self.graphs8_list_ctrl.InsertItem(5, "")
-        self.graphs8_list_ctrl.InsertItem(6, "")
-        self.graphs8_list_ctrl.InsertItem(7, "")
-        self.nb.AddPage(self.graphs8_panel, "8-Graphs")
-        #self.graphs8_list_ctrl.SetSize(0, 0, 800, 126)
-        self.graphs8_list_ctrl.SetSize(0, 0, 800, 226)
-
     def build_freezeframe_page(self):
         tID = wx.NewIdRef(count=1)
         self.freezeframe_id = tID
@@ -1274,6 +1217,7 @@ class MyApp(SessionUIMixin, VehicleProfilesMixin, DashboardUIMixin, GraphUIMixin
 
     def OnInit(self):
         self.ThreadControl = 0  # say thread what to do
+        self.active_polling_page = "idle"
         self._shutdown_started = False
         self._sidebar_open = False
         self.COMPORT = 0
@@ -1340,23 +1284,8 @@ class MyApp(SessionUIMixin, VehicleProfilesMixin, DashboardUIMixin, GraphUIMixin
         EVT_RESULT(self, self.OnStatus, EVT_STATUS_ID)
         EVT_RESULT(self, self.OnTests, EVT_TESTS_ID)
         EVT_RESULT(self, self.OnGraphValue, EVT_GRAPH_VALUE_ID)
-        EVT_RESULT(self, self.OnGraphsValue, EVT_GRAPHS_VALUE_ID)
-        EVT_RESULT(self, self.OnGraphs8Value, EVT_GRAPHS8_VALUE_ID)
         EVT_RESULT(self, self.OnGraph, EVT_GRAPH_ID)
-        EVT_RESULT(self, self.OnGraphs, EVT_GRAPHS_ID)
-        EVT_RESULT(self, self.OnGraphs8, EVT_GRAPHS8_ID)
         EVT_RESULT(self, self.OnClose, EVT_CLOSE_ID)
-        EVT_RESULT(self, self.BuildComboBoxGraph, EVT_BUILD_COMBOBOXGRAPH_ID)
-        EVT_RESULT(self, self.BuildComboBoxGraphs, EVT_BUILD_COMBOBOXGRAPHS_ID)
-        EVT_RESULT(self, self.BuildComboBoxGraphs8, EVT_BUILD_COMBOBOXGRAPHS8_ID)
-        EVT_RESULT(self, self.DestroyComboBox, EVT_DESTROY_COMBOBOX_ID)
-        EVT_RESULT(self, self.GetSelectionGraphComboBox, EVT_COMBOBOXGRAPH_GETSELECTION_ID)
-        EVT_RESULT(self, self.GetSelectionGraphsComboBox, EVT_COMBOBOXGRAPHS_GETSELECTION_ID)
-        EVT_RESULT(self, self.GetSelectionGraphs8ComboBox, EVT_COMBOBOXGRAPHS8_GETSELECTION_ID)
-        EVT_RESULT(self, self.SetSelectionGraphComboBox, EVT_COMBOBOXGRAPH_SETSELECTION_ID)
-        EVT_RESULT(self, self.SetSelectionGraphsComboBox, EVT_COMBOBOXGRAPHS_SETSELECTION_ID)
-        EVT_RESULT(self, self.SetSelectionGraphs8ComboBox, EVT_COMBOBOXGRAPHS8_SETSELECTION_ID)
-        EVT_RESULT(self, self.InsertSensorRow, EVT_INSERT_SENSOR_ROW_ID)
         EVT_RESULT(self, self.InsertFreezeframeRow, EVT_INSERT_FREEZEFRAME_ROW_ID)
         EVT_RESULT(self, self.OnFreezeframeResult, EVT_FREEZEFRAME_RESULT_ID)
         EVT_RESULT(self, self.OnDashboardValues, EVT_DASHBOARD_VALUES_ID)
@@ -1446,7 +1375,6 @@ class MyApp(SessionUIMixin, VehicleProfilesMixin, DashboardUIMixin, GraphUIMixin
 
 
         self.build_graph_page()
-        # Legacy 4-Graphs and 8-Graphs pages removed.
         self.trace = self.MyListCtrl(self.nb, tID, style=wx.LC_REPORT | wx.BORDER_NONE)
         self.trace.InsertColumn(0, "Level", width=40)
         self.trace.InsertColumn(1, "Message")
@@ -1564,23 +1492,42 @@ class MyApp(SessionUIMixin, VehicleProfilesMixin, DashboardUIMixin, GraphUIMixin
         self.HelpAboutDlg.Destroy()
 
     def OnResult(self, event):
-        source_index, column, value = event.data
-        while len(self.sensor_rows) <= source_index:
-            self.sensor_rows.append(["", "", ""])
-        if isinstance(value, bytes):
-            value = value.decode(errors="ignore")
-        value = str(value)
-        changed = self.sensor_rows[source_index][column] != value
-        self.sensor_rows[source_index][column] = value
-        if column == 2:
-            self._record_sensor_value(source_index)
-
+        data = event.data
+        updates = data if data and isinstance(data[0], (list, tuple)) else [data]
         query_active = bool(self.sensor_search.GetValue().strip())
-        if query_active and column in (0, 1) and changed:
+        filter_changed = False
+
+        self.sensors.Freeze()
+        try:
+            for source_index, column, value in updates:
+                while len(self.sensor_rows) <= source_index:
+                    self.sensor_rows.append(["", "", ""])
+                if source_index not in self.sensor_view_by_source and not query_active:
+                    view_index = self.sensors.InsertItem(self.sensors.GetItemCount(), "")
+                    self.sensor_visible_indices.append(source_index)
+                    self.sensor_view_by_source[source_index] = view_index
+
+                if isinstance(value, bytes):
+                    value = value.decode(errors="ignore")
+                value = str(value)
+                changed = self.sensor_rows[source_index][column] != value
+                self.sensor_rows[source_index][column] = value
+                if column == 2:
+                    self._record_sensor_value(source_index)
+                if query_active and column in (0, 1) and changed:
+                    filter_changed = True
+                elif changed and source_index in self.sensor_view_by_source:
+                    self.sensors.SetItem(
+                        self.sensor_view_by_source[source_index], column, value
+                    )
+        finally:
+            self.sensors.Thaw()
+
+        if filter_changed:
             self._schedule_sensor_filter()
-        elif source_index in self.sensor_visible_indices:
-            view_index = self.sensor_visible_indices.index(source_index)
-            self.sensors.SetItem(view_index, column, value)
+        self.sensor_count_label.SetLabel(
+            f"{len(self.sensor_visible_indices)} of {len(self.sensor_rows)} PIDs"
+        )
 
     def OnFreezeframeResult(self, event):
         self.freezeframe.SetItem(event.data[0], event.data[1], event.data[2])
@@ -1656,149 +1603,10 @@ class MyApp(SessionUIMixin, VehicleProfilesMixin, DashboardUIMixin, GraphUIMixin
         self.curr_selection3 = self.combobox3.GetSelection()
         self.curr_selection4 = self.combobox4.GetSelection()
     """
-    def InsertSensorRow(self, event):
-        counter = event.data
-        while len(self.sensor_rows) <= counter:
-            self.sensor_rows.append(["", "", ""])
-        if self.sensor_search.GetValue().strip():
-            self._schedule_sensor_filter()
-            return
-        if counter not in self.sensor_visible_indices:
-            view_index = self.sensors.InsertItem(self.sensors.GetItemCount(), "")
-            self.sensor_visible_indices.append(counter)
-            self.sensors.SetItem(view_index, 1, "")
-            self.sensors.SetItem(view_index, 2, "")
-        self.sensor_count_label.SetLabel(f"{len(self.sensor_visible_indices)} of {len(self.sensor_rows)} PIDs")
-
     def InsertFreezeframeRow(self, event):
         counter = event.data
         self.freezeframe.InsertItem(counter, "")
 
-    def BuildComboBoxGraph(self, event):
-        self.combobox = wx.ComboBox(self.graph_panel, choices=event.data, pos=(0, 65), size=(360, 42))
-        self.combobox.SetFont(self.touch_font)
-        self.build_combobox_graph_event_finished=True
-
-    def BuildComboBoxGraphs(self, event):
-        self.combobox1 = wx.ComboBox(self.graphs_panel, choices=event.data, pos=(0, 140), size=(310, 42))
-        self.combobox2 = wx.ComboBox(self.graphs_panel, choices=event.data, pos=(0, 190), size=(310, 42))
-        self.combobox3 = wx.ComboBox(self.graphs_panel, choices=event.data, pos=(330, 140), size=(310, 42))
-        self.combobox4 = wx.ComboBox(self.graphs_panel, choices=event.data, pos=(330, 190), size=(310, 42))
-        self.combobox1.SetFont(self.touch_font)
-        self.combobox2.SetFont(self.touch_font)
-        self.combobox3.SetFont(self.touch_font)
-        self.combobox4.SetFont(self.touch_font)
-        self.build_combobox_graphs_event_finished=True
-
-    def BuildComboBoxGraphs8(self, event):
-        self.combobox8_1 = wx.ComboBox(self.graphs8_panel, choices=event.data, pos=(0, 240), size=(300, 42))
-        self.combobox8_2 = wx.ComboBox(self.graphs8_panel, choices=event.data, pos=(0, 290), size=(300, 42))
-        self.combobox8_3 = wx.ComboBox(self.graphs8_panel, choices=event.data, pos=(330, 240), size=(300, 42))
-        self.combobox8_4 = wx.ComboBox(self.graphs8_panel, choices=event.data, pos=(330, 290), size=(300, 42))
-        self.combobox8_5 = wx.ComboBox(self.graphs8_panel, choices=event.data, pos=(660, 240), size=(300, 42))
-        self.combobox8_6 = wx.ComboBox(self.graphs8_panel, choices=event.data, pos=(660, 290), size=(300, 42))
-        self.combobox8_7 = wx.ComboBox(self.graphs8_panel, choices=event.data, pos=(990, 240), size=(300, 42))
-        self.combobox8_8 = wx.ComboBox(self.graphs8_panel, choices=event.data, pos=(990, 290), size=(300, 42))
-        self.combobox8_1.SetFont(self.touch_font)
-        self.combobox8_2.SetFont(self.touch_font)
-        self.combobox8_3.SetFont(self.touch_font)
-        self.combobox8_4.SetFont(self.touch_font)
-        self.combobox8_5.SetFont(self.touch_font)
-        self.combobox8_6.SetFont(self.touch_font)
-        self.combobox8_7.SetFont(self.touch_font)
-        self.combobox8_8.SetFont(self.touch_font)
-        self.build_combobox_graphs8_event_finished=True
-
-    def DestroyComboBox(self, event):
-        try:
-            self.combobox
-            self.combobox.Destroy()
-        except Exception as e:
-            print(e)
-        try:
-            self.combobox1
-            self.combobox1.Destroy()
-            self.combobox2
-            self.combobox2.Destroy()
-            self.combobox3
-            self.combobox3.Destroy()
-            self.combobox4
-            self.combobox4.Destroy()
-        except Exception as e:
-            print(e)
-        try:
-            self.combobox8_1
-            self.combobox8_1.Destroy()
-            self.combobox8_2
-            self.combobox8_2.Destroy()
-            self.combobox8_3
-            self.combobox8_3.Destroy()
-            self.combobox8_4
-            self.combobox8_4.Destroy()
-            self.combobox8_5
-            self.combobox8_5.Destroy()
-            self.combobox8_6
-            self.combobox8_6.Destroy()
-            self.combobox8_7
-            self.combobox8_7.Destroy()
-            self.combobox8_8
-            self.combobox8_8.Destroy()
-
-        except Exception as e:
-            print(e)
-
-    def GetSelectionGraphComboBox(self, event):
-        try:
-            self.combobox_selection = self.combobox.GetSelection()
-            self.combobox_graph_get_sel_finished = True
-        except:
-            pass
-
-    def GetSelectionGraphsComboBox(self, event):
-        try:
-            self.combobox1_selection = self.combobox1.GetSelection()
-            self.combobox2_selection = self.combobox2.GetSelection()
-            self.combobox3_selection = self.combobox3.GetSelection()
-            self.combobox4_selection = self.combobox4.GetSelection()
-            self.combobox_graphs_get_sel_finished = True
-        except:
-            pass
-
-    def GetSelectionGraphs8ComboBox(self, event):
-        try:
-            self.combobox8_1_selection = self.combobox8_1.GetSelection()
-            self.combobox8_2_selection = self.combobox8_2.GetSelection()
-            self.combobox8_3_selection = self.combobox8_3.GetSelection()
-            self.combobox8_4_selection = self.combobox8_4.GetSelection()
-            self.combobox8_5_selection = self.combobox8_5.GetSelection()
-            self.combobox8_6_selection = self.combobox8_6.GetSelection()
-            self.combobox8_7_selection = self.combobox8_7.GetSelection()
-            self.combobox8_8_selection = self.combobox8_8.GetSelection()
-            self.combobox_graphs8_get_sel_finished = True
-        except:
-            pass
-
-    def SetSelectionGraphComboBox(self, event):
-        self.combobox_selection = self.combobox.SetSelection(0)
-        self.combobox_graph_set_sel_finished = True
-
-    def SetSelectionGraphsComboBox(self, event):
-        self.combobox1_selection = self.combobox1.SetSelection(0)
-        self.combobox2_selection = self.combobox2.SetSelection(1)
-        self.combobox3_selection = self.combobox3.SetSelection(2)
-        self.combobox4_selection = self.combobox4.SetSelection(3)
-        self.combobox_graphs_set_sel_finished = True
-
-    def SetSelectionGraphs8ComboBox(self, event):
-        self.combobox8_1_selection = self.combobox8_1.SetSelection(0)
-        self.combobox8_2_selection = self.combobox8_2.SetSelection(1)
-        self.combobox8_3_selection = self.combobox8_3.SetSelection(2)
-        self.combobox8_4_selection = self.combobox8_4.SetSelection(3)
-        self.combobox8_5_selection = self.combobox8_5.SetSelection(5)
-        self.combobox8_6_selection = self.combobox8_6.SetSelection(6)
-        self.combobox8_7_selection = self.combobox8_7.SetSelection(7)
-        self.combobox8_8_selection = self.combobox8_8.SetSelection(8)
-        self.combobox_graphs8_set_sel_finished = True
     def OnClose(self, event):
 
         if self._shutdown_started:
@@ -1808,30 +1616,10 @@ class MyApp(SessionUIMixin, VehicleProfilesMixin, DashboardUIMixin, GraphUIMixin
         #    time.sleep(0.1)
         print("on close!")
 
-        def reset_list_if_present(name, row_count):
-            list_ctrl = getattr(self, name, None)
-            if list_ctrl is None:
-                return
-            try:
-                list_ctrl.DeleteAllItems()
-                for idx in range(row_count):
-                    list_ctrl.InsertItem(idx, "")
-            except Exception:
-                pass
-
-        def destroy_if_present(*names):
-            for name in names:
-                control = getattr(self, name, None)
-                if control is None:
-                    continue
-                try:
-                    control.Destroy()
-                except Exception:
-                    pass
-
         self.sensors.DeleteAllItems()
         self.sensor_rows.clear()
         self.sensor_visible_indices.clear()
+        self.sensor_view_by_source.clear()
         self.sensor_selected_sources.clear()
         self.sensor_count_label.SetLabel("Waiting for vehicle data")
         self.freezeframe.DeleteAllItems()
@@ -1842,23 +1630,8 @@ class MyApp(SessionUIMixin, VehicleProfilesMixin, DashboardUIMixin, GraphUIMixin
             self.misfire_tests.SetItem(row, 1, "—")
         self.dtc.DeleteAllItems()
 
-        reset_list_if_present("graphs_list_ctrl", 4)
-        reset_list_if_present("graphs8_list_ctrl", 8)
         self._set_graph_streaming(False)
         self._refresh_graph_selection_ui()
-
-        destroy_if_present("combobox")
-        destroy_if_present("combobox1", "combobox2", "combobox3", "combobox4")
-        destroy_if_present(
-            "combobox8_1", "combobox8_2", "combobox8_3", "combobox8_4",
-            "combobox8_5", "combobox8_6", "combobox8_7", "combobox8_8"
-        )
-
-        destroy_if_present("panel1", "panel2", "panel3", "panel4")
-        destroy_if_present(
-            "panel8_1", "panel8_2", "panel8_3", "panel8_4",
-            "panel8_5", "panel8_6", "panel8_7", "panel8_8"
-        )
         try:
             self.ThreadControl = 666
 
@@ -1867,275 +1640,6 @@ class MyApp(SessionUIMixin, VehicleProfilesMixin, DashboardUIMixin, GraphUIMixin
 
         except:
             traceback.print_exc()
-
-    def OnGraphs(self, event):
-        xy_data1 = list(zip(event.data[0][0],event.data[0][1]))
-        unit1 = event.data[0][2]
-        command_desc1 = event.data[0][3]
-        graph_counter1 = event.data[0][4]
-        xy_data2 = list(zip(event.data[1][0],event.data[1][1]))
-        unit2 = event.data[1][2]
-        command_desc2 = event.data[1][3]
-        graph_counter2 = event.data[1][4]
-        xy_data3 = list(zip(event.data[2][0],event.data[2][1]))
-        unit3 = event.data[2][2]
-        command_desc3 = event.data[2][3]
-        graph_counter3 = event.data[2][4]
-        xy_data4 = list(zip(event.data[3][0],event.data[3][1]))
-        unit4 = event.data[3][2]
-        command_desc4 = event.data[3][3]
-        graph_counter4 = event.data[3][4]
-        first_time_graphs_plot = event.data[4]
-
-        def animate():
-            if not first_time_graphs_plot:
-
-                self.line1 = wxplot.PolySpline(xy_data1, colour = 'blue', width = 1, style=wx.PENSTYLE_SOLID)
-                self.graphics1 = wxplot.PlotGraphics([self.line1], command_desc1, 'frame', unit1)
-                if sys.platform.startswith("linux"):
-                    if os.environ.get("DESKTOP_SESSION") == "gnome" or os.environ.get("DESKTOP_SESSION") == "ubuntu":
-                        self.panel1.Destroy()
-                        self.panel1 = wxplot.PlotCanvas(self.graphs_panel, pos=(0, 250))
-                        self.panel1.SetInitialSize(size=wx.Size(400, 220))
-                self.panel1.Draw(self.graphics1, xAxis=(graph_counter1 - 200, graph_counter1))
-
-                self.line2 = wxplot.PolySpline(xy_data2, colour = 'blue', width = 1, style=wx.PENSTYLE_SOLID)
-                self.graphics2 = wxplot.PlotGraphics([self.line2], command_desc2, 'frame', unit2)
-                if sys.platform.startswith("linux"):
-                    if os.environ.get("DESKTOP_SESSION") == "gnome" or os.environ.get("DESKTOP_SESSION") == "ubuntu":
-                        self.panel2.Destroy()
-                        self.panel2 = wxplot.PlotCanvas(self.graphs_panel, pos=(0, 480))
-                        self.panel2.SetInitialSize(size=wx.Size(400, 220))
-                self.panel2.Draw(self.graphics2, xAxis=(graph_counter2 -200, graph_counter2))
-
-                self.line3 = wxplot.PolySpline(xy_data3, colour = 'blue', width = 1, style=wx.PENSTYLE_SOLID)
-                self.graphics3 = wxplot.PlotGraphics([self.line3], command_desc3, 'frame', unit3)
-                if sys.platform.startswith("linux"):
-                    if os.environ.get("DESKTOP_SESSION") == "gnome" or os.environ.get("DESKTOP_SESSION") == "ubuntu":
-                        self.panel3.Destroy()
-                        self.panel3 = wxplot.PlotCanvas(self.graphs_panel, pos=(410, 250))
-                        self.panel3.SetInitialSize(size=wx.Size(400, 220))
-                self.panel3.Draw(self.graphics3, xAxis=(graph_counter3 - 200, graph_counter3))
-
-                self.line4 = wxplot.PolySpline(xy_data4, colour = 'blue', width = 1, style=wx.PENSTYLE_SOLID)
-                self.graphics4 = wxplot.PlotGraphics([self.line4], command_desc4, 'frame', unit4)
-                if sys.platform.startswith("linux"):
-                    if os.environ.get("DESKTOP_SESSION") == "gnome" or os.environ.get("DESKTOP_SESSION") == "ubuntu":
-                        self.panel4.Destroy()
-                        self.panel4 = wxplot.PlotCanvas(self.graphs_panel, pos=(410, 480))
-                        self.panel4.SetInitialSize(size=wx.Size(400, 220))
-                self.panel4.Draw(self.graphics4, xAxis=(graph_counter4 - 200, graph_counter4))
-
-
-        if first_time_graphs_plot:
-            try:
-                self.panel1.Destroy()
-            except:
-                pass
-            try:
-                self.panel2.Destroy()
-            except:
-                pass
-            try:
-                self.panel3.Destroy()
-            except:
-                pass
-            try:
-                self.panel4.Destroy()
-            except:
-                pass
-            self.panel1 = wxplot.PlotCanvas(self.graphs_panel, pos=(0, 250))
-            self.panel1.SetInitialSize(size=wx.Size(400, 220))
-
-            self.panel2 = wxplot.PlotCanvas(self.graphs_panel, pos=(0, 480))
-            self.panel2.SetInitialSize(size=wx.Size(400, 220))
-
-            self.panel3 = wxplot.PlotCanvas(self.graphs_panel, pos=(410, 250))
-            self.panel3.SetInitialSize(size=wx.Size(400, 220))
-
-            self.panel4 = wxplot.PlotCanvas(self.graphs_panel, pos=(410, 480))
-            self.panel4.SetInitialSize(size=wx.Size(400, 220))
-
-        else:
-            animate()
-
-    def OnGraphs8(self, event):
-        xy_data8_1 = list(zip(event.data[0][0],event.data[0][1]))
-        unit8_1 = event.data[0][2]
-        command_desc8_1 = event.data[0][3]
-        graph_counter8_1 = event.data[0][4]
-        xy_data8_2 = list(zip(event.data[1][0],event.data[1][1]))
-        unit8_2 = event.data[1][2]
-        command_desc8_2 = event.data[1][3]
-        graph_counter8_2 = event.data[1][4]
-        xy_data8_3 = list(zip(event.data[2][0],event.data[2][1]))
-        unit8_3 = event.data[2][2]
-        command_desc8_3 = event.data[2][3]
-        graph_counter8_3 = event.data[2][4]
-        xy_data8_4 = list(zip(event.data[3][0],event.data[3][1]))
-        unit8_4 = event.data[3][2]
-        command_desc8_4 = event.data[3][3]
-        graph_counter8_4 = event.data[3][4]
-        xy_data8_5 = list(zip(event.data[4][0], event.data[4][1]))
-        unit8_5 = event.data[4][2]
-        command_desc8_5 = event.data[4][3]
-        graph_counter8_5 = event.data[4][4]
-        xy_data8_6 = list(zip(event.data[5][0], event.data[5][1]))
-        unit8_6 = event.data[5][2]
-        command_desc8_6 = event.data[5][3]
-        graph_counter8_6 = event.data[5][4]
-        xy_data8_7 = list(zip(event.data[6][0], event.data[6][1]))
-        unit8_7 = event.data[6][2]
-        command_desc8_7 = event.data[6][3]
-        graph_counter8_7 = event.data[6][4]
-        xy_data8_8 = list(zip(event.data[7][0], event.data[7][1]))
-        unit8_8 = event.data[7][2]
-        command_desc8_8 = event.data[7][3]
-        graph_counter8_8 = event.data[7][4]
-        first_time_graphs8_plot = event.data[8]
-
-
-        def animate():
-            if not first_time_graphs8_plot:
-
-                self.line8_1 = wxplot.PolySpline(xy_data8_1, colour = 'blue', width = 1, style=wx.PENSTYLE_SOLID)
-                self.graphics8_1 = wxplot.PlotGraphics([self.line8_1], command_desc8_1, 'frame', unit8_1)
-                if sys.platform.startswith("linux"):
-                    if os.environ.get("DESKTOP_SESSION") == "gnome" or os.environ.get("DESKTOP_SESSION") == "ubuntu":
-                        self.panel8_1.Destroy()
-                        self.panel8_1 = wxplot.PlotCanvas(self.graphs8_panel, pos=(0, 350))
-                        self.panel8_1.SetInitialSize(size=wx.Size(400, 220))
-                self.panel8_1.Draw(self.graphics8_1, xAxis=(graph_counter8_1 - 200, graph_counter8_1))
-
-                self.line8_2 = wxplot.PolySpline(xy_data8_2, colour = 'blue', width = 1, style=wx.PENSTYLE_SOLID)
-                self.graphics8_2 = wxplot.PlotGraphics([self.line8_2], command_desc8_2, 'frame', unit8_2)
-                if sys.platform.startswith("linux"):
-                    if os.environ.get("DESKTOP_SESSION") == "gnome" or os.environ.get("DESKTOP_SESSION") == "ubuntu":
-                        self.panel8_2.Destroy()
-                        self.panel8_2 = wxplot.PlotCanvas(self.graphs8_panel, pos=(0, 580))
-                        self.panel8_2.SetInitialSize(size=wx.Size(400, 220))
-                self.panel8_2.Draw(self.graphics8_2, xAxis=(graph_counter8_2 -200, graph_counter8_2))
-
-                self.line8_3 = wxplot.PolySpline(xy_data8_3, colour = 'blue', width = 1, style=wx.PENSTYLE_SOLID)
-                self.graphics8_3 = wxplot.PlotGraphics([self.line8_3], command_desc8_3, 'frame', unit8_3)
-                if sys.platform.startswith("linux"):
-                    if os.environ.get("DESKTOP_SESSION") == "gnome" or os.environ.get("DESKTOP_SESSION") == "ubuntu":
-                        self.panel8_3.Destroy()
-                        self.panel8_3 = wxplot.PlotCanvas(self.graphs8_panel, pos=(410, 350))
-                        self.panel8_3.SetInitialSize(size=wx.Size(400, 220))
-                self.panel8_3.Draw(self.graphics8_3, xAxis=(graph_counter8_3 - 200, graph_counter8_3))
-
-                self.line8_4 = wxplot.PolySpline(xy_data8_4, colour = 'blue', width = 1, style=wx.PENSTYLE_SOLID)
-                self.graphics8_4 = wxplot.PlotGraphics([self.line8_4], command_desc8_4, 'frame', unit8_4)
-                if sys.platform.startswith("linux"):
-                    if os.environ.get("DESKTOP_SESSION") == "gnome" or os.environ.get("DESKTOP_SESSION") == "ubuntu":
-                        self.panel8_4.Destroy()
-                        self.panel8_4 = wxplot.PlotCanvas(self.graphs8_panel, pos=(410, 580))
-                        self.panel8_4.SetInitialSize(size=wx.Size(400, 220))
-                self.panel8_4.Draw(self.graphics8_4, xAxis=(graph_counter8_4 - 200, graph_counter8_4))
-
-                self.line8_5 = wxplot.PolySpline(xy_data8_5, colour='blue', width=1, style=wx.PENSTYLE_SOLID)
-                self.graphics8_5 = wxplot.PlotGraphics([self.line8_5], command_desc8_5, 'frame', unit8_5)
-                if sys.platform.startswith("linux"):
-                    if os.environ.get("DESKTOP_SESSION") == "gnome" or os.environ.get("DESKTOP_SESSION") == "ubuntu":
-                        self.panel8_5.Destroy()
-                        self.panel8_5 = wxplot.PlotCanvas(self.graphs8_panel, pos=(820, 350))
-                        self.panel8_5.SetInitialSize(size=wx.Size(400, 220))
-                self.panel8_5.Draw(self.graphics8_5, xAxis=(graph_counter8_5 - 200, graph_counter8_5))
-
-                self.line8_6 = wxplot.PolySpline(xy_data8_6, colour='blue', width=1, style=wx.PENSTYLE_SOLID)
-                self.graphics8_6 = wxplot.PlotGraphics([self.line8_6], command_desc8_6, 'frame', unit8_6)
-                if sys.platform.startswith("linux"):
-                    if os.environ.get("DESKTOP_SESSION") == "gnome" or os.environ.get("DESKTOP_SESSION") == "ubuntu":
-                        self.panel8_6.Destroy()
-                        self.panel8_6 = wxplot.PlotCanvas(self.graphs8_panel, pos=(820, 580))
-                        self.panel8_6.SetInitialSize(size=wx.Size(400, 220))
-                self.panel8_6.Draw(self.graphics8_6, xAxis=(graph_counter8_6 - 200, graph_counter8_6))
-
-                self.line8_7 = wxplot.PolySpline(xy_data8_7, colour='blue', width=1, style=wx.PENSTYLE_SOLID)
-                self.graphics8_7 = wxplot.PlotGraphics([self.line8_7], command_desc8_7, 'frame', unit8_7)
-                if sys.platform.startswith("linux"):
-                    if os.environ.get("DESKTOP_SESSION") == "gnome" or os.environ.get("DESKTOP_SESSION") == "ubuntu":
-                        self.panel8_7.Destroy()
-                        self.panel8_7 = wxplot.PlotCanvas(self.graphs8_panel, pos=(1240, 350))
-                        self.panel8_7.SetInitialSize(size=wx.Size(400, 220))
-                self.panel8_7.Draw(self.graphics8_7, xAxis=(graph_counter8_7 - 200, graph_counter8_7))
-
-                self.line8_8 = wxplot.PolySpline(xy_data8_8, colour='blue', width=1, style=wx.PENSTYLE_SOLID)
-                self.graphics8_8 = wxplot.PlotGraphics([self.line8_8], command_desc8_8, 'frame', unit8_8)
-                if sys.platform.startswith("linux"):
-                    if os.environ.get("DESKTOP_SESSION") == "gnome" or os.environ.get("DESKTOP_SESSION") == "ubuntu":
-                        self.panel8_8.Destroy()
-                        self.panel8_8 = wxplot.PlotCanvas(self.graphs8_panel, pos=(1240, 580))
-                        self.panel8_8.SetInitialSize(size=wx.Size(400, 220))
-                self.panel8_8.Draw(self.graphics8_8, xAxis=(graph_counter8_8 - 200, graph_counter8_8))
-
-
-        if first_time_graphs8_plot:
-            try:
-                self.panel8_1.Destroy()
-            except:
-                pass
-            try:
-                self.panel8_2.Destroy()
-            except:
-                pass
-            try:
-                self.panel8_3.Destroy()
-            except:
-                pass
-            try:
-                self.panel8_4.Destroy()
-            except:
-                pass
-            try:
-                self.panel8_5.Destroy()
-            except:
-                pass
-            try:
-                self.panel8_6.Destroy()
-            except:
-                pass
-            try:
-                self.panel8_7.Destroy()
-            except:
-                pass
-            try:
-                self.panel8_8.Destroy()
-            except:
-                pass
-            self.panel8_1 = wxplot.PlotCanvas(self.graphs8_panel, pos=(0, 350))
-            self.panel8_1.SetInitialSize(size=wx.Size(400, 220))
-
-            self.panel8_2 = wxplot.PlotCanvas(self.graphs8_panel, pos=(0, 580))
-            self.panel8_2.SetInitialSize(size=wx.Size(400, 220))
-
-            self.panel8_3 = wxplot.PlotCanvas(self.graphs8_panel, pos=(410, 350))
-            self.panel8_3.SetInitialSize(size=wx.Size(400, 220))
-
-            self.panel8_4 = wxplot.PlotCanvas(self.graphs8_panel, pos=(410, 580))
-            self.panel8_4.SetInitialSize(size=wx.Size(400, 220))
-
-            self.panel8_5 = wxplot.PlotCanvas(self.graphs8_panel, pos=(820, 350))
-            self.panel8_5.SetInitialSize(size=wx.Size(400, 220))
-
-            self.panel8_6 = wxplot.PlotCanvas(self.graphs8_panel, pos=(820, 580))
-            self.panel8_6.SetInitialSize(size=wx.Size(400, 220))
-
-            self.panel8_7 = wxplot.PlotCanvas(self.graphs8_panel, pos=(1240, 350))
-            self.panel8_7.SetInitialSize(size=wx.Size(400, 220))
-
-            self.panel8_8 = wxplot.PlotCanvas(self.graphs8_panel, pos=(1240, 580))
-            self.panel8_8.SetInitialSize(size=wx.Size(400, 220))
-
-        else:
-            animate()
-
-    def OnGraphsValue(self, event):
-        self.graphs_list_ctrl.SetItem(event.data[0], event.data[1], event.data[2])
-
-    def OnGraphs8Value(self, event):
-        self.graphs8_list_ctrl.SetItem(event.data[0], event.data[1], event.data[2])
 
     def OnDebug(self, event):
         self.TraceDebug(event.data[0], event.data[1])
@@ -2190,14 +1694,17 @@ class MyApp(SessionUIMixin, VehicleProfilesMixin, DashboardUIMixin, GraphUIMixin
         self.settingmenu.Enable(ID_RESET, False)
         self.settingmenu.Enable(ID_DISCONNECT, False)
 
-        self.senprod = SensorProducer(self, self.COMPORT, self.SERTIMEOUT, self.RECONNATTEMPTS, self.BAUDRATE, self.FAST, self.nb)
+        self.senprod = SensorProducer(
+            self, self.COMPORT, self.SERTIMEOUT, self.RECONNATTEMPTS,
+            self.BAUDRATE, self.FAST,
+        )
         self.senprod.start()
 
     def GetDTC(self, e):
-        self._go_to_page(self.DTCpanel)
         self.dtc_status_label.SetLabel("Scanning diagnostic trouble codes…")
         self.GetDTCButton.Enable(False)
         self.ThreadControl = 2
+        self._go_to_page(self.DTCpanel)
 
     def AddDTC(self, code):
         self.dtc.InsertStringItem(0, "")
@@ -2240,6 +1747,7 @@ class MyApp(SessionUIMixin, VehicleProfilesMixin, DashboardUIMixin, GraphUIMixin
     def ClearDTC(self):
         self.ThreadControl = 1
         self._go_to_page(self.DTCpanel)
+        self.senprod.wake()
 
     def try_port(self, portStr):
         """returns boolean for port availability"""

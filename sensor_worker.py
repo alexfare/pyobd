@@ -1,12 +1,10 @@
 """Background vehicle polling worker for pyOBD."""
 
-import datetime
 from collections import deque
 import threading
 import time
 import traceback
 
-import numpy as np
 import wx
 
 import obd
@@ -91,7 +89,7 @@ class SensorProducer(threading.Thread):
                 counts[category] += 1
         return rows, counts
 
-    def __init__(self, _notify_window, portName, SERTIMEOUT, RECONNATTEMPTS, BAUDRATE, FAST, _nb):
+    def __init__(self, _notify_window, portName, SERTIMEOUT, RECONNATTEMPTS, BAUDRATE, FAST):
         #from queue import Queue
         self.portName = portName
         self.RECONNATTEMPTS = RECONNATTEMPTS
@@ -100,12 +98,15 @@ class SensorProducer(threading.Thread):
         self._notify_window = _notify_window
         self.baudrate = BAUDRATE
         self.FAST = FAST
-        self._nb = _nb
         self.demo_mode = str(portName).upper() == "DEMO"
         threading.Thread.__init__(self)
         self.state = "started"
         self.disconnect_status = "Disconnected"
         self._stop_notified = False
+        self._wake_event = threading.Event()
+
+    def wake(self):
+        self._wake_event.set()
 
     @staticmethod
     def _is_connected_status(status):
@@ -167,101 +168,48 @@ class SensorProducer(threading.Thread):
             return "OK"
 
 
-    def run(self):
+    @staticmethod
+    def _live_value_text(command, value, formatter):
+        if command.command in (b"0101", b"0141"):
+            return (
+                f"MIL ON: {value.MIL}, DTC Count: {value.DTC_count}, "
+                f"Ignition type: {value.ignition_type}, Misfire monitoring complete: "
+                f"{value.MISFIRE_MONITORING.complete}"
+            )
+        if command.command == b"0113":
+            return (
+                f"Bank1S1: {value[1][0]}, Bank1S2: {value[1][1]}, "
+                f"Bank1S3: {value[1][2]}, Bank1S4: {value[1][3]} "
+                f"Bank2S1: {value[2][0]}, Bank2S2: {value[2][1]}, "
+                f"Bank2S3: {value[2][2]}, Bank2S4: {value[2][3]}"
+            )
+        if command.command == b"0103" and isinstance(value, (list, tuple)):
+            return str(value[0]) if value else ""
+        return formatter(value)
 
+    def run(self):
         if self.initCommunication() != "OK":
             self._notify_window.ThreadControl = 666
             self.state = "finished"
             self.stop("Connection failed")
-            return None
+            return
 
         self.baudrate = self.connection.connection.interface.baudrate()
         self.portName = self.connection.connection.port_name()
+        sensor_commands = None
+        sensor_index = 0
+        freeze_commands = None
+        freeze_index = 0
+        previous_page = None
+        graph_series = {}
+        graph_counter = 0
+        graph_last_draw_at = 0.0
+        graph_last_value_at = 0.0
+        graph_was_streaming = False
+        dashboard_last_emit_at = 0.0
+        next_health_at = time.monotonic() + 1.0
 
-        prevstate = -1
-        curstate = -1
-        first_time_sensors = True
-        first_time_freezeframe = True
-
-        first_time_graph = True
-        first_time_graphs = True
-        first_time_8graphs = True
-        self.first_time_graph_plot = True
-        self.first_time_graphs_plot = True
-        self.first_time_8graphs_plot = True
-        self.graph_counter = 0
-        self.graph_counter1 = 0
-        self.graph_counter8_1 = 0
-        self.graph_dirty1 = False
-        self.graph_dirty2 = False
-        self.graph_dirty3 = False
-        self.graph_dirty4 = False
-
-        self.graph_dirty8_1 = False
-        self.graph_dirty8_2 = False
-        self.graph_dirty8_3 = False
-        self.graph_dirty8_4 = False
-        self.graph_dirty8_5 = False
-        self.graph_dirty8_6 = False
-        self.graph_dirty8_7 = False
-        self.graph_dirty8_8 = False
-        self.dashboard_last_emit_at = 0.0
-        #sensor_list = []
-        misfire_cylinder_supported = True
-        first_time=True
-        #pimp_counter = 0
-        #time_prev = datetime.datetime.now()
-        #time_now = datetime.datetime.now()
-
-        def init_all_graphs():
-            self.graph_x_vals = np.array([])
-            self.graph_y_vals = np.array([])
-            self.graph_counter = 0
-
-            self.graph_x_vals1 = np.array([])
-            self.graph_y_vals1 = np.array([])
-            self.graph_x_vals2 = np.array([])
-            self.graph_y_vals2 = np.array([])
-            self.graph_x_vals3 = np.array([])
-            self.graph_y_vals3 = np.array([])
-            self.graph_x_vals4 = np.array([])
-            self.graph_y_vals4 = np.array([])
-            self.graph_counter1 = 0
-            self.graph_counter2 = 0
-            self.graph_counter3 = 0
-            self.graph_counter4 = 0
-
-            self.graph_x_vals8_1 = np.array([])
-            self.graph_y_vals8_1 = np.array([])
-            self.graph_x_vals8_2 = np.array([])
-            self.graph_y_vals8_2 = np.array([])
-            self.graph_x_vals8_3 = np.array([])
-            self.graph_y_vals8_3 = np.array([])
-            self.graph_x_vals8_4 = np.array([])
-            self.graph_y_vals8_4 = np.array([])
-            self.graph_x_vals8_5 = np.array([])
-            self.graph_y_vals8_5 = np.array([])
-            self.graph_x_vals8_6 = np.array([])
-            self.graph_y_vals8_6 = np.array([])
-            self.graph_x_vals8_7 = np.array([])
-            self.graph_y_vals8_7 = np.array([])
-            self.graph_x_vals8_8 = np.array([])
-            self.graph_y_vals8_8 = np.array([])
-            self.graph_counter8_1 = 0
-            self.graph_counter8_2 = 0
-            self.graph_counter8_3 = 0
-            self.graph_counter8_4 = 0
-            self.graph_counter8_5 = 0
-            self.graph_counter8_6 = 0
-            self.graph_counter8_7 = 0
-            self.graph_counter8_8 = 0
-
-
-        init_all_graphs()
         def reconnect():
-            if self._notify_window.ThreadControl == 666:
-                return False
-            init_all_graphs()
             self.disconnect_status = "Connection lost"
             wx.PostEvent(self._notify_window, StatusEvent([0, 1, "Connection lost"]))
             if self.initCommunication(reconnecting=True) != "OK":
@@ -270,1385 +218,229 @@ class SensorProducer(threading.Thread):
             self.disconnect_status = "Disconnected"
             return True
 
+        def health_check(now):
+            nonlocal next_health_at
+            if now < next_health_at:
+                return True
+            next_health_at = now + 1.0
+            return self.connection.query(obd.commands.RPM).value is not None
+
         while self._notify_window.ThreadControl != 666:
             if not self._is_connected_status(self.connection.connection.status()):
-                reconnect()
-                continue
-            prevstate = curstate
-            try:
-                curstate = self._nb.GetSelection()  # picking the tab in the GUI
-            except RuntimeError:
-                self._notify_window.ThreadControl = 666
-                break
+                if not reconnect():
+                    break
+                sensor_commands = None
+                freeze_commands = None
+                previous_page = None
 
+            page = getattr(self._notify_window, "active_polling_page", "idle")
+            page_changed = page != previous_page
+            now = time.monotonic()
 
+            if page != "graph" and graph_was_streaming:
+                graph_series.clear()
+                graph_counter = 0
+                graph_was_streaming = False
+                self._post_graph_event([[], 0, True])
 
-
-            if not first_time:
-                diff = (time_end - time_start).total_seconds()
-                target_interval = self._target_loop_interval(self.demo_mode)
-                if 0 < diff < target_interval:
-                    sleep_time = target_interval - diff
-                    time.sleep(sleep_time)
-            time_start = datetime.datetime.now()
-
-
-
-            if curstate != 5 and self.graph_counter != 0:
-                self.graph_series = {}
-                self.graph_counter = 0
-                self.first_time_graph_plot = True
-                self._post_graph_event([[], self.graph_counter, self.first_time_graph_plot])
-                self.first_time_graph_plot = False
-
-
-
-            if hasattr(self._notify_window, "graphs_panel") and curstate != 6 and self.graph_counter1 != 0:
-                self.graph_x_vals1 = np.array([])
-                self.graph_y_vals1 = np.array([])
-                self.graph_x_vals2 = np.array([])
-                self.graph_y_vals2 = np.array([])
-                self.graph_x_vals3 = np.array([])
-                self.graph_y_vals3 = np.array([])
-                self.graph_x_vals4 = np.array([])
-                self.graph_y_vals4 = np.array([])
-                self.graph_counter1 = 0
-                self.graph_counter2 = 0
-                self.graph_counter3 = 0
-                self.graph_counter4 = 0
-                self.first_time_graphs_plot = True
-                wx.PostEvent(self._notify_window, GraphsEvent(
-                    [(self.graph_x_vals1, self.graph_y_vals1, self.unit1, desc1, self.graph_counter1),
-                     (self.graph_x_vals2, self.graph_y_vals2, self.unit2, desc2, self.graph_counter2),
-                     (self.graph_x_vals3, self.graph_y_vals3, self.unit3, desc3, self.graph_counter3),
-                     (self.graph_x_vals4, self.graph_y_vals4, self.unit4, desc4, self.graph_counter4),
-                     (self.first_time_graphs_plot)
-                     ]))
-                wx.PostEvent(self._notify_window, GraphsValueEvent([0, 0, self.current_command1.command]))
-                wx.PostEvent(self._notify_window, GraphsValueEvent([0, 1, self.current_command1.desc]))
-
-                wx.PostEvent(self._notify_window, GraphsValueEvent([1, 0, self.current_command2.command]))
-                wx.PostEvent(self._notify_window, GraphsValueEvent([1, 1, self.current_command2.desc]))
-
-                wx.PostEvent(self._notify_window, GraphsValueEvent([2, 0, self.current_command3.command]))
-                wx.PostEvent(self._notify_window, GraphsValueEvent([2, 1, self.current_command3.desc]))
-
-                wx.PostEvent(self._notify_window, GraphsValueEvent([3, 0, self.current_command4.command]))
-                wx.PostEvent(self._notify_window, GraphsValueEvent([3, 1, self.current_command4.desc]))
-
-            if hasattr(self._notify_window, "graphs8_panel") and curstate != 7 and self.graph_counter8_1 != 0:
-                self.graph_x_vals8_1 = np.array([])
-                self.graph_y_vals8_1 = np.array([])
-                self.graph_x_vals8_2 = np.array([])
-                self.graph_y_vals8_2 = np.array([])
-                self.graph_x_vals8_3 = np.array([])
-                self.graph_y_vals8_3 = np.array([])
-                self.graph_x_vals8_4 = np.array([])
-                self.graph_y_vals8_4 = np.array([])
-                self.graph_x_vals8_5 = np.array([])
-                self.graph_y_vals8_5 = np.array([])
-                self.graph_x_vals8_6 = np.array([])
-                self.graph_y_vals8_6 = np.array([])
-                self.graph_x_vals8_7 = np.array([])
-                self.graph_y_vals8_7 = np.array([])
-                self.graph_x_vals8_8 = np.array([])
-                self.graph_y_vals8_8 = np.array([])
-
-                self.graph_counter8_1 = 0
-                self.graph_counter8_2 = 0
-                self.graph_counter8_3 = 0
-                self.graph_counter8_4 = 0
-                self.graph_counter8_5 = 0
-                self.graph_counter8_6 = 0
-                self.graph_counter8_7 = 0
-                self.graph_counter8_8 = 0
-                self.first_time_graphs8_plot = True
-                wx.PostEvent(self._notify_window, Graphs8Event(
-                    [(self.graph_x_vals8_1, self.graph_y_vals8_1, self.unit8_1, desc8_1, self.graph_counter8_1),
-                     (self.graph_x_vals8_2, self.graph_y_vals8_2, self.unit8_2, desc8_2, self.graph_counter8_2),
-                     (self.graph_x_vals8_3, self.graph_y_vals8_3, self.unit8_3, desc8_3, self.graph_counter8_3),
-                     (self.graph_x_vals8_4, self.graph_y_vals8_4, self.unit8_4, desc8_4, self.graph_counter8_4),
-                     (self.graph_x_vals8_5, self.graph_y_vals8_5, self.unit8_5, desc8_5, self.graph_counter8_5),
-                     (self.graph_x_vals8_6, self.graph_y_vals8_6, self.unit8_6, desc8_6, self.graph_counter8_6),
-                     (self.graph_x_vals8_7, self.graph_y_vals8_7, self.unit8_7, desc8_7, self.graph_counter8_7),
-                     (self.graph_x_vals8_8, self.graph_y_vals8_8, self.unit8_8, desc8_8, self.graph_counter8_8),
-                     (self.first_time_graphs8_plot)
-                     ]))
-                wx.PostEvent(self._notify_window, Graphs8ValueEvent([0, 0, self.current_command8_1.command]))
-                wx.PostEvent(self._notify_window, Graphs8ValueEvent([0, 1, self.current_command8_1.desc]))
-
-                wx.PostEvent(self._notify_window, Graphs8ValueEvent([1, 0, self.current_command8_2.command]))
-                wx.PostEvent(self._notify_window, Graphs8ValueEvent([1, 1, self.current_command8_2.desc]))
-
-                wx.PostEvent(self._notify_window, Graphs8ValueEvent([2, 0, self.current_command8_3.command]))
-                wx.PostEvent(self._notify_window, Graphs8ValueEvent([2, 1, self.current_command8_3.desc]))
-
-                wx.PostEvent(self._notify_window, Graphs8ValueEvent([3, 0, self.current_command8_4.command]))
-                wx.PostEvent(self._notify_window, Graphs8ValueEvent([3, 1, self.current_command8_4.desc]))
-
-                wx.PostEvent(self._notify_window, Graphs8ValueEvent([4, 0, self.current_command8_5.command]))
-                wx.PostEvent(self._notify_window, Graphs8ValueEvent([4, 1, self.current_command8_5.desc]))
-
-                wx.PostEvent(self._notify_window, Graphs8ValueEvent([5, 0, self.current_command8_6.command]))
-                wx.PostEvent(self._notify_window, Graphs8ValueEvent([5, 1, self.current_command8_6.desc]))
-
-                wx.PostEvent(self._notify_window, Graphs8ValueEvent([6, 0, self.current_command8_7.command]))
-                wx.PostEvent(self._notify_window, Graphs8ValueEvent([6, 1, self.current_command8_7.desc]))
-
-                wx.PostEvent(self._notify_window, Graphs8ValueEvent([7, 0, self.current_command8_8.command]))
-                wx.PostEvent(self._notify_window, Graphs8ValueEvent([7, 1, self.current_command8_8.desc]))
-
-            if curstate == 0:  # show status tab
-                r = self.connection.query(obd.commands.RPM)
-                if r.value == None:
-                    reconnect()
-                    continue
-
-                r = self.connection.query(obd.commands.ELM_VOLTAGE)
-                self.ELMvoltage = str(r.value)
-                wx.PostEvent(self._notify_window, StatusEvent([5, 1, str(self.ELMvoltage)]))
-
-
-
-            elif curstate == 1:  # show tests tab
-                try:
-                    refresh_requested = self._notify_window.tests_refresh_requested
-                    if prevstate == 1 and not refresh_requested:
-                        time_end = datetime.datetime.now()
-                        first_time = False
+            if page == "status":
+                if now >= next_health_at:
+                    rpm = self.connection.query(obd.commands.RPM)
+                    if rpm.value is None:
+                        if not reconnect():
+                            break
+                        previous_page = None
                         continue
+                    voltage = self.connection.query(obd.commands.ELM_VOLTAGE)
+                    wx.PostEvent(self._notify_window, StatusEvent([5, 1, str(voltage.value)]))
+                    next_health_at = now + 1.0
+
+            elif page == "tests":
+                if page_changed or self._notify_window.tests_refresh_requested:
                     self._notify_window.tests_refresh_requested = False
-                    if self._notify_window.tests_active_section == "readiness":
-                        status_response = self.connection.query(obd.commands[1][1])
-                        readiness, counts = self._readiness_results(status_response.value)
-                        for result in readiness:
-                            wx.PostEvent(self._notify_window, TestEvent(result))
-                        wx.PostEvent(self._notify_window, TestEvent({
-                            "kind": "complete", **counts,
-                        }))
-                    else:
-                        supported_misfire_commands = [
-                            (cylinder, getattr(
-                                obd.commands, f"MONITOR_MISFIRE_CYLINDER_{cylinder}"
-                            ))
-                            for cylinder in range(1, 13)
-                            if self.connection.supports(getattr(
-                                obd.commands, f"MONITOR_MISFIRE_CYLINDER_{cylinder}"
-                            ))
-                        ]
-                        wx.PostEvent(self._notify_window, TestEvent({
-                            "kind": "misfire_reset",
-                            "cylinders": [item[0] for item in supported_misfire_commands],
-                        }))
-                        for index, (_cylinder, command) in enumerate(supported_misfire_commands):
-                            if (
-                                self._notify_window.tests_poll_cancelled
-                                or self._notify_window.tests_active_section != "misfire"
-                            ):
-                                break
-                            response = self.connection.query(command)
-                            result = self._misfire_result(response.value)
-                            wx.PostEvent(self._notify_window, TestEvent({
-                                "kind": "misfire", "index": index, "result": result,
-                            }))
-                        wx.PostEvent(self._notify_window, TestEvent({
-                            "kind": "misfire_complete",
-                            "count": len(supported_misfire_commands),
-                        }))
-
-                except:
-                    self._notify_window.tests_refresh_requested = False
-                    wx.PostEvent(self._notify_window, TestEvent({"kind": "error"}))
-                    traceback.print_exc()
-
-            elif curstate == 2:  # show sensor tab
-                r = self.connection.query(obd.commands.RPM)
-                if r.value == None:
-                    reconnect()
-                    continue
-
-                if first_time_sensors:
-                    sensor_list = []
-                    counter = 0
-                    first_time_sensors = False
-                    for command in obd.commands[1]:
-                        if command:
-                            if command.command not in (b"0100", b"0120", b"0140"): #, b"0103", b"0141" #b"0101", b"0103", b"0102", b"011C", b"0151", b"0113"
-                                r = self.connection.query(command)
-                                if r.value == None and command.command != b"0103":
-                                    continue
-                                else:
-                                    sensor_list.append([command, command.desc])
-
-                                    #app.sensors.InsertItem(counter, "")
-                                    wx.PostEvent(self._notify_window, InsertSensorRowEvent(counter))
-                                    wx.PostEvent(self._notify_window, ResultEvent([counter, 0, command.command]))
-                                    wx.PostEvent(self._notify_window, ResultEvent([counter, 1, str(command.desc)]))
-                                    if command.command == b"0101" or command.command == b"0141":
-                                        wx.PostEvent(self._notify_window, ResultEvent([counter, 2, "MIL ON: "+str(r.value.MIL)+", DTC Count: "+str(r.value.DTC_count)+", Ignition type: "+str(r.value.ignition_type)+", Misfire monitoring complete: "+str(r.value.MISFIRE_MONITORING.complete)]))
-                                    elif command.command == b"0113":
-                                        wx.PostEvent(self._notify_window, ResultEvent([counter, 2, "Bank1S1: "+str(r.value[1][0])+", Bank1S2: "+str(r.value[1][1])+", Bank1S3: "+str(r.value[1][2])+", Bank1S4: "+str(r.value[1][3])+" Bank2S1: "+str(r.value[2][0])+", Bank2S2: "+str(r.value[2][1])+", Bank2S3: "+str(r.value[2][2])+", Bank2S4: "+str(r.value[2][3])]))
-                                    elif command.command == b"0103" and r.value != None:
-                                        wx.PostEvent(self._notify_window, ResultEvent([counter, 2, str(r.value[0])]))
-                                    else:
-                                        wx.PostEvent(self._notify_window, ResultEvent([counter, 2, self._notify_window.format_measurement_value(r.value)]))
-                                    counter = counter + 1
-                    #r = self.connection.query(obd.commands.ELM_VOLTAGE)
-                    #sensor_list.append([obd.commands.ELM_VOLTAGE, obd.commands.ELM_VOLTAGE.desc, str(r.value)])
-                    #wx.PostEvent(self._notify_window, InsertSensorRowEvent(counter))
-                    #wx.PostEvent(self._notify_window, ResultEvent([counter, 0, str(obd.commands.ELM_VOLTAGE.command)]))
-                    #wx.PostEvent(self._notify_window, ResultEvent([counter, 1, str(obd.commands.ELM_VOLTAGE.desc)]))
-                    #wx.PostEvent(self._notify_window, ResultEvent([counter, 2, str(r.value)]))
-                else:
-
-                    #for i in range(0, app.sensors.GetItemCount()):
-                    #    app.sensors.DeleteItem(0)
-                    counter = 0
-                    for sens in sensor_list:
-                        r = self.connection.query(sens[0])
-                        if r.value == None and sens[0].command != b"0103":
-                            #reconnect()
-                            continue
-                        if sens[0].command == b"0101" or sens[0].command == b"0141":
-                            wx.PostEvent(self._notify_window, ResultEvent([counter, 2, "MIL ON: " + str(
-                                r.value.MIL) + ", DTC Count: " + str(r.value.DTC_count) + ", Ignition type: " + str(
-                                r.value.ignition_type) + ", Misfire monitoring complete: " + str(
-                                r.value.MISFIRE_MONITORING.complete)]))
-                        elif sens[0].command == b"0113":
-                            wx.PostEvent(self._notify_window, ResultEvent([counter, 2, "Bank1S1: "+str(r.value[1][0])+", Bank1S2: "+str(r.value[1][1])+", Bank1S3: "+str(r.value[1][2])+", Bank1S4: "+str(r.value[1][3])+" Bank2S1: "+str(r.value[2][0])+", Bank2S2: "+str(r.value[2][1])+", Bank2S3: "+str(r.value[2][2])+", Bank2S4: "+str(r.value[2][3])]))
-                        elif sens[0].command == b"0103" and r.value != None:
-                            wx.PostEvent(self._notify_window, ResultEvent([counter, 2, str(r.value[0])]))
+                    try:
+                        if self._notify_window.tests_active_section == "readiness":
+                            response = self.connection.query(obd.commands[1][1])
+                            readiness, counts = self._readiness_results(response.value)
+                            for result in readiness:
+                                wx.PostEvent(self._notify_window, TestEvent(result))
+                            wx.PostEvent(self._notify_window, TestEvent({"kind": "complete", **counts}))
                         else:
-                            wx.PostEvent(self._notify_window, ResultEvent([counter, 2, self._notify_window.format_measurement_value(r.value)]))
+                            commands = [
+                                (cylinder, getattr(obd.commands, f"MONITOR_MISFIRE_CYLINDER_{cylinder}"))
+                                for cylinder in range(1, 13)
+                                if self.connection.supports(getattr(
+                                    obd.commands, f"MONITOR_MISFIRE_CYLINDER_{cylinder}"
+                                ))
+                            ]
+                            wx.PostEvent(self._notify_window, TestEvent({
+                                "kind": "misfire_reset",
+                                "cylinders": [cylinder for cylinder, _command in commands],
+                            }))
+                            for index, (_cylinder, command) in enumerate(commands):
+                                if self._notify_window.tests_poll_cancelled:
+                                    break
+                                response = self.connection.query(command)
+                                wx.PostEvent(self._notify_window, TestEvent({
+                                    "kind": "misfire", "index": index,
+                                    "result": self._misfire_result(response.value),
+                                }))
+                            wx.PostEvent(self._notify_window, TestEvent({
+                                "kind": "misfire_complete", "count": len(commands),
+                            }))
+                    except Exception:
+                        wx.PostEvent(self._notify_window, TestEvent({"kind": "error"}))
+                        traceback.print_exc()
 
-                        counter = counter + 1
+            elif page == "sensors":
+                if sensor_commands is None:
+                    excluded = {b"0100", b"0120", b"0140"}
+                    candidates = [
+                        command for command in obd.commands[1]
+                        if command and command.command not in excluded
+                    ]
+                    supported = [command for command in candidates if self.connection.supports(command)]
+                    sensor_commands = supported or candidates
+                    sensor_index = 0
+                    catalog_updates = []
+                    for index, command in enumerate(sensor_commands):
+                        catalog_updates.extend([
+                            [index, 0, command.command],
+                            [index, 1, command.desc],
+                            [index, 2, "---"],
+                        ])
+                    if catalog_updates:
+                        wx.PostEvent(self._notify_window, ResultEvent(catalog_updates))
 
-            elif curstate == 3:  # show DTC tab
+                updates = []
+                batch_size = 4 if self.demo_mode else 1
+                for _ in range(min(batch_size, len(sensor_commands))):
+                    index = sensor_index % len(sensor_commands)
+                    command = sensor_commands[index]
+                    response = self.connection.query(command)
+                    if response.value is not None:
+                        updates.append([
+                            index, 2, self._live_value_text(
+                                command, response.value,
+                                self._notify_window.format_measurement_value,
+                            ),
+                        ])
+                    sensor_index = (sensor_index + 1) % len(sensor_commands)
+                if updates:
+                    wx.PostEvent(self._notify_window, ResultEvent(updates))
 
-                r = self.connection.query(obd.commands.RPM)
-                if r.value == None:
-                    reconnect()
-                    continue
-
-                if self._notify_window.ThreadControl == 1:  # clear DTC
-                    r = self.connection.query(obd.commands["CLEAR_DTC"])
-
-                    if self._notify_window.ThreadControl == 666:  # before reset ThreadControl we must check if main thread did not want us to finish
-                        break
-
+            elif page == "dtc":
+                if self._notify_window.ThreadControl == 1:
+                    self.connection.query(obd.commands["CLEAR_DTC"])
+                    if self._notify_window.ThreadControl != 666:
+                        self._notify_window.ThreadControl = 0
+                    page_changed = True
+                if self._notify_window.ThreadControl == 2:
                     self._notify_window.ThreadControl = 0
-                    prevstate = -1  # to reread DTC
-                if self._notify_window.ThreadControl == 2:  # reread DTC
-
-                    prevstate = -1
-
-                    if self._notify_window.ThreadControl == 666:
-                        break
-
-                    self._notify_window.ThreadControl = 0
-
-                    pass
-                if prevstate != 3:
-
-                    wx.PostEvent(self._notify_window, DTCEvent(0))  # clear list
-                    dtc_codes, counts = self._collect_dtc_results(
-                        self.connection
-                    )
-                    for dtccode in dtc_codes:
-                        wx.PostEvent(self._notify_window, DTCEvent(dtccode))
+                    page_changed = True
+                if page_changed:
+                    wx.PostEvent(self._notify_window, DTCEvent(0))
+                    codes, counts = self._collect_dtc_results(self.connection)
+                    for code in codes:
+                        wx.PostEvent(self._notify_window, DTCEvent(code))
                     wx.PostEvent(self._notify_window, DTCEvent({"counts": counts}))
 
-            elif curstate == 4:  # show freezeframe tab
-                r = self.connection.query(obd.commands.RPM)
-                if r.value == None:
-                    reconnect()
-                    continue
-                if first_time_freezeframe:
-                    freezeframe_list = []
-                    counter = 0
-                    first_time_freezeframe = False
-                    for command in obd.commands[2]:
-                        if command:
-                            if command.command not in (b"0200" , b"0201", b"0220", b"0240", b"0203", b"0202", b"021C", b"0213", b"0241", b"0251"):
-                                r = self.connection.query(command)
-                                if r.value == None:
-                                    continue
-                                else:
-                                    freezeframe_list.append([command.command, command.desc, self._notify_window.format_measurement_value(r.value)])
-                                    wx.PostEvent(self._notify_window, InsertFreezeframeRowEvent(counter))
-                                    wx.PostEvent(self._notify_window, FreezeframeResultEvent([counter, 0, command.command]))
-                                    wx.PostEvent(self._notify_window, FreezeframeResultEvent([counter, 1, str(command.desc)]))
-                                    wx.PostEvent(self._notify_window, FreezeframeResultEvent([counter, 2, self._notify_window.format_measurement_value(r.value)]))
-                                    counter = counter + 1
-                else:
-                    counter = 0
-                    for sens in freezeframe_list:
-                        for command in obd.commands[2]:
-                            if command.command == sens[0]:
-                                r = self.connection.query(command)
-                                if r.value == None:
-                                    #reconnect()
-                                    continue
-                                freezeframe_list[counter] = [command.command, command.desc, self._notify_window.format_measurement_value(r.value)]
-                                counter = counter + 1
-                    counter = 0
-                    for sens in freezeframe_list:
-                        wx.PostEvent(self._notify_window, FreezeframeResultEvent([counter, 0, sens[0]]))
-                        wx.PostEvent(self._notify_window, FreezeframeResultEvent([counter, 1, str(sens[1])]))
-                        wx.PostEvent(self._notify_window, FreezeframeResultEvent([counter, 2, str(sens[2])]))
-                        counter = counter + 1
-                        #if sens[2] == "None" and sens[0]!='0203':
-                        #    raise AttributeError
-
-            elif curstate == 5:  # show Graph tab
-                if first_time_graph:
-                    self.graph_counter = 0
-                    self.graph_series = {}
-                    self.graph_emit_counter = 0
-                    self.graph_last_draw_at = 0.0
-                    self.graph_last_value_at = 0.0
-                    self.graph_last_health_at = 0.0
-                    self.graph_stream_active_last = False
-                    first_time_graph = False
-
-                if self._notify_window.graph_interaction_paused:
-                    time_end = datetime.datetime.now()
-                    first_time = False
-                    continue
-
-                if not self._notify_window.graph_streaming_enabled:
-                    if self.graph_stream_active_last:
-                        self.graph_counter = 0
-                        self.graph_emit_counter = 0
-                        self.graph_series = {}
-                        self.first_time_graph_plot = True
-                        self._post_graph_event([[], 0, self.first_time_graph_plot])
-                    self.graph_stream_active_last = False
-                    time_end = datetime.datetime.now()
-                    first_time = False
-                    continue
-
-                self.graph_stream_active_last = True
-
-                selected_commands = list(self._notify_window.selected_graph_commands)
-                isolated_key = getattr(self._notify_window, "isolated_graph_command_key", None)
-                selected_commands = self._graph_commands_to_poll(selected_commands, isolated_key)
-                selected_keys = {command.command for command in selected_commands}
-                graph_now = time.monotonic()
-                emit_values = graph_now - self.graph_last_value_at >= 0.2
-
-                if graph_now - self.graph_last_health_at >= 1.0:
-                    health_response = self.connection.query(obd.commands.RPM)
-                    self.graph_last_health_at = graph_now
-                    if health_response.value is None:
-                        reconnect()
-                        continue
-
-                for stale_key in list(self.graph_series.keys()):
-                    if stale_key not in selected_keys:
-                        del self.graph_series[stale_key]
-
-                plot_series = []
-                for row, command in enumerate(selected_commands):
-                    command_key = command.command
-                    if command_key not in self.graph_series:
-                        self.graph_series[command_key] = {
-                            "x": deque(maxlen=450),
-                            "y": deque(maxlen=450),
-                            "unit": "value",
-                            "desc": command.desc,
-                        }
-
-                    r = self.connection.query(command)
-                    if r.value is None:
-                        if emit_values:
-                            wx.PostEvent(self._notify_window, GraphValueEvent([command_key, 2, "No data"]))
-                        continue
-
-                    series = self.graph_series[command_key]
-                    series["x"].append(self.graph_counter)
-                    converted_magnitude, converted_unit, value_text = self._notify_window.get_measurement_components(r.value)
-                    try:
-                        series["y"].append(float(converted_magnitude))
-                    except (AttributeError, TypeError, ValueError):
-                        series["y"].append(0.0)
-
-                    unit = converted_unit if converted_unit else "value"
-
-                    series["unit"] = unit
-                    series["desc"] = command.desc
-
-                    if emit_values:
-                        wx.PostEvent(self._notify_window, GraphValueEvent([command_key, 2, value_text]))
-
-                    plot_series.append((series["x"], series["y"], series["unit"], series["desc"], command_key))
-
-                if emit_values:
-                    self.graph_last_value_at = graph_now
-
-                if graph_now - self.graph_last_draw_at >= 0.25:
-                    plot_snapshot = [
-                        (tuple(series[0]), tuple(series[1]), series[2], series[3], series[4])
-                        for series in plot_series
+            elif page == "freeze_frame":
+                if freeze_commands is None:
+                    excluded = {
+                        b"0200", b"0201", b"0220", b"0240", b"0203",
+                        b"0202", b"021C", b"0213", b"0241", b"0251",
+                    }
+                    freeze_commands = [
+                        command for command in obd.commands[2]
+                        if command and command.command not in excluded
                     ]
-                    if self._post_graph_event([
-                        plot_snapshot, self.graph_counter, self.first_time_graph_plot
-                    ]):
-                        self.graph_last_draw_at = graph_now
-                        self.first_time_graph_plot = False
-                self.graph_emit_counter = self.graph_emit_counter + 1
-                self.graph_counter = self.graph_counter + 1
+                    freeze_index = 0
+                    for index, command in enumerate(freeze_commands):
+                        wx.PostEvent(self._notify_window, InsertFreezeframeRowEvent(index))
+                        wx.PostEvent(self._notify_window, FreezeframeResultEvent([index, 0, command.command]))
+                        wx.PostEvent(self._notify_window, FreezeframeResultEvent([index, 1, command.desc]))
+                if freeze_commands:
+                    index = freeze_index % len(freeze_commands)
+                    response = self.connection.query(freeze_commands[index])
+                    if response.value is not None:
+                        wx.PostEvent(self._notify_window, FreezeframeResultEvent([
+                            index, 2,
+                            self._notify_window.format_measurement_value(response.value),
+                        ]))
+                    freeze_index = (freeze_index + 1) % len(freeze_commands)
 
-            elif hasattr(self._notify_window, "graphs_panel") and curstate == 6:  # show 4Graphs tab
-                if first_time_graphs:
-                    print("First time graph")
-                    #wx.PostEvent(self._notify_window, DestroyComboBoxEvent([]))
-                    self.graph_x_vals1 = np.array([])
-                    self.graph_y_vals1 = np.array([])
-                    self.graph_x_vals2 = np.array([])
-                    self.graph_y_vals2 = np.array([])
-                    self.graph_x_vals3 = np.array([])
-                    self.graph_y_vals3 = np.array([])
-                    self.graph_x_vals4 = np.array([])
-                    self.graph_y_vals4 = np.array([])
-                    self.graph_counter1 = 0
-                    self.graph_counter2 = 0
-                    self.graph_counter3 = 0
-                    self.graph_counter4 = 0
-                    self.current_command1 = None
-                    self.current_command2 = None
-                    self.current_command3 = None
-                    self.current_command4 = None
-
-                    graph_commands = []
-                    #wx.PostEvent(self._notify_window, GraphEvent((self.current_command, [], [])))
-                    prev_command1 = None
-                    prev_command2 = None
-                    prev_command3 = None
-                    prev_command4 = None
-                    first_time_graphs = False
-                    for command in obd.commands[1]:
-                        if command:
-                            if command.command not in (b"0100" , b"0101", b"0120", b"0140", b"0103", b"0102", b"011C", b"0113", b"0141", b"0151"):
-                                r = self.connection.query(command)
-                                if r.value == None:
-                                    continue
-                                else:
-                                    graph_commands.append(command)
-                    graph_commands.append(obd.commands.ELM_VOLTAGE)
-                    sensor_descriptions = []
-                    #sensor_descriptions.append("None")
-                    for command in graph_commands:
-                        sensor_descriptions.append(command.desc)
-                    self._notify_window.build_combobox_graphs_event_finished = False
-                    wx.PostEvent(self._notify_window, BuildComboBoxGraphsEvent(sensor_descriptions))
-                    while not self._notify_window.build_combobox_graphs_event_finished:
-                        time.sleep(0.01)
-                    self._notify_window.combobox_graphs_set_sel_finished=False
-                    wx.PostEvent(self._notify_window, SetSelectionComboBoxGraphsEvent([]))
-                    while not self._notify_window.combobox_graphs_set_sel_finished:
-                        time.sleep(0.01)
+            elif page == "graph":
+                if self._notify_window.graph_interaction_paused:
+                    pass
+                elif not self._notify_window.graph_streaming_enabled:
+                    if graph_was_streaming:
+                        graph_series.clear()
+                        graph_counter = 0
+                        self._post_graph_event([[], 0, True])
+                    graph_was_streaming = False
                 else:
-
-                    self._notify_window.combobox_graphs_get_sel_finished = False
-                    wx.PostEvent(self._notify_window, GetSelectionComboBoxGraphsEvent([]))
-                    while not self._notify_window.combobox_graphs_get_sel_finished:
-                        time.sleep(0.01)
-                    curr_selection1 = self._notify_window.combobox1_selection
-                    curr_selection2 = self._notify_window.combobox2_selection
-                    curr_selection3 = self._notify_window.combobox3_selection
-                    curr_selection4 = self._notify_window.combobox4_selection
-                    if sensor_descriptions[curr_selection1] == "None":
-                        curr_selection1 = -1
-                    if curr_selection1 != -1:
-                        prev_command1 = self.current_command1
-                        self.current_command1 = graph_commands[curr_selection1]
-                    else:
-                        self.current_command1 = None
-
-                    if sensor_descriptions[curr_selection2] == "None":
-                        curr_selection2 = -1
-                    if curr_selection2 != -1:
-                        prev_command2 = self.current_command2
-                        self.current_command2 = graph_commands[curr_selection2]
-                    else:
-                        self.current_command2 = None
-
-                    if sensor_descriptions[curr_selection3] == "None":
-                        curr_selection3 = -1
-                    if curr_selection3 != -1:
-                        prev_command3 = self.current_command3
-                        self.current_command3 = graph_commands[curr_selection3]
-                    else:
-                        self.current_command3 = None
-
-                    if sensor_descriptions[curr_selection4] == "None":
-                        curr_selection4 = -1
-                    if curr_selection4 != -1:
-                        prev_command4 = self.current_command4
-                        self.current_command4 = graph_commands[curr_selection4]
-                    else:
-                        self.current_command4 = None
-
-                    if self.current_command1 != None:
-                        if (prev_command1 == None) or (prev_command1 != self.current_command1):
-                            self.graph_x_vals1 = np.array([])
-                            self.graph_y_vals1 = np.array([])
-                            #self.graph_x_vals1 = []
-                            #self.graph_y_vals1 = []
-                            self.graph_counter1 = 0
-                            wx.PostEvent(self._notify_window, GraphsValueEvent([0, 0, self.current_command1.command]))
-                            wx.PostEvent(self._notify_window, GraphsValueEvent([0, 1, self.current_command1.desc]))
-                        else:
-                            r = self.connection.query(self.current_command1)
-                            if r.value == None:
-                                reconnect()
-                                continue
-                            #if r.value == None:
-                            #    print("r.value is None!")
-                            #    raise AttributeError
-                            self.graph_x_vals1 = np.append(self.graph_x_vals1, self.graph_counter1)
-                            try:
-                                self.graph_y_vals1 = np.append(self.graph_y_vals1, float(r.value.magnitude))
-                            except AttributeError:
-                                self.graph_y_vals1 = np.append(self.graph_y_vals1, float(0))
-                            #self.graph_x_vals1.append(self.graph_counter1)
-                            #self.graph_y_vals1.append(float(r.value.magnitude))
-                            if len(self.graph_x_vals1) > 200:
-                                self.graph_x_vals1 = np.delete(self.graph_x_vals1, (0))
-                                self.graph_y_vals1 = np.delete(self.graph_y_vals1, (0))
-                                #self.graph_x_vals1.pop(0)
-                                #self.graph_y_vals1.pop(0)
-
-                            self.graph_counter1 = self.graph_counter1 + 1
-                            prev_command1 = self.current_command1
-                            self.graph_dirty1 = True
-                            #wx.PostEvent(self._notify_window, GraphEvent(self.current_command1))
-                            if r.value == None:
-                                wx.PostEvent(self._notify_window, GraphsValueEvent([0, 2, str(0)]))
-                                self.unit1 = "unit"
-                            else:
-                                wx.PostEvent(self._notify_window, GraphsValueEvent([0, 2, str(r.value)]))
-                                try:
-                                    self.unit1 = str(r.value).split(' ')[1]
-                                except IndexError:
-                                    self.unit1 = "unit"
-                    else:
-                        self.graph_x_vals1 = np.array([])
-                        self.graph_y_vals1 = np.array([])
-                        self.graph_counter1 = 0
-
-                    if self.current_command2 != None:
-                        if (prev_command2 == None) or (prev_command2 != self.current_command2):
-                            self.graph_x_vals2 = np.array([])
-                            self.graph_y_vals2 = np.array([])
-                            #self.graph_x_vals2 = []
-                            #self.graph_y_vals2 = []
-                            self.graph_counter2 = 0
-                            wx.PostEvent(self._notify_window, GraphsValueEvent([1, 0, self.current_command2.command]))
-                            wx.PostEvent(self._notify_window, GraphsValueEvent([1, 1, self.current_command2.desc]))
-                        else:
-                            r = self.connection.query(self.current_command2)
-                            if r.value == None:
-                                reconnect()
-                                continue
-                            #if r.value == None:
-                            #    print("r.value is None!")
-                            #    raise AttributeError
-                            self.graph_x_vals2 = np.append(self.graph_x_vals2, self.graph_counter2)
-                            try:
-                                self.graph_y_vals2 = np.append(self.graph_y_vals2, float(r.value.magnitude))
-                            except AttributeError:
-                                self.graph_y_vals2 = np.append(self.graph_y_vals2, float(0))
-                            #self.graph_x_vals2.append(self.graph_counter2)
-                            #self.graph_y_vals2.append(float(r.value.magnitude))
-                            if len(self.graph_x_vals2) > 200:
-                                self.graph_x_vals2 = np.delete(self.graph_x_vals2, (0))
-                                self.graph_y_vals2 = np.delete(self.graph_y_vals2, (0))
-                                #self.graph_x_vals2.pop(0)
-                                #self.graph_y_vals2.pop(0)
-
-                            self.graph_counter2 = self.graph_counter2 + 1
-                            prev_command2 = self.current_command2
-                            self.graph_dirty2 = True
-                            #wx.PostEvent(self._notify_window, GraphEvent(self.current_command2))
-                            if r.value == None:
-                                wx.PostEvent(self._notify_window, GraphsValueEvent([1, 2, str(0)]))
-                                self.unit2 = "unit"
-                            else:
-                                wx.PostEvent(self._notify_window, GraphsValueEvent([1, 2, str(r.value)]))
-                                try:
-                                    self.unit2 = str(r.value).split(' ')[1]
-                                except IndexError:
-                                    self.unit2 = "unit"
-                    else:
-                        self.graph_x_vals2 = np.array([])
-                        self.graph_y_vals2 = np.array([])
-                        self.graph_counter2 = 0
-
-                    if self.current_command3 != None:
-                        if (prev_command3 == None) or (prev_command3 != self.current_command3):
-                            self.graph_x_vals3 = np.array([])
-                            self.graph_y_vals3 = np.array([])
-                            #self.graph_x_vals3 = []
-                            #self.graph_y_vals3 = []
-                            self.graph_counter3 = 0
-                            wx.PostEvent(self._notify_window, GraphsValueEvent([2, 0, self.current_command3.command]))
-                            wx.PostEvent(self._notify_window, GraphsValueEvent([2, 1, self.current_command3.desc]))
-                        else:
-                            r = self.connection.query(self.current_command3)
-                            if r.value == None:
-                                reconnect()
-                                continue
-                            #if r.value == None:
-                            #    print("r.value is None!")
-                            #    raise AttributeError
-                            self.graph_x_vals3 = np.append(self.graph_x_vals3, self.graph_counter3)
-                            try:
-                                self.graph_y_vals3 = np.append(self.graph_y_vals3, float(r.value.magnitude))
-                            except AttributeError:
-                                self.graph_y_vals3 = np.append(self.graph_y_vals3, float(0))
-                            #self.graph_x_vals3.append(self.graph_counter3)
-                            #self.graph_y_vals3.append(float(r.value.magnitude))
-                            if len(self.graph_x_vals3) > 200:
-                                self.graph_x_vals3 = np.delete(self.graph_x_vals3, (0))
-                                self.graph_y_vals3 = np.delete(self.graph_y_vals3, (0))
-                                #self.graph_x_vals3.pop(0)
-                                #self.graph_y_vals3.pop(0)
-
-                            self.graph_counter3 = self.graph_counter3 + 1
-                            prev_command3 = self.current_command3
-                            self.graph_dirty3 = True
-                            #wx.PostEvent(self._notify_window, GraphEvent(self.current_command3))
-                            if r.value == None:
-                                wx.PostEvent(self._notify_window, GraphsValueEvent([2, 2, str(0)]))
-                                self.unit3 = "unit"
-                            else:
-                                wx.PostEvent(self._notify_window, GraphsValueEvent([2, 2, str(r.value)]))
-                                try:
-                                    self.unit3 = str(r.value).split(' ')[1]
-                                except IndexError:
-                                    self.unit3 = "unit"
-                    else:
-                        self.graph_x_vals3 = np.array([])
-                        self.graph_y_vals3 = np.array([])
-                        self.graph_counter3 = 0
-
-                    if self.current_command4 != None:
-                        if (prev_command4 == None) or (prev_command4 != self.current_command4):
-                            self.graph_x_vals4 = np.array([])
-                            self.graph_y_vals4 = np.array([])
-                            #self.graph_x_vals4 = []
-                            #self.graph_y_vals4 = []
-                            self.graph_counter4 = 0
-                            wx.PostEvent(self._notify_window, GraphsValueEvent([3, 0, self.current_command4.command]))
-                            wx.PostEvent(self._notify_window, GraphsValueEvent([3, 1, self.current_command4.desc]))
-                        else:
-                            r = self.connection.query(self.current_command4)
-                            if r.value == None:
-                                reconnect()
-                                continue
-                            #if r.value == None:
-                            #    print("r.value is None!")
-                            #    raise AttributeError
-                            self.graph_x_vals4 = np.append(self.graph_x_vals4, self.graph_counter4)
-
-                            try:
-                                self.graph_y_vals4 = np.append(self.graph_y_vals4, float(r.value.magnitude))
-                            except AttributeError:
-                                self.graph_y_vals4 = np.append(self.graph_y_vals4, float(0))
-
-                            #self.graph_x_vals4.append(self.graph_counter4)
-                            #self.graph_y_vals4.append(float(r.value.magnitude))
-                            if len(self.graph_x_vals4) > 200:
-                                self.graph_x_vals4 = np.delete(self.graph_x_vals4, (0))
-                                self.graph_y_vals4 = np.delete(self.graph_y_vals4, (0))
-                                #self.graph_x_vals4.pop(0)
-                                #self.graph_y_vals4.pop(0)
-
-                            self.graph_counter4 = self.graph_counter4 + 1
-                            prev_command4 = self.current_command4
-                            self.graph_dirty4 = True
-                            #wx.PostEvent(self._notify_window, GraphEvent(self.current_command4))
-                            if r.value == None:
-                                wx.PostEvent(self._notify_window, GraphsValueEvent([3, 2, str(0)]))
-                                self.unit4 = "unit"
-                            else:
-                                wx.PostEvent(self._notify_window, GraphsValueEvent([3, 2, str(r.value)]))
-                                try:
-                                    self.unit4 = str(r.value).split(' ')[1]
-                                except IndexError:
-                                    self.unit4 = "unit"
-                    else:
-                        self.graph_x_vals4 = np.array([])
-                        self.graph_y_vals4 = np.array([])
-                        self.graph_counter4 = 0
-
-                    if self.first_time_graphs_plot:
-                        self.unit1 = 'unit'
-                        self.unit2 = 'unit'
-                        self.unit3 = 'unit'
-                        self.unit4 = 'unit'
-                    if self.current_command1 == None:
-                        desc1 = 'None'
-                    else:
-                        desc1 = self.current_command1.desc
-                    if self.current_command2 == None:
-                        desc2 = 'None'
-                    else:
-                        desc2 = self.current_command2.desc
-                    if self.current_command3 == None:
-                        desc3 = 'None'
-                    else:
-                        desc3 = self.current_command3.desc
-                    if self.current_command4 == None:
-                        desc4 = 'None'
-                    else:
-                        desc4 = self.current_command4.desc
-                    wx.PostEvent(self._notify_window, GraphsEvent([(self.graph_x_vals1,self.graph_y_vals1, self.unit1, desc1, self.graph_counter1),
-                                                                  (self.graph_x_vals2,self.graph_y_vals2, self.unit2, desc2, self.graph_counter2),
-                                                                  (self.graph_x_vals3,self.graph_y_vals3, self.unit3, desc3, self.graph_counter3),
-                                                                  (self.graph_x_vals4,self.graph_y_vals4, self.unit4, desc4, self.graph_counter4),
-                                                                  (self.first_time_graphs_plot)
-                                                                  ]))
-                    self.first_time_graphs_plot = False
-                    #time.sleep(0.2)
-            elif hasattr(self._notify_window, "graphs8_panel") and curstate == 7:  # show 8Graphs tab
-                if first_time_8graphs:
-                    print("First time 8graphs")
-                    # wx.PostEvent(self._notify_window, DestroyComboBoxEvent([]))
-                    self.graph_x_vals8_1 = np.array([])
-                    self.graph_y_vals8_1 = np.array([])
-                    self.graph_x_vals8_2 = np.array([])
-                    self.graph_y_vals8_2 = np.array([])
-                    self.graph_x_vals8_3 = np.array([])
-                    self.graph_y_vals8_3 = np.array([])
-                    self.graph_x_vals8_4 = np.array([])
-                    self.graph_y_vals8_4 = np.array([])
-                    self.graph_x_vals8_5 = np.array([])
-                    self.graph_y_vals8_5 = np.array([])
-                    self.graph_x_vals8_6 = np.array([])
-                    self.graph_y_vals8_6 = np.array([])
-                    self.graph_x_vals8_7 = np.array([])
-                    self.graph_y_vals8_7 = np.array([])
-                    self.graph_x_vals8_8 = np.array([])
-                    self.graph_y_vals8_8 = np.array([])
-                    self.graph_counter8_1 = 0
-                    self.graph_counter8_2 = 0
-                    self.graph_counter8_3 = 0
-                    self.graph_counter8_4 = 0
-                    self.graph_counter8_5 = 0
-                    self.graph_counter8_6 = 0
-                    self.graph_counter8_7 = 0
-                    self.graph_counter8_8 = 0
-                    self.current_command8_1 = None
-                    self.current_command8_2 = None
-                    self.current_command8_3 = None
-                    self.current_command8_4 = None
-                    self.current_command8_5 = None
-                    self.current_command8_6 = None
-                    self.current_command8_7 = None
-                    self.current_command8_8 = None
-
-                    graph_commands = []
-                    # wx.PostEvent(self._notify_window, GraphEvent((self.current_command, [], [])))
-                    prev_command8_1 = None
-                    prev_command8_2 = None
-                    prev_command8_3 = None
-                    prev_command8_4 = None
-                    prev_command8_5 = None
-                    prev_command8_6 = None
-                    prev_command8_7 = None
-                    prev_command8_8 = None
-                    first_time_8graphs = False
-                    for command in obd.commands[1]:
-                        if command:
-                            if command.command not in (
-                            b"0100", b"0101", b"0120", b"0140", b"0103", b"0102", b"011C", b"0113", b"0141",
-                            b"0151"):
-                                r = self.connection.query(command)
-                                if r.value == None:
-                                    continue
-                                else:
-                                    graph_commands.append(command)
-                    graph_commands.append(obd.commands.ELM_VOLTAGE)
-                    sensor_descriptions = []
-                    # sensor_descriptions.append("None")
-                    for command in graph_commands:
-                        sensor_descriptions.append(command.desc)
-                    self._notify_window.build_combobox_graphs8_event_finished = False
-                    wx.PostEvent(self._notify_window, BuildComboBoxGraphs8Event(sensor_descriptions))
-                    while not self._notify_window.build_combobox_graphs8_event_finished:
-                        time.sleep(0.01)
-                    self._notify_window.combobox_graphs8_set_sel_finished = False
-                    wx.PostEvent(self._notify_window, SetSelectionComboBoxGraphs8Event([]))
-                    while not self._notify_window.combobox_graphs8_set_sel_finished:
-                        time.sleep(0.01)
-                else: # second or more times
-
-                    self._notify_window.combobox_graphs8_get_sel_finished = False
-                    wx.PostEvent(self._notify_window, GetSelectionComboBoxGraphs8Event([]))
-                    while not self._notify_window.combobox_graphs8_get_sel_finished:
-                        time.sleep(0.01)
-                    curr_selection8_1 = self._notify_window.combobox8_1_selection
-                    curr_selection8_2 = self._notify_window.combobox8_2_selection
-                    curr_selection8_3 = self._notify_window.combobox8_3_selection
-                    curr_selection8_4 = self._notify_window.combobox8_4_selection
-                    curr_selection8_5 = self._notify_window.combobox8_5_selection
-                    curr_selection8_6 = self._notify_window.combobox8_6_selection
-                    curr_selection8_7 = self._notify_window.combobox8_7_selection
-                    curr_selection8_8 = self._notify_window.combobox8_8_selection
-                    if sensor_descriptions[curr_selection8_1] == "None":
-                        curr_selection8_1 = -1
-                    if curr_selection8_1 != -1:
-                        prev_command8_1 = self.current_command8_1
-                        self.current_command8_1 = graph_commands[curr_selection8_1]
-                    else:
-                        self.current_command8_1 = None
-
-                    if sensor_descriptions[curr_selection8_2] == "None":
-                        curr_selection8_2 = -1
-                    if curr_selection8_2 != -1:
-                        prev_command8_2 = self.current_command8_2
-                        self.current_command8_2 = graph_commands[curr_selection8_2]
-                    else:
-                        self.current_command8_2 = None
-
-                    if sensor_descriptions[curr_selection8_3] == "None":
-                        curr_selection8_3 = -1
-                    if curr_selection8_3 != -1:
-                        prev_command8_3 = self.current_command8_3
-                        self.current_command8_3 = graph_commands[curr_selection8_3]
-                    else:
-                        self.current_command8_3 = None
-
-                    if sensor_descriptions[curr_selection8_4] == "None":
-                        curr_selection8_4 = -1
-                    if curr_selection8_4 != -1:
-                        prev_command8_4 = self.current_command8_4
-                        self.current_command8_4 = graph_commands[curr_selection8_4]
-                    else:
-                        self.current_command8_4 = None
-
-                    if sensor_descriptions[curr_selection8_5] == "None":
-                        curr_selection8_5 = -1
-                    if curr_selection8_5 != -1:
-                        prev_command8_5 = self.current_command8_5
-                        self.current_command8_5 = graph_commands[curr_selection8_5]
-                    else:
-                        self.current_command8_5 = None
-
-                    if sensor_descriptions[curr_selection8_6] == "None":
-                        curr_selection8_6 = -1
-                    if curr_selection8_6 != -1:
-                        prev_command8_6 = self.current_command8_6
-                        self.current_command8_6 = graph_commands[curr_selection8_6]
-                    else:
-                        self.current_command8_6 = None
-
-                    if sensor_descriptions[curr_selection8_7] == "None":
-                        curr_selection8_7 = -1
-                    if curr_selection8_7 != -1:
-                        prev_command8_7 = self.current_command8_7
-                        self.current_command8_7 = graph_commands[curr_selection8_7]
-                    else:
-                        self.current_command8_7 = None
-
-                    if sensor_descriptions[curr_selection8_8] == "None":
-                        curr_selection8_8 = -1
-                    if curr_selection8_8 != -1:
-                        prev_command8_8 = self.current_command8_8
-                        self.current_command8_8 = graph_commands[curr_selection8_8]
-                    else:
-                        self.current_command8_8 = None
-
-                    if self.current_command8_1 != None:
-                        if (prev_command8_1 == None) or (prev_command8_1 != self.current_command8_1):
-                            self.graph_x_vals8_1 = np.array([])
-                            self.graph_y_vals8_1 = np.array([])
-                            # self.graph_x_vals1 = []
-                            # self.graph_y_vals1 = []
-                            self.graph_counter8_1 = 0
-                            wx.PostEvent(self._notify_window,
-                                         Graphs8ValueEvent([0, 0, self.current_command8_1.command]))
-                            wx.PostEvent(self._notify_window, Graphs8ValueEvent([0, 1, self.current_command8_1.desc]))
-                        else:
-                            r = self.connection.query(self.current_command8_1)
-                            if r.value == None:
-                                reconnect()
-                                continue
-                            # if r.value == None:
-                            #    print("r.value is None!")
-                            #    raise AttributeError
-                            self.graph_x_vals8_1 = np.append(self.graph_x_vals8_1, self.graph_counter8_1)
-                            try:
-                                self.graph_y_vals8_1 = np.append(self.graph_y_vals8_1, float(r.value.magnitude))
-                            except AttributeError:
-                                self.graph_y_vals8_1 = np.append(self.graph_y_vals8_1, float(0))
-                            # self.graph_x_vals1.append(self.graph_counter1)
-                            # self.graph_y_vals1.append(float(r.value.magnitude))
-                            if len(self.graph_x_vals8_1) > 200:
-                                self.graph_x_vals8_1 = np.delete(self.graph_x_vals8_1, (0))
-                                self.graph_y_vals8_1 = np.delete(self.graph_y_vals8_1, (0))
-                                # self.graph_x_vals1.pop(0)
-                                # self.graph_y_vals1.pop(0)
-
-                            self.graph_counter8_1 = self.graph_counter8_1 + 1
-                            prev_command8_1 = self.current_command8_1
-                            self.graph_dirty8_1 = True
-                            # wx.PostEvent(self._notify_window, GraphEvent(self.current_command1))
-                            if r.value == None:
-                                wx.PostEvent(self._notify_window, Graphs8ValueEvent([0, 2, str(0)]))
-                                self.unit8_1 = "unit"
-                            else:
-                                wx.PostEvent(self._notify_window, Graphs8ValueEvent([0, 2, str(r.value)]))
-                                try:
-                                    self.unit8_1 = str(r.value).split(' ')[1]
-                                except IndexError:
-                                    self.unit8_1 = "unit"
-                    else:
-                        self.graph_x_vals8_1 = np.array([])
-                        self.graph_y_vals8_1 = np.array([])
-                        self.graph_counter8_1 = 0
-
-                    if self.current_command8_2 != None:
-                        if (prev_command8_2 == None) or (prev_command8_2 != self.current_command8_2):
-                            self.graph_x_vals8_2 = np.array([])
-                            self.graph_y_vals8_2 = np.array([])
-                            # self.graph_x_vals2 = []
-                            # self.graph_y_vals2 = []
-                            self.graph_counter8_2 = 0
-                            wx.PostEvent(self._notify_window,
-                                         Graphs8ValueEvent([1, 0, self.current_command8_2.command]))
-                            wx.PostEvent(self._notify_window, Graphs8ValueEvent([1, 1, self.current_command8_2.desc]))
-                        else:
-                            r = self.connection.query(self.current_command8_2)
-                            if r.value == None:
-                                reconnect()
-                                continue
-                            # if r.value == None:
-                            #    print("r.value is None!")
-                            #    raise AttributeError
-                            self.graph_x_vals8_2 = np.append(self.graph_x_vals8_2, self.graph_counter8_2)
-                            try:
-                                self.graph_y_vals8_2 = np.append(self.graph_y_vals8_2, float(r.value.magnitude))
-                            except AttributeError:
-                                self.graph_y_vals8_2 = np.append(self.graph_y_vals8_2, float(0))
-                            # self.graph_x_vals2.append(self.graph_counter2)
-                            # self.graph_y_vals2.append(float(r.value.magnitude))
-                            if len(self.graph_x_vals8_2) > 200:
-                                self.graph_x_vals8_2 = np.delete(self.graph_x_vals8_2, (0))
-                                self.graph_y_vals8_2 = np.delete(self.graph_y_vals8_2, (0))
-                                # self.graph_x_vals2.pop(0)
-                                # self.graph_y_vals2.pop(0)
-
-                            self.graph_counter8_2 = self.graph_counter8_2 + 1
-                            prev_command8_2 = self.current_command8_2
-                            self.graph_dirty8_2 = True
-                            # wx.PostEvent(self._notify_window, GraphEvent(self.current_command2))
-                            if r.value == None:
-                                wx.PostEvent(self._notify_window, Graphs8ValueEvent([1, 2, str(0)]))
-                                self.unit8_2 = "unit"
-                            else:
-                                wx.PostEvent(self._notify_window, Graphs8ValueEvent([1, 2, str(r.value)]))
-                                try:
-                                    self.unit8_2 = str(r.value).split(' ')[1]
-                                except IndexError:
-                                    self.unit8_2 = "unit"
-                    else:
-                        self.graph_x_vals8_2 = np.array([])
-                        self.graph_y_vals8_2 = np.array([])
-                        self.graph_counter8_2 = 0
-
-                    if self.current_command8_3 != None:
-                        if (prev_command8_3 == None) or (prev_command8_3 != self.current_command8_3):
-                            self.graph_x_vals8_3 = np.array([])
-                            self.graph_y_vals8_3 = np.array([])
-                            # self.graph_x_vals3 = []
-                            # self.graph_y_vals3 = []
-                            self.graph_counter8_3 = 0
-                            wx.PostEvent(self._notify_window,
-                                         Graphs8ValueEvent([2, 0, self.current_command8_3.command]))
-                            wx.PostEvent(self._notify_window, Graphs8ValueEvent([2, 1, self.current_command8_3.desc]))
-                        else:
-                            r = self.connection.query(self.current_command8_3)
-                            if r.value == None:
-                                reconnect()
-                                continue
-                            # if r.value == None:
-                            #    print("r.value is None!")
-                            #    raise AttributeError
-                            self.graph_x_vals8_3 = np.append(self.graph_x_vals8_3, self.graph_counter8_3)
-                            try:
-                                self.graph_y_vals8_3 = np.append(self.graph_y_vals8_3, float(r.value.magnitude))
-                            except AttributeError:
-                                self.graph_y_vals8_3 = np.append(self.graph_y_vals8_3, float(0))
-                            # self.graph_x_vals3.append(self.graph_counter3)
-                            # self.graph_y_vals3.append(float(r.value.magnitude))
-                            if len(self.graph_x_vals8_3) > 200:
-                                self.graph_x_vals8_3 = np.delete(self.graph_x_vals8_3, (0))
-                                self.graph_y_vals8_3 = np.delete(self.graph_y_vals8_3, (0))
-                                # self.graph_x_vals3.pop(0)
-                                # self.graph_y_vals3.pop(0)
-
-                            self.graph_counter8_3 = self.graph_counter8_3 + 1
-                            prev_command8_3 = self.current_command8_3
-                            self.graph_dirty8_3 = True
-                            # wx.PostEvent(self._notify_window, GraphEvent(self.current_command3))
-                            if r.value == None:
-                                wx.PostEvent(self._notify_window, Graphs8ValueEvent([2, 2, str(0)]))
-                                self.unit8_3 = "unit"
-                            else:
-                                wx.PostEvent(self._notify_window, Graphs8ValueEvent([2, 2, str(r.value)]))
-                                try:
-                                    self.unit8_3 = str(r.value).split(' ')[1]
-                                except IndexError:
-                                    self.unit8_3 = "unit"
-                    else:
-                        self.graph_x_vals8_3 = np.array([])
-                        self.graph_y_vals8_3 = np.array([])
-                        self.graph_counter8_3 = 0
-
-                    if self.current_command8_4 != None:
-                        if (prev_command8_4 == None) or (prev_command8_4 != self.current_command8_4):
-                            self.graph_x_vals8_4 = np.array([])
-                            self.graph_y_vals8_4 = np.array([])
-                            # self.graph_x_vals4 = []
-                            # self.graph_y_vals4 = []
-                            self.graph_counter8_4 = 0
-                            wx.PostEvent(self._notify_window,
-                                         Graphs8ValueEvent([3, 0, self.current_command8_4.command]))
-                            wx.PostEvent(self._notify_window, Graphs8ValueEvent([3, 1, self.current_command8_4.desc]))
-                        else:
-                            r = self.connection.query(self.current_command8_4)
-                            if r.value == None:
-                                reconnect()
-                                continue
-                            # if r.value == None:
-                            #    print("r.value is None!")
-                            #    raise AttributeError
-                            self.graph_x_vals8_4 = np.append(self.graph_x_vals8_4, self.graph_counter8_4)
-
-                            try:
-                                self.graph_y_vals8_4 = np.append(self.graph_y_vals8_4, float(r.value.magnitude))
-                            except AttributeError:
-                                self.graph_y_vals8_4 = np.append(self.graph_y_vals8_4, float(0))
-
-                            # self.graph_x_vals4.append(self.graph_counter4)
-                            # self.graph_y_vals4.append(float(r.value.magnitude))
-                            if len(self.graph_x_vals8_4) > 200:
-                                self.graph_x_vals8_4 = np.delete(self.graph_x_vals8_4, (0))
-                                self.graph_y_vals8_4 = np.delete(self.graph_y_vals8_4, (0))
-                                # self.graph_x_vals4.pop(0)
-                                # self.graph_y_vals4.pop(0)
-
-                            self.graph_counter8_4 = self.graph_counter8_4 + 1
-                            prev_command8_4 = self.current_command8_4
-                            self.graph_dirty8_4 = True
-                            # wx.PostEvent(self._notify_window, GraphEvent(self.current_command4))
-                            if r.value == None:
-                                wx.PostEvent(self._notify_window, Graphs8ValueEvent([3, 2, str(0)]))
-                                self.unit8_4 = "unit"
-                            else:
-                                wx.PostEvent(self._notify_window, Graphs8ValueEvent([3, 2, str(r.value)]))
-                                try:
-                                    self.unit8_4 = str(r.value).split(' ')[1]
-                                except IndexError:
-                                    self.unit8_4 = "unit"
-                    else:
-                        self.graph_x_vals8_4 = np.array([])
-                        self.graph_y_vals8_4 = np.array([])
-                        self.graph_counter8_4 = 0
-
-
-
-
-
-
-                    if self.current_command8_5 != None:
-                        if (prev_command8_5 == None) or (prev_command8_5 != self.current_command8_5):
-                            self.graph_x_vals8_5 = np.array([])
-                            self.graph_y_vals8_5 = np.array([])
-                            # self.graph_x_vals1 = []
-                            # self.graph_y_vals1 = []
-                            self.graph_counter8_5 = 0
-                            wx.PostEvent(self._notify_window,
-                                         Graphs8ValueEvent([4, 0, self.current_command8_5.command]))
-                            wx.PostEvent(self._notify_window, Graphs8ValueEvent([4, 1, self.current_command8_5.desc]))
-                        else:
-                            r = self.connection.query(self.current_command8_5)
-                            if r.value == None:
-                                reconnect()
-                                continue
-                            # if r.value == None:
-                            #    print("r.value is None!")
-                            #    raise AttributeError
-                            self.graph_x_vals8_5 = np.append(self.graph_x_vals8_5, self.graph_counter8_5)
-                            try:
-                                self.graph_y_vals8_5 = np.append(self.graph_y_vals8_5, float(r.value.magnitude))
-                            except AttributeError:
-                                self.graph_y_vals8_5 = np.append(self.graph_y_vals8_5, float(0))
-                            # self.graph_x_vals1.append(self.graph_counter1)
-                            # self.graph_y_vals1.append(float(r.value.magnitude))
-                            if len(self.graph_x_vals8_5) > 200:
-                                self.graph_x_vals8_5 = np.delete(self.graph_x_vals8_5, (0))
-                                self.graph_y_vals8_5 = np.delete(self.graph_y_vals8_5, (0))
-                                # self.graph_x_vals1.pop(0)
-                                # self.graph_y_vals1.pop(0)
-
-                            self.graph_counter8_5 = self.graph_counter8_5 + 1
-                            prev_command8_5 = self.current_command8_5
-                            self.graph_dirty8_5 = True
-                            # wx.PostEvent(self._notify_window, GraphEvent(self.current_command1))
-                            if r.value == None:
-                                wx.PostEvent(self._notify_window, Graphs8ValueEvent([4, 2, str(0)]))
-                                self.unit8_5 = "unit"
-                            else:
-                                wx.PostEvent(self._notify_window, Graphs8ValueEvent([4, 2, str(r.value)]))
-                                try:
-                                    self.unit8_5 = str(r.value).split(' ')[1]
-                                except IndexError:
-                                    self.unit8_5 = "unit"
-                    else:
-                        self.graph_x_vals8_5 = np.array([])
-                        self.graph_y_vals8_5 = np.array([])
-                        self.graph_counter8_5 = 0
-
-
-
-                    if self.current_command8_6 != None:
-                        if (prev_command8_6 == None) or (prev_command8_6 != self.current_command8_6):
-                            self.graph_x_vals8_6 = np.array([])
-                            self.graph_y_vals8_6 = np.array([])
-                            # self.graph_x_vals2 = []
-                            # self.graph_y_vals2 = []
-                            self.graph_counter8_6 = 0
-                            wx.PostEvent(self._notify_window,
-                                         Graphs8ValueEvent([5, 0, self.current_command8_6.command]))
-                            wx.PostEvent(self._notify_window, Graphs8ValueEvent([5, 1, self.current_command8_6.desc]))
-                        else:
-                            r = self.connection.query(self.current_command8_6)
-                            if r.value == None:
-                                reconnect()
-                                continue
-                            # if r.value == None:
-                            #    print("r.value is None!")
-                            #    raise AttributeError
-                            self.graph_x_vals8_6 = np.append(self.graph_x_vals8_6, self.graph_counter8_6)
-                            try:
-                                self.graph_y_vals8_6 = np.append(self.graph_y_vals8_6, float(r.value.magnitude))
-                            except AttributeError:
-                                self.graph_y_vals8_6 = np.append(self.graph_y_vals8_6, float(0))
-                            # self.graph_x_vals2.append(self.graph_counter2)
-                            # self.graph_y_vals2.append(float(r.value.magnitude))
-                            if len(self.graph_x_vals8_6) > 200:
-                                self.graph_x_vals8_6 = np.delete(self.graph_x_vals8_6, (0))
-                                self.graph_y_vals8_6 = np.delete(self.graph_y_vals8_6, (0))
-                                # self.graph_x_vals2.pop(0)
-                                # self.graph_y_vals2.pop(0)
-
-                            self.graph_counter8_6 = self.graph_counter8_6 + 1
-                            prev_command6 = self.current_command8_6
-                            self.graph_dirty8_6 = True
-                            # wx.PostEvent(self._notify_window, GraphEvent(self.current_command2))
-                            if r.value == None:
-                                wx.PostEvent(self._notify_window, Graphs8ValueEvent([5, 2, str(0)]))
-                                self.unit8_6 = "unit"
-                            else:
-                                wx.PostEvent(self._notify_window, Graphs8ValueEvent([5, 2, str(r.value)]))
-                                try:
-                                    self.unit8_6 = str(r.value).split(' ')[1]
-                                except IndexError:
-                                    self.unit8_6 = "unit"
-                    else:
-                        self.graph_x_vals8_6 = np.array([])
-                        self.graph_y_vals8_6 = np.array([])
-                        self.graph_counter8_6 = 0
-
-
-
-                    if self.current_command8_7 != None:
-                        if (prev_command8_7 == None) or (prev_command8_7 != self.current_command8_7):
-                            self.graph_x_vals8_7 = np.array([])
-                            self.graph_y_vals8_7 = np.array([])
-                            # self.graph_x_vals3 = []
-                            # self.graph_y_vals3 = []
-                            self.graph_counter8_7 = 0
-                            wx.PostEvent(self._notify_window,
-                                         Graphs8ValueEvent([6, 0, self.current_command8_7.command]))
-                            wx.PostEvent(self._notify_window, Graphs8ValueEvent([6, 1, self.current_command8_7.desc]))
-                        else:
-                            r = self.connection.query(self.current_command8_7)
-                            if r.value == None:
-                                reconnect()
-                                continue
-                            # if r.value == None:
-                            #    print("r.value is None!")
-                            #    raise AttributeError
-                            self.graph_x_vals8_7 = np.append(self.graph_x_vals8_7, self.graph_counter8_7)
-                            try:
-                                self.graph_y_vals8_7 = np.append(self.graph_y_vals8_7, float(r.value.magnitude))
-                            except AttributeError:
-                                self.graph_y_vals8_7 = np.append(self.graph_y_vals8_7, float(0))
-                            # self.graph_x_vals3.append(self.graph_counter3)
-                            # self.graph_y_vals3.append(float(r.value.magnitude))
-                            if len(self.graph_x_vals8_7) > 200:
-                                self.graph_x_vals8_7 = np.delete(self.graph_x_vals8_7, (0))
-                                self.graph_y_vals8_7 = np.delete(self.graph_y_vals8_7, (0))
-                                # self.graph_x_vals3.pop(0)
-                                # self.graph_y_vals3.pop(0)
-
-                            self.graph_counter8_7 = self.graph_counter8_7 + 1
-                            prev_command8_7 = self.current_command8_7
-                            self.graph_dirty8_7 = True
-                            # wx.PostEvent(self._notify_window, GraphEvent(self.current_command3))
-                            if r.value == None:
-                                wx.PostEvent(self._notify_window, Graphs8ValueEvent([6, 2, str(0)]))
-                                self.unit8_7 = "unit"
-                            else:
-                                wx.PostEvent(self._notify_window, Graphs8ValueEvent([6, 2, str(r.value)]))
-                                try:
-                                    self.unit8_7 = str(r.value).split(' ')[1]
-                                except IndexError:
-                                    self.unit8_7 = "unit"
-                    else:
-                        self.graph_x_vals8_7 = np.array([])
-                        self.graph_y_vals8_7 = np.array([])
-                        self.graph_counter8_7 = 0
-
-                    if self.current_command8_8 != None:
-                        if (prev_command8_8 == None) or (prev_command8_8 != self.current_command8_8):
-                            self.graph_x_vals8_8 = np.array([])
-                            self.graph_y_vals8_8 = np.array([])
-                            # self.graph_x_vals4 = []
-                            # self.graph_y_vals4 = []
-                            self.graph_counter8_8 = 0
-                            wx.PostEvent(self._notify_window,
-                                         Graphs8ValueEvent([7, 0, self.current_command8_8.command]))
-                            wx.PostEvent(self._notify_window, Graphs8ValueEvent([7, 1, self.current_command8_8.desc]))
-                        else:
-                            r = self.connection.query(self.current_command8_8)
-                            if r.value == None:
-                                reconnect()
-                                continue
-                            # if r.value == None:
-                            #    print("r.value is None!")
-                            #    raise AttributeError
-                            self.graph_x_vals8_8 = np.append(self.graph_x_vals8_8, self.graph_counter8_8)
-
-                            try:
-                                self.graph_y_vals8_8 = np.append(self.graph_y_vals8_8, float(r.value.magnitude))
-                            except AttributeError:
-                                self.graph_y_vals8_8 = np.append(self.graph_y_vals8_8, float(0))
-
-                            # self.graph_x_vals4.append(self.graph_counter4)
-                            # self.graph_y_vals4.append(float(r.value.magnitude))
-                            if len(self.graph_x_vals8_8) > 200:
-                                self.graph_x_vals8_8 = np.delete(self.graph_x_vals8_8, (0))
-                                self.graph_y_vals8_8 = np.delete(self.graph_y_vals8_8, (0))
-                                # self.graph_x_vals4.pop(0)
-                                # self.graph_y_vals4.pop(0)
-
-                            self.graph_counter8_8 = self.graph_counter8_8 + 1
-                            prev_command8_8 = self.current_command8_8
-                            self.graph_dirty8_8 = True
-                            # wx.PostEvent(self._notify_window, GraphEvent(self.current_command4))
-                            if r.value == None:
-                                wx.PostEvent(self._notify_window, Graphs8ValueEvent([7, 2, str(0)]))
-                                self.unit8_8 = "unit"
-                            else:
-                                wx.PostEvent(self._notify_window, Graphs8ValueEvent([7, 2, str(r.value)]))
-                                try:
-                                    self.unit8_8 = str(r.value).split(' ')[1]
-                                except IndexError:
-                                    self.unit8_8 = "unit"
-                    else:
-                        self.graph_x_vals8_8 = np.array([])
-                        self.graph_y_vals8_8 = np.array([])
-                        self.graph_counter8_8 = 0
-
-
-
-                    if self.first_time_8graphs_plot:
-                        self.unit8_1 = 'unit'
-                        self.unit8_2 = 'unit'
-                        self.unit8_3 = 'unit'
-                        self.unit8_4 = 'unit'
-                        self.unit8_5 = 'unit'
-                        self.unit8_6 = 'unit'
-                        self.unit8_7 = 'unit'
-                        self.unit8_8 = 'unit'
-                    if self.current_command8_1 == None:
-                        desc8_1 = 'None'
-                    else:
-                        desc8_1 = self.current_command8_1.desc
-
-
-                    if self.current_command8_2 == None:
-                        desc8_2 = 'None'
-                    else:
-                        desc8_2 = self.current_command8_2.desc
-
-
-                    if self.current_command8_3 == None:
-                        desc8_3 = 'None'
-                    else:
-                        desc8_3 = self.current_command8_3.desc
-
-
-                    if self.current_command8_4 == None:
-                        desc8_4 = 'None'
-                    else:
-                        desc8_4 = self.current_command8_4.desc
-
-
-                    if self.current_command8_5 == None:
-                        desc8_5 = 'None'
-                    else:
-                        desc8_5 = self.current_command8_5.desc
-
-
-                    if self.current_command8_6 == None:
-                        desc8_6 = 'None'
-                    else:
-                        desc8_6 = self.current_command8_6.desc
-
-
-
-                    if self.current_command8_7 == None:
-                        desc8_7 = 'None'
-                    else:
-                        desc8_7 = self.current_command8_7.desc
-                    if self.current_command8_8 == None:
-                        desc8_8 = 'None'
-                    else:
-                        desc8_8 = self.current_command8_8.desc
-
-                    wx.PostEvent(self._notify_window, Graphs8Event(
-                        [(self.graph_x_vals8_1, self.graph_y_vals8_1, self.unit8_1, desc8_1, self.graph_counter8_1),
-                         (self.graph_x_vals8_2, self.graph_y_vals8_2, self.unit8_2, desc8_2, self.graph_counter8_2),
-                         (self.graph_x_vals8_3, self.graph_y_vals8_3, self.unit8_3, desc8_3, self.graph_counter8_3),
-                         (self.graph_x_vals8_4, self.graph_y_vals8_4, self.unit8_4, desc8_4, self.graph_counter8_4),
-                         (self.graph_x_vals8_5, self.graph_y_vals8_5, self.unit8_5, desc8_5, self.graph_counter8_5),
-                         (self.graph_x_vals8_6, self.graph_y_vals8_6, self.unit8_6, desc8_6, self.graph_counter8_6),
-                         (self.graph_x_vals8_7, self.graph_y_vals8_7, self.unit8_7, desc8_7, self.graph_counter8_7),
-                         (self.graph_x_vals8_8, self.graph_y_vals8_8, self.unit8_8, desc8_8, self.graph_counter8_8),
-                         (self.first_time_8graphs_plot)
-                         ]))
-                    self.first_time_8graphs_plot = False
-                    # time.sleep(0.2)
-            elif curstate == 8:
-                r = self.connection.query(obd.commands.RPM)
-                if r.value == None:
-                    reconnect()
-                    continue
-            elif (
-                hasattr(self._notify_window, "dashboard_page_index")
-                and curstate == self._notify_window.dashboard_page_index
-            ):
-                dashboard_now = time.monotonic()
+                    graph_was_streaming = True
+                    commands = self._graph_commands_to_poll(
+                        list(self._notify_window.selected_graph_commands),
+                        getattr(self._notify_window, "isolated_graph_command_key", None),
+                    )
+                    selected_keys = {command.command for command in commands}
+                    for key in tuple(graph_series):
+                        if key not in selected_keys:
+                            del graph_series[key]
+                    plot_series = []
+                    emit_values = now - graph_last_value_at >= 0.2
+                    successful_query = False
+                    for command in commands:
+                        response = self.connection.query(command)
+                        if response.value is None:
+                            if emit_values:
+                                wx.PostEvent(self._notify_window, GraphValueEvent([
+                                    command.command, 2, "No data"
+                                ]))
+                            continue
+                        successful_query = True
+                        magnitude, unit, text = self._notify_window.get_measurement_components(
+                            response.value
+                        )
+                        series = graph_series.setdefault(command.command, {
+                            "x": deque(maxlen=450), "y": deque(maxlen=450),
+                            "unit": "value", "desc": command.desc,
+                        })
+                        series["x"].append(graph_counter)
+                        try:
+                            series["y"].append(float(magnitude))
+                        except (AttributeError, TypeError, ValueError):
+                            series["y"].append(0.0)
+                        series["unit"] = unit or "value"
+                        if emit_values:
+                            wx.PostEvent(self._notify_window, GraphValueEvent([
+                                command.command, 2, text
+                            ]))
+                        plot_series.append((
+                            series["x"], series["y"], series["unit"],
+                            series["desc"], command.command,
+                        ))
+                    if emit_values:
+                        graph_last_value_at = now
+                    if commands and not successful_query and not health_check(now):
+                        if not reconnect():
+                            break
+                        previous_page = None
+                        continue
+                    if now - graph_last_draw_at >= 0.25:
+                        snapshot = [
+                            (tuple(item[0]), tuple(item[1]), item[2], item[3], item[4])
+                            for item in plot_series
+                        ]
+                        if self._post_graph_event([snapshot, graph_counter, graph_counter == 0]):
+                            graph_last_draw_at = now
+                    graph_counter += 1
+
+            elif page == "dashboard":
                 if (
-                    dashboard_now - self.dashboard_last_emit_at >= 0.2
+                    now - dashboard_last_emit_at >= 0.2
                     and not self._notify_window.dashboard_event_pending
                 ):
                     values = []
@@ -1656,46 +448,31 @@ class SensorProducer(threading.Thread):
                         response = self.connection.query(command)
                         if response.value is None:
                             continue
-                        magnitude, unit, value_text = self._notify_window.get_measurement_components(
+                        magnitude, unit, text = self._notify_window.get_measurement_components(
                             response.value
                         )
                         values.append({
                             "pid": command.command.decode(errors="ignore").upper(),
-                            "magnitude": magnitude,
-                            "unit": unit,
-                            "text": value_text,
+                            "magnitude": magnitude, "unit": unit, "text": text,
                         })
                     self._notify_window.dashboard_event_pending = True
                     wx.PostEvent(self._notify_window, DashboardValuesEvent(values))
-                    self.dashboard_last_emit_at = dashboard_now
-            time_end = datetime.datetime.now()
-            first_time = False
+                    dashboard_last_emit_at = now
+
+            elif not health_check(now):
+                if not reconnect():
+                    break
+                sensor_commands = None
+                freeze_commands = None
+                previous_page = None
+                continue
+
+            previous_page = page
+            self._wake_event.wait(self._target_loop_interval(self.demo_mode))
+            self._wake_event.clear()
 
         self.state = "finished"
-        print ("state is finished")
         self.stop(self.disconnect_status)
-
-
-
-    """
-    def off(self, id):
-        if id >= 0 and id < len(self.active): 
-            self.active[id] = 0
-        else:
-            debug("Invalid sensor id")
-    def on(self, id):
-        if id >= 0 and id < len(self.active): 
-            self.active[id] = 1
-        else:
-            debug("Invalid sensor id")
-
-    def all_off(self):
-        for i in range(0, len(self.active)):
-            self.off(i)
-    def all_on(self):
-        for i in range(0, len(self.active)):
-            self.off(i)
-    """
 
     def stop(self, status_text="Disconnected"):
         self.disconnect_status = status_text

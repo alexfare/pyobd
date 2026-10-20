@@ -1,4 +1,3 @@
 # Runtime dependencies shared by all platforms.
-numpy>=1.23
 Pint>=0.20.1
 pyserial>=3.5,<4
