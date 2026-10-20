@@ -10,7 +10,7 @@ dependencies = [
 ]
 
 name = "pyobd2"
-version = "2.4.0"
+version = "2.5.0"
 description = "An OBD-II compliant car diagnostic tool "
 authors = [{ "name" = "Jure Poljsak" }, { "name" = "Charles Donour Sizemore" }, { "name" = "FareBrothers, LLC" }]
 readme = "README.md"
