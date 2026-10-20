@@ -7,7 +7,7 @@
 # Copyright 2009 Secons Ltd. (www.obdtester.com)
 # Copyright 2021 Jure Poljsak (https://github.com/barracuda-fsh/pyobd) 
 # Modified by FareBrothers, LLC.
-# Modifications made from 2026-04-05 through 2026-10-16.
+# Modifications made from 2026-04-05 through 2026-10-20.
 #
 # This file is part of pyOBD.
 #
@@ -53,9 +53,11 @@ from app_events import *
 from debugEvent import *
 from dashboard_ui import DashboardUIMixin
 from graph_ui import GraphUIMixin
+from session_ui import SessionUIMixin
 from sensor_worker import SensorProducer
 from obd2_codes import pcodes
 from ui_theme import ActionCard, AppTheme, ModernButton
+from vehicle_profiles import VehicleProfilesMixin
 
 from wx.lib.mixins.listctrl import ListCtrlAutoWidthMixin
 import obd
@@ -137,7 +139,7 @@ TEST_LABELS = [
 
 
 
-class MyApp(DashboardUIMixin, GraphUIMixin, wx.App):
+class MyApp(SessionUIMixin, VehicleProfilesMixin, DashboardUIMixin, GraphUIMixin, wx.App):
     # A listctrl which auto-resizes the column boxes to fill
     class MyListCtrl(wx.ListCtrl, ListCtrlAutoWidthMixin):
         def __init__(self, parent, id, pos=wx.DefaultPosition,
@@ -289,6 +291,15 @@ class MyApp(DashboardUIMixin, GraphUIMixin, wx.App):
         self.header_connection_status.SetForegroundColour(self.theme.muted)
         self.header_connection_status.SetFont(self.theme.font(10, bold=True))
 
+        self.header_vehicle_profile = wx.StaticText(
+            self.content_header,
+            label="No vehicle profile",
+            style=wx.ST_ELLIPSIZE_END,
+        )
+        self.header_vehicle_profile.SetMaxSize((180, -1))
+        self.header_vehicle_profile.SetForegroundColour(self.theme.muted)
+        self.header_vehicle_profile.SetFont(self.theme.font(10))
+
         self.header_connect_button = ModernButton(
             self.content_header, "Connect", self.theme, variant="primary"
         )
@@ -304,10 +315,12 @@ class MyApp(DashboardUIMixin, GraphUIMixin, wx.App):
         header_sizer.Add(self.header_menu_button, 0, wx.ALIGN_CENTER_VERTICAL | wx.LEFT, 16)
         header_sizer.Add(self.page_title, 0, wx.ALIGN_CENTER_VERTICAL | wx.LEFT, 12)
         header_sizer.AddStretchSpacer()
+        header_sizer.Add(self.header_vehicle_profile, 0, wx.ALIGN_CENTER_VERTICAL | wx.RIGHT, 16)
         header_sizer.Add(self.header_connection_status, 0, wx.ALIGN_CENTER_VERTICAL | wx.RIGHT, 16)
         header_sizer.Add(self.header_configure_button, 0, wx.ALIGN_CENTER_VERTICAL | wx.RIGHT, 8)
         header_sizer.Add(self.header_connect_button, 0, wx.ALIGN_CENTER_VERTICAL | wx.RIGHT, 16)
         self.content_header.SetSizer(header_sizer)
+        self._update_active_vehicle_header()
 
     def _toggle_sidebar(self, event=None):
         self._sidebar_open = not self._sidebar_open
@@ -346,11 +359,8 @@ class MyApp(DashboardUIMixin, GraphUIMixin, wx.App):
             ("Readiness", self.tests_panel),
             ("Freeze Frame", self.freezeframe),
             ("Graphs", self.graph_panel),
-            ("Vehicle", self.status),
-        ]
-        secondary_items = [
-            ("Activity Log", self.trace),
-            ("About", self.about_panel),
+            ("Vehicles", self.vehicle_profiles_panel),
+            ("Sessions", self.sessions_panel),
         ]
         self.sidebar_buttons = {}
 
@@ -371,8 +381,24 @@ class MyApp(DashboardUIMixin, GraphUIMixin, wx.App):
         for label, page in primary_items:
             add_item(label, page)
         sidebar_sizer.AddStretchSpacer()
-        for label, page in secondary_items:
-            add_item(label, page)
+        add_item("Activity Log", self.trace)
+        self.sidebar_update_button = ModernButton(
+            self.sidebar_panel,
+            "Update",
+            self.theme,
+            variant="sidebar",
+            align="left",
+        )
+        self.sidebar_update_button.SetMinSize((-1, 44))
+        self.sidebar_update_button.SetFont(self.theme.font(11))
+        self.sidebar_update_button.Bind(wx.EVT_BUTTON, self.OnHomeUpdate)
+        sidebar_sizer.Add(
+            self.sidebar_update_button,
+            0,
+            wx.EXPAND | wx.LEFT | wx.RIGHT | wx.BOTTOM,
+            10,
+        )
+        add_item("About", self.about_panel)
         sidebar_sizer.AddSpacer(12)
         self.sidebar_panel.SetSizer(sidebar_sizer)
 
@@ -441,6 +467,11 @@ class MyApp(DashboardUIMixin, GraphUIMixin, wx.App):
             self.home_graphs_button.SetFont(self.home_tile_font)
 
     def _go_to_page(self, page, title=None):
+        self.tests_poll_cancelled = page is not self.tests_panel
+        if page is getattr(self, "vehicle_profiles_panel", None):
+            self._refresh_vehicle_profile_list(self.active_vehicle_profile)
+        elif page is getattr(self, "sessions_panel", None):
+            self._refresh_session_list()
         page_index = wx.NOT_FOUND
         for i in range(self.nb.GetPageCount()):
             if self.nb.GetPage(i) is page:
@@ -458,7 +489,9 @@ class MyApp(DashboardUIMixin, GraphUIMixin, wx.App):
                     self.tests_panel: "Readiness",
                     self.freezeframe: "Freeze Frame",
                     self.graph_panel: "Graphs",
-                    self.status: "Vehicle",
+                    self.vehicle_profiles_panel: "Vehicles",
+                    self.sessions_panel: "Sessions",
+                    self.status: "Connection",
                     self.trace: "Activity Log",
                     self.about_panel: "About",
                 }.get(page, "pyOBD")
@@ -525,21 +558,21 @@ class MyApp(DashboardUIMixin, GraphUIMixin, wx.App):
             self.theme.danger.ChangeLightness(85),
             self.OnHomeDiagnostics,
         )
-        update_colour = wx.Colour(126, 34, 206)
-        self.home_update_button = self._create_home_tile(
+        vehicle_colour = wx.Colour(126, 34, 206)
+        self.home_vehicle_button = self._create_home_tile(
             self.home_panel,
-            "Update",
+            "Vehicles",
             "",
-            update_colour,
-            update_colour.ChangeLightness(85),
-            self.OnHomeUpdate,
+            vehicle_colour,
+            vehicle_colour.ChangeLightness(85),
+            self.OnHomeVehicles,
         )
         actions.Add(self.home_scan_button, pos=(0, 0), flag=wx.EXPAND)
         actions.Add(self.home_services_button, pos=(0, 1), flag=wx.EXPAND)
         actions.Add(self.home_graphs_button, pos=(0, 2), flag=wx.EXPAND)
         actions.Add(self.home_readiness_button, pos=(1, 0), flag=wx.EXPAND)
         actions.Add(self.home_diagnostics_button, pos=(1, 1), flag=wx.EXPAND)
-        actions.Add(self.home_update_button, pos=(1, 2), flag=wx.EXPAND)
+        actions.Add(self.home_vehicle_button, pos=(1, 2), flag=wx.EXPAND)
         actions.AddGrowableCol(0, 1)
         actions.AddGrowableCol(1, 1)
         actions.AddGrowableCol(2, 1)
@@ -572,12 +605,14 @@ class MyApp(DashboardUIMixin, GraphUIMixin, wx.App):
     def OnHomeDiagnostics(self, event):
         self._go_to_page(self.DTCpanel)
 
+    def OnHomeVehicles(self, event):
+        self._go_to_page(self.vehicle_profiles_panel)
+
     def OnHomeUpdate(self, event):
         if getattr(self, "update_check_in_progress", False):
             return
         self.update_check_in_progress = True
-        self.home_update_button.title.SetLabel("Checking…")
-        self.home_update_button.Layout()
+        self.sidebar_update_button.SetLabel("Checking…")
 
         def check_release():
             try:
@@ -605,13 +640,12 @@ class MyApp(DashboardUIMixin, GraphUIMixin, wx.App):
 
     def _finish_update_check(self, latest_version, release_url, error):
         try:
-            if not self.frame or self.frame.IsBeingDeleted() or not self.home_update_button:
+            if not self.frame or self.frame.IsBeingDeleted():
                 return
         except RuntimeError:
             return
         self.update_check_in_progress = False
-        self.home_update_button.title.SetLabel("Update")
-        self.home_update_button.Layout()
+        self.sidebar_update_button.SetLabel("Update")
         if error:
             wx.MessageBox(
                 f"Unable to check for updates.\n\n{error}",
@@ -637,9 +671,23 @@ class MyApp(DashboardUIMixin, GraphUIMixin, wx.App):
         )
 
     def RefreshTests(self, event=None):
+        self.tests_active_section = (
+            "misfire" if self.tests_notebook.GetSelection() == 1 else "readiness"
+        )
+        self.tests_poll_cancelled = False
         self.tests_refresh_requested = True
-        self.tests_status_label.SetLabel("Reading monitor status…")
+        self.tests_status_label.SetLabel(
+            "Reading misfire results…"
+            if self.tests_active_section == "misfire"
+            else "Reading monitor status…"
+        )
         self.RefreshTestsButton.Enable(False)
+
+    def OnTestsPageChanged(self, event):
+        self.tests_active_section = "misfire" if event.GetSelection() == 1 else "readiness"
+        if self.senprod and self.senprod.is_alive():
+            self.RefreshTests()
+        event.Skip()
 
 
     def sensor_control_on(self):  # after connection enable few buttons
@@ -690,6 +738,7 @@ class MyApp(DashboardUIMixin, GraphUIMixin, wx.App):
         self.sensor_record_started_at = None
         self.sensor_record_sample_count = 0
         self.sensor_record_flush_count = 0
+        self.sensor_record_session = None
 
         self.sensors_panel = wx.Panel(self.nb)
         self.sensors_panel.SetBackgroundColour(self.theme.window)
@@ -765,24 +814,22 @@ class MyApp(DashboardUIMixin, GraphUIMixin, wx.App):
             )
             return
 
-        default_name = datetime.datetime.now().strftime("pyobd-session-%Y%m%d-%H%M%S.csv")
-        default_dir = wx.StandardPaths.Get().GetDocumentsDir()
-        dialog = wx.FileDialog(
+        default_name = datetime.datetime.now().strftime("Session %b %d, %Y %I-%M %p")
+        dialog = wx.TextEntryDialog(
             self.frame,
-            "Save Live Data recording",
-            defaultDir=default_dir if os.path.isdir(default_dir) else "",
-            defaultFile=default_name,
-            wildcard="CSV files (*.csv)|*.csv",
-            style=wx.FD_SAVE | wx.FD_OVERWRITE_PROMPT,
+            "Name this Live Data recording.",
+            "New recorded session",
+            default_name,
         )
         try:
-            if dialog.ShowModal() != wx.ID_OK:
+            if dialog.ShowModal() != wx.ID_OK or not dialog.GetValue().strip():
                 return
-            path = dialog.GetPath()
+            session_name = dialog.GetValue().strip()
         finally:
             dialog.Destroy()
 
         try:
+            path, self.sensor_record_session = self._begin_recording_session(session_name)
             self.sensor_record_file = open(path, "w", newline="", encoding="utf-8")
             self.sensor_record_writer = csv.writer(self.sensor_record_file)
             self.sensor_record_writer.writerow(
@@ -793,6 +840,8 @@ class MyApp(DashboardUIMixin, GraphUIMixin, wx.App):
                 self.sensor_record_file.close()
             self.sensor_record_file = None
             self.sensor_record_writer = None
+            self._discard_recording_session(self.sensor_record_session)
+            self.sensor_record_session = None
             wx.MessageBox(
                 f"Unable to create the recording file.\n\n{error}",
                 "Live Data Recording",
@@ -863,6 +912,7 @@ class MyApp(DashboardUIMixin, GraphUIMixin, wx.App):
             self.sensor_record_timer.Stop()
         recorded_file = self.sensor_record_file
         sample_count = self.sensor_record_sample_count
+        duration_seconds = max(0, time.monotonic() - self.sensor_record_started_at)
         try:
             recorded_file.flush()
             recorded_file.close()
@@ -871,6 +921,10 @@ class MyApp(DashboardUIMixin, GraphUIMixin, wx.App):
         self.sensor_record_file = None
         self.sensor_record_writer = None
         self.sensor_record_sources.clear()
+        self._finish_recording_session(
+            self.sensor_record_session, sample_count, duration_seconds
+        )
+        self.sensor_record_session = None
         self.sensor_record_started_at = None
         self.sensor_record_flush_count = 0
         self.sensor_record_button.SetLabel("Record")
@@ -1276,7 +1330,7 @@ class MyApp(DashboardUIMixin, GraphUIMixin, wx.App):
         )
 
         self.theme = AppTheme()
-        self.frame = wx.Frame(None, -1, f"pyOBD v{APP_VERSION} - Modified by Fare Brothers")
+        self.frame = wx.Frame(None, -1, f"pyOBD v{APP_VERSION} - Modified by FareBrothers,LLC")
         ico = wx.Icon(resource_path('pyobd.png'), wx.BITMAP_TYPE_PNG)
         self.frame.SetIcon(ico)
 
@@ -1327,6 +1381,8 @@ class MyApp(DashboardUIMixin, GraphUIMixin, wx.App):
         self.nb.AddPage(self.status, "Status")
 
         self.tests_refresh_requested = False
+        self.tests_active_section = "readiness"
+        self.tests_poll_cancelled = True
         self.tests_panel = wx.Panel(self.nb)
         self.tests_panel.SetBackgroundColour(self.theme.window)
         tests_root = wx.BoxSizer(wx.VERTICAL)
@@ -1373,6 +1429,7 @@ class MyApp(DashboardUIMixin, GraphUIMixin, wx.App):
 
         self.tests_notebook.AddPage(self.OBDTests, "Readiness")
         self.tests_notebook.AddPage(self.misfire_tests, "Misfire Results")
+        self.tests_notebook.Bind(wx.EVT_NOTEBOOK_PAGE_CHANGED, self.OnTestsPageChanged)
         tests_root.Add(tests_toolbar, 0, wx.EXPAND | wx.ALL, 20)
         tests_root.Add(tests_help, 0, wx.LEFT | wx.RIGHT | wx.BOTTOM, 20)
         tests_root.Add(self.tests_notebook, 1, wx.EXPAND | wx.LEFT | wx.RIGHT | wx.BOTTOM, 20)
@@ -1398,6 +1455,8 @@ class MyApp(DashboardUIMixin, GraphUIMixin, wx.App):
         self.about_panel = build_about_page(self.nb)
         self.build_home_page()
         self.build_dashboard_page()
+        self.build_vehicle_profiles_page()
+        self.build_sessions_page()
 
         self._build_sidebar()
         self._build_content_header()
@@ -1533,6 +1592,8 @@ class MyApp(DashboardUIMixin, GraphUIMixin, wx.App):
         else:
             self.status.SetItem(event.data[0], event.data[1], event.data[2])
             self._update_bottom_status(event.data[0], event.data[2])
+            if event.data[0] == 4:
+                self._activate_vehicle_profile_for_vin(event.data[2])
             # Drive UI control state from actual connection state notifications.
             if event.data[0] == 0:
                 state_text = str(event.data[2])
@@ -1562,10 +1623,26 @@ class MyApp(DashboardUIMixin, GraphUIMixin, wx.App):
             self.OBDTests.SetItemTextColour(data["index"], colour)
         elif data["kind"] == "misfire":
             self.misfire_tests.SetItem(data["index"], 1, data["result"])
+        elif data["kind"] == "misfire_reset":
+            self.misfire_tests.DeleteAllItems()
+            cylinders = data["cylinders"]
+            if cylinders:
+                for cylinder in cylinders:
+                    self.misfire_tests.Append([f"Cylinder {cylinder}", "Reading…"])
+            else:
+                self.misfire_tests.Append(["No supported cylinder monitors", "—"])
         elif data["kind"] == "complete":
             self.tests_status_label.SetLabel(
                 f"{data['ready']} ready  •  {data['not_ready']} not ready  •  "
                 f"{data['unsupported']} unsupported"
+            )
+            self.RefreshTestsButton.Enable(True)
+        elif data["kind"] == "misfire_complete":
+            count = data["count"]
+            self.tests_status_label.SetLabel(
+                f"{count} cylinder monitor{'s' if count != 1 else ''} updated"
+                if count
+                else "No supported per-cylinder misfire monitors"
             )
             self.RefreshTestsButton.Enable(True)
         elif data["kind"] == "error":
@@ -2731,6 +2808,7 @@ class MyApp(DashboardUIMixin, GraphUIMixin, wx.App):
             return
 
         self._shutdown_started = True
+        self._stop_session_replay()
         self._stop_sensor_recording()
         if self.sensor_filter_timer and self.sensor_filter_timer.IsRunning():
             self.sensor_filter_timer.Stop()

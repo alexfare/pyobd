@@ -6,7 +6,7 @@
 # Copyright 2009 Secons Ltd. (www.obdtester.com)
 # Copyright 2021 Jure Poljsak (https://github.com/barracuda-fsh/pyobd)
 # Modified by FareBrothers, LLC.
-# Modifications made from 2026-04-05 through 2026-10-16.
+# Modifications made from 2026-04-05 through 2026-10-20.
 #
 # This file is part of pyOBD.
 #
@@ -29,6 +29,7 @@ from pdb import set_trace as bp
 import serial
 from serial.tools import list_ports
 import string
+import threading
 import time
 from math import ceil
 import wx #due to debugEvent messaging
@@ -42,6 +43,8 @@ from obd_sensors import hex_to_int
 import obd
 import decimal
 import math
+
+from diagnostic_transport import ReadOnlyDiagnosticTransport
 
 
 class _FakeMonitorStatus:
@@ -298,6 +301,8 @@ class OBDConnection:
         attempt_status=None, cancel_check=None,
     ):
         self._notify_window = _notify_window
+        self.query_lock = threading.RLock()
+        self.transport = ReadOnlyDiagnosticTransport(self, self.query_lock)
         if baud == 'AUTO':
             baud = None
         original_baud = baud
@@ -423,6 +428,20 @@ class OBDConnection:
         self.connection.close()
         self.ELMver = "Unknown"
 
+    def query(self, command, force=False):
+        with self.query_lock:
+            if isinstance(self.connection, _DemoConnection):
+                return self.connection.query(command)
+            return self.connection.query(command, force=force)
+
+    def supports(self, command):
+        if isinstance(self.connection, _DemoConnection):
+            return True
+        try:
+            return self.connection.supports(command)
+        except AttributeError:
+            return False
+
     def sensor(self , sensor_index):
         """Returns 3-tuple of given sensors. 3-tuple consists of
          (Sensor Name (string), Sensor Value (string), Sensor Unit (string) ) """
@@ -436,7 +455,7 @@ class OBDConnection:
         """Clears all DTCs and freeze frame data"""
         #self.send_command(CLEAR_DTC_COMMAND)
         #r = self.get_result()
-        r = self.connection.query(obd.commands["CLEAR_DTC"])
+        r = self.query(obd.commands["CLEAR_DTC"])
         return r
 
     def log(self, sensor_index, filename): 

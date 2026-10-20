@@ -1,13 +1,26 @@
 """About page and shared program information."""
 
 import os
+import re
 import sys
 
 import wx
 import webbrowser
 
 
-APP_VERSION = "2.3.0"
+
+def _project_version():
+    base_path = getattr(sys, "_MEIPASS", os.path.dirname(os.path.abspath(__file__)))
+    try:
+        with open(os.path.join(base_path, "pyproject.toml"), "r", encoding="utf-8") as project_file:
+            project = project_file.read()
+    except OSError:
+        return "unknown"
+    match = re.search(r'^version\s*=\s*["\']([^"\']+)["\']', project, re.MULTILINE)
+    return match.group(1) if match else "unknown"
+
+
+APP_VERSION = _project_version()
 PROJECT_URL = "https://github.com/alexfare/pyobd"
 RELEASES_URL = f"{PROJECT_URL}/releases/latest"
 ISSUES_URL = f"{PROJECT_URL}/issues"

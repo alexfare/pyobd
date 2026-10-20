@@ -1,5 +1,5 @@
 # Modified by FareBrothers, LLC.
-# Modifications made from 2026-10-10 through 2026-10-16.
+# Modifications made from 2026-10-10 through 2026-10-19.
 
 [project]
 dependencies = [
@@ -10,9 +10,9 @@ dependencies = [
 ]
 
 name = "pyobd2"
-version = "2.3.0"
+version = "2.4.0"
 description = "An OBD-II compliant car diagnostic tool "
-authors = [{ "name" = "Jure Poljsak" }, { "name" = "Charles Donour Sizemore" }]
+authors = [{ "name" = "Jure Poljsak" }, { "name" = "Charles Donour Sizemore" }, { "name" = "FareBrothers, LLC" }]
 readme = "README.md"
 license = "GPL-2.0-only"
 requires-python = ">=3.8"

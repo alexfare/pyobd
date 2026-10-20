@@ -145,9 +145,9 @@ class SensorProducer(threading.Thread):
             wx.PostEvent(self._notify_window, DebugEvent([1, "Communication initialized..."]))
             wx.PostEvent(self._notify_window, StatusEvent([0, 1, "Car connected!"]))
 
-            r = self.connection.connection.query(obd.commands.ELM_VERSION)
+            r = self.connection.query(obd.commands.ELM_VERSION)
             self.ELMver = str(r.value)
-            r = self.connection.connection.query(obd.commands.ELM_VOLTAGE)
+            r = self.connection.query(obd.commands.ELM_VOLTAGE)
             self.ELMvoltage = str(r.value)
             wx.PostEvent(self._notify_window, StatusEvent([5, 1, str(self.ELMvoltage)]))
             self.protocol = self.connection.connection.protocol_name()
@@ -156,7 +156,7 @@ class SensorProducer(threading.Thread):
             wx.PostEvent(self._notify_window, StatusEvent([1, 1, str(self.protocol)]))
             wx.PostEvent(self._notify_window, StatusEvent([3, 1, str(self.connection.connection.port_name())]))
             try:
-                r = self.connection.connection.query(obd.commands.VIN)
+                r = self.connection.query(obd.commands.VIN)
                 if r.value != None:
                     self.VIN = r.value.decode()
                     wx.PostEvent(self._notify_window, StatusEvent([4, 1, str(self.VIN)]))
@@ -399,12 +399,12 @@ class SensorProducer(threading.Thread):
                 wx.PostEvent(self._notify_window, Graphs8ValueEvent([7, 1, self.current_command8_8.desc]))
 
             if curstate == 0:  # show status tab
-                r = self.connection.connection.query(obd.commands.RPM)
+                r = self.connection.query(obd.commands.RPM)
                 if r.value == None:
                     reconnect()
                     continue
 
-                r = self.connection.connection.query(obd.commands.ELM_VOLTAGE)
+                r = self.connection.query(obd.commands.ELM_VOLTAGE)
                 self.ELMvoltage = str(r.value)
                 wx.PostEvent(self._notify_window, StatusEvent([5, 1, str(self.ELMvoltage)]))
 
@@ -414,30 +414,47 @@ class SensorProducer(threading.Thread):
                 try:
                     refresh_requested = self._notify_window.tests_refresh_requested
                     if prevstate == 1 and not refresh_requested:
-                        continue
-                    r = self.connection.connection.query(obd.commands.RPM)
-                    if r.value == None:
-                        reconnect()
+                        time_end = datetime.datetime.now()
+                        first_time = False
                         continue
                     self._notify_window.tests_refresh_requested = False
-                    status_response = self.connection.connection.query(obd.commands[1][1])
-                    readiness, counts = self._readiness_results(status_response.value)
-                    for result in readiness:
-                        wx.PostEvent(self._notify_window, TestEvent(result))
-
-                    for index in range(12):
-                        command = getattr(
-                            obd.commands, f"MONITOR_MISFIRE_CYLINDER_{index + 1}"
-                        )
-                        response = self.connection.connection.query(command)
-                        result = self._misfire_result(response.value)
+                    if self._notify_window.tests_active_section == "readiness":
+                        status_response = self.connection.query(obd.commands[1][1])
+                        readiness, counts = self._readiness_results(status_response.value)
+                        for result in readiness:
+                            wx.PostEvent(self._notify_window, TestEvent(result))
                         wx.PostEvent(self._notify_window, TestEvent({
-                            "kind": "misfire", "index": index, "result": result,
+                            "kind": "complete", **counts,
                         }))
-
-                    wx.PostEvent(self._notify_window, TestEvent({
-                        "kind": "complete", **counts,
-                    }))
+                    else:
+                        supported_misfire_commands = [
+                            (cylinder, getattr(
+                                obd.commands, f"MONITOR_MISFIRE_CYLINDER_{cylinder}"
+                            ))
+                            for cylinder in range(1, 13)
+                            if self.connection.supports(getattr(
+                                obd.commands, f"MONITOR_MISFIRE_CYLINDER_{cylinder}"
+                            ))
+                        ]
+                        wx.PostEvent(self._notify_window, TestEvent({
+                            "kind": "misfire_reset",
+                            "cylinders": [item[0] for item in supported_misfire_commands],
+                        }))
+                        for index, (_cylinder, command) in enumerate(supported_misfire_commands):
+                            if (
+                                self._notify_window.tests_poll_cancelled
+                                or self._notify_window.tests_active_section != "misfire"
+                            ):
+                                break
+                            response = self.connection.query(command)
+                            result = self._misfire_result(response.value)
+                            wx.PostEvent(self._notify_window, TestEvent({
+                                "kind": "misfire", "index": index, "result": result,
+                            }))
+                        wx.PostEvent(self._notify_window, TestEvent({
+                            "kind": "misfire_complete",
+                            "count": len(supported_misfire_commands),
+                        }))
 
                 except:
                     self._notify_window.tests_refresh_requested = False
@@ -445,7 +462,7 @@ class SensorProducer(threading.Thread):
                     traceback.print_exc()
 
             elif curstate == 2:  # show sensor tab
-                r = self.connection.connection.query(obd.commands.RPM)
+                r = self.connection.query(obd.commands.RPM)
                 if r.value == None:
                     reconnect()
                     continue
@@ -457,7 +474,7 @@ class SensorProducer(threading.Thread):
                     for command in obd.commands[1]:
                         if command:
                             if command.command not in (b"0100", b"0120", b"0140"): #, b"0103", b"0141" #b"0101", b"0103", b"0102", b"011C", b"0151", b"0113"
-                                r = self.connection.connection.query(command)
+                                r = self.connection.query(command)
                                 if r.value == None and command.command != b"0103":
                                     continue
                                 else:
@@ -476,7 +493,7 @@ class SensorProducer(threading.Thread):
                                     else:
                                         wx.PostEvent(self._notify_window, ResultEvent([counter, 2, self._notify_window.format_measurement_value(r.value)]))
                                     counter = counter + 1
-                    #r = self.connection.connection.query(obd.commands.ELM_VOLTAGE)
+                    #r = self.connection.query(obd.commands.ELM_VOLTAGE)
                     #sensor_list.append([obd.commands.ELM_VOLTAGE, obd.commands.ELM_VOLTAGE.desc, str(r.value)])
                     #wx.PostEvent(self._notify_window, InsertSensorRowEvent(counter))
                     #wx.PostEvent(self._notify_window, ResultEvent([counter, 0, str(obd.commands.ELM_VOLTAGE.command)]))
@@ -488,7 +505,7 @@ class SensorProducer(threading.Thread):
                     #    app.sensors.DeleteItem(0)
                     counter = 0
                     for sens in sensor_list:
-                        r = self.connection.connection.query(sens[0])
+                        r = self.connection.query(sens[0])
                         if r.value == None and sens[0].command != b"0103":
                             #reconnect()
                             continue
@@ -508,13 +525,13 @@ class SensorProducer(threading.Thread):
 
             elif curstate == 3:  # show DTC tab
 
-                r = self.connection.connection.query(obd.commands.RPM)
+                r = self.connection.query(obd.commands.RPM)
                 if r.value == None:
                     reconnect()
                     continue
 
                 if self._notify_window.ThreadControl == 1:  # clear DTC
-                    r = self.connection.connection.query(obd.commands["CLEAR_DTC"])
+                    r = self.connection.query(obd.commands["CLEAR_DTC"])
 
                     if self._notify_window.ThreadControl == 666:  # before reset ThreadControl we must check if main thread did not want us to finish
                         break
@@ -535,14 +552,14 @@ class SensorProducer(threading.Thread):
 
                     wx.PostEvent(self._notify_window, DTCEvent(0))  # clear list
                     dtc_codes, counts = self._collect_dtc_results(
-                        self.connection.connection
+                        self.connection
                     )
                     for dtccode in dtc_codes:
                         wx.PostEvent(self._notify_window, DTCEvent(dtccode))
                     wx.PostEvent(self._notify_window, DTCEvent({"counts": counts}))
 
             elif curstate == 4:  # show freezeframe tab
-                r = self.connection.connection.query(obd.commands.RPM)
+                r = self.connection.query(obd.commands.RPM)
                 if r.value == None:
                     reconnect()
                     continue
@@ -553,7 +570,7 @@ class SensorProducer(threading.Thread):
                     for command in obd.commands[2]:
                         if command:
                             if command.command not in (b"0200" , b"0201", b"0220", b"0240", b"0203", b"0202", b"021C", b"0213", b"0241", b"0251"):
-                                r = self.connection.connection.query(command)
+                                r = self.connection.query(command)
                                 if r.value == None:
                                     continue
                                 else:
@@ -568,7 +585,7 @@ class SensorProducer(threading.Thread):
                     for sens in freezeframe_list:
                         for command in obd.commands[2]:
                             if command.command == sens[0]:
-                                r = self.connection.connection.query(command)
+                                r = self.connection.query(command)
                                 if r.value == None:
                                     #reconnect()
                                     continue
@@ -621,7 +638,7 @@ class SensorProducer(threading.Thread):
                 emit_values = graph_now - self.graph_last_value_at >= 0.2
 
                 if graph_now - self.graph_last_health_at >= 1.0:
-                    health_response = self.connection.connection.query(obd.commands.RPM)
+                    health_response = self.connection.query(obd.commands.RPM)
                     self.graph_last_health_at = graph_now
                     if health_response.value is None:
                         reconnect()
@@ -642,7 +659,7 @@ class SensorProducer(threading.Thread):
                             "desc": command.desc,
                         }
 
-                    r = self.connection.connection.query(command)
+                    r = self.connection.query(command)
                     if r.value is None:
                         if emit_values:
                             wx.PostEvent(self._notify_window, GraphValueEvent([command_key, 2, "No data"]))
@@ -713,7 +730,7 @@ class SensorProducer(threading.Thread):
                     for command in obd.commands[1]:
                         if command:
                             if command.command not in (b"0100" , b"0101", b"0120", b"0140", b"0103", b"0102", b"011C", b"0113", b"0141", b"0151"):
-                                r = self.connection.connection.query(command)
+                                r = self.connection.query(command)
                                 if r.value == None:
                                     continue
                                 else:
@@ -783,7 +800,7 @@ class SensorProducer(threading.Thread):
                             wx.PostEvent(self._notify_window, GraphsValueEvent([0, 0, self.current_command1.command]))
                             wx.PostEvent(self._notify_window, GraphsValueEvent([0, 1, self.current_command1.desc]))
                         else:
-                            r = self.connection.connection.query(self.current_command1)
+                            r = self.connection.query(self.current_command1)
                             if r.value == None:
                                 reconnect()
                                 continue
@@ -831,7 +848,7 @@ class SensorProducer(threading.Thread):
                             wx.PostEvent(self._notify_window, GraphsValueEvent([1, 0, self.current_command2.command]))
                             wx.PostEvent(self._notify_window, GraphsValueEvent([1, 1, self.current_command2.desc]))
                         else:
-                            r = self.connection.connection.query(self.current_command2)
+                            r = self.connection.query(self.current_command2)
                             if r.value == None:
                                 reconnect()
                                 continue
@@ -879,7 +896,7 @@ class SensorProducer(threading.Thread):
                             wx.PostEvent(self._notify_window, GraphsValueEvent([2, 0, self.current_command3.command]))
                             wx.PostEvent(self._notify_window, GraphsValueEvent([2, 1, self.current_command3.desc]))
                         else:
-                            r = self.connection.connection.query(self.current_command3)
+                            r = self.connection.query(self.current_command3)
                             if r.value == None:
                                 reconnect()
                                 continue
@@ -927,7 +944,7 @@ class SensorProducer(threading.Thread):
                             wx.PostEvent(self._notify_window, GraphsValueEvent([3, 0, self.current_command4.command]))
                             wx.PostEvent(self._notify_window, GraphsValueEvent([3, 1, self.current_command4.desc]))
                         else:
-                            r = self.connection.connection.query(self.current_command4)
+                            r = self.connection.query(self.current_command4)
                             if r.value == None:
                                 reconnect()
                                 continue
@@ -1049,7 +1066,7 @@ class SensorProducer(threading.Thread):
                             if command.command not in (
                             b"0100", b"0101", b"0120", b"0140", b"0103", b"0102", b"011C", b"0113", b"0141",
                             b"0151"):
-                                r = self.connection.connection.query(command)
+                                r = self.connection.query(command)
                                 if r.value == None:
                                     continue
                                 else:
@@ -1156,7 +1173,7 @@ class SensorProducer(threading.Thread):
                                          Graphs8ValueEvent([0, 0, self.current_command8_1.command]))
                             wx.PostEvent(self._notify_window, Graphs8ValueEvent([0, 1, self.current_command8_1.desc]))
                         else:
-                            r = self.connection.connection.query(self.current_command8_1)
+                            r = self.connection.query(self.current_command8_1)
                             if r.value == None:
                                 reconnect()
                                 continue
@@ -1205,7 +1222,7 @@ class SensorProducer(threading.Thread):
                                          Graphs8ValueEvent([1, 0, self.current_command8_2.command]))
                             wx.PostEvent(self._notify_window, Graphs8ValueEvent([1, 1, self.current_command8_2.desc]))
                         else:
-                            r = self.connection.connection.query(self.current_command8_2)
+                            r = self.connection.query(self.current_command8_2)
                             if r.value == None:
                                 reconnect()
                                 continue
@@ -1254,7 +1271,7 @@ class SensorProducer(threading.Thread):
                                          Graphs8ValueEvent([2, 0, self.current_command8_3.command]))
                             wx.PostEvent(self._notify_window, Graphs8ValueEvent([2, 1, self.current_command8_3.desc]))
                         else:
-                            r = self.connection.connection.query(self.current_command8_3)
+                            r = self.connection.query(self.current_command8_3)
                             if r.value == None:
                                 reconnect()
                                 continue
@@ -1303,7 +1320,7 @@ class SensorProducer(threading.Thread):
                                          Graphs8ValueEvent([3, 0, self.current_command8_4.command]))
                             wx.PostEvent(self._notify_window, Graphs8ValueEvent([3, 1, self.current_command8_4.desc]))
                         else:
-                            r = self.connection.connection.query(self.current_command8_4)
+                            r = self.connection.query(self.current_command8_4)
                             if r.value == None:
                                 reconnect()
                                 continue
@@ -1359,7 +1376,7 @@ class SensorProducer(threading.Thread):
                                          Graphs8ValueEvent([4, 0, self.current_command8_5.command]))
                             wx.PostEvent(self._notify_window, Graphs8ValueEvent([4, 1, self.current_command8_5.desc]))
                         else:
-                            r = self.connection.connection.query(self.current_command8_5)
+                            r = self.connection.query(self.current_command8_5)
                             if r.value == None:
                                 reconnect()
                                 continue
@@ -1410,7 +1427,7 @@ class SensorProducer(threading.Thread):
                                          Graphs8ValueEvent([5, 0, self.current_command8_6.command]))
                             wx.PostEvent(self._notify_window, Graphs8ValueEvent([5, 1, self.current_command8_6.desc]))
                         else:
-                            r = self.connection.connection.query(self.current_command8_6)
+                            r = self.connection.query(self.current_command8_6)
                             if r.value == None:
                                 reconnect()
                                 continue
@@ -1461,7 +1478,7 @@ class SensorProducer(threading.Thread):
                                          Graphs8ValueEvent([6, 0, self.current_command8_7.command]))
                             wx.PostEvent(self._notify_window, Graphs8ValueEvent([6, 1, self.current_command8_7.desc]))
                         else:
-                            r = self.connection.connection.query(self.current_command8_7)
+                            r = self.connection.query(self.current_command8_7)
                             if r.value == None:
                                 reconnect()
                                 continue
@@ -1510,7 +1527,7 @@ class SensorProducer(threading.Thread):
                                          Graphs8ValueEvent([7, 0, self.current_command8_8.command]))
                             wx.PostEvent(self._notify_window, Graphs8ValueEvent([7, 1, self.current_command8_8.desc]))
                         else:
-                            r = self.connection.connection.query(self.current_command8_8)
+                            r = self.connection.query(self.current_command8_8)
                             if r.value == None:
                                 reconnect()
                                 continue
@@ -1621,7 +1638,7 @@ class SensorProducer(threading.Thread):
                     self.first_time_8graphs_plot = False
                     # time.sleep(0.2)
             elif curstate == 8:
-                r = self.connection.connection.query(obd.commands.RPM)
+                r = self.connection.query(obd.commands.RPM)
                 if r.value == None:
                     reconnect()
                     continue
@@ -1636,7 +1653,7 @@ class SensorProducer(threading.Thread):
                 ):
                     values = []
                     for command in list(self._notify_window.dashboard_poll_commands):
-                        response = self.connection.connection.query(command)
+                        response = self.connection.query(command)
                         if response.value is None:
                             continue
                         magnitude, unit, value_text = self._notify_window.get_measurement_components(

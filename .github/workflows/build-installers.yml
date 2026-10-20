@@ -26,7 +26,7 @@ jobs:
         run: >-
           pyinstaller --noconfirm --clean --windowed --onedir
           --name pyOBD --icon pyobd.ico
-          --add-data "pyobd.png:." --add-data "COPYING:."
+          --add-data "pyobd.png:." --add-data "COPYING:." --add-data "pyproject.toml:."
           --add-data "THIRD_PARTY_NOTICES.md:." --add-data "third-party-licenses:third-party-licenses"
           pyobd.py
       - name: Build installer
@@ -89,7 +89,7 @@ jobs:
             --name pyOBD --icon pyobd.icns \
             --osx-bundle-identifier com.farebrothers.pyobd \
             --codesign-identity "$MACOS_SIGNING_IDENTITY" \
-            --add-data "pyobd.png:." --add-data "COPYING:." \
+            --add-data "pyobd.png:." --add-data "COPYING:." --add-data "pyproject.toml:." \
             --add-data "THIRD_PARTY_NOTICES.md:." --add-data "third-party-licenses:third-party-licenses" \
             pyobd.py
           codesign --verify --deep --strict --verbose=2 dist/pyOBD.app
@@ -149,7 +149,7 @@ jobs:
         run: >-
           .venv-build/bin/pyinstaller --noconfirm --clean --windowed --onedir
           --name pyOBD --icon pyobd.png
-          --add-data "pyobd.png:." --add-data "COPYING:."
+          --add-data "pyobd.png:." --add-data "COPYING:." --add-data "pyproject.toml:."
           --add-data "THIRD_PARTY_NOTICES.md:." --add-data "third-party-licenses:third-party-licenses"
           pyobd.py
       - name: Build installer
