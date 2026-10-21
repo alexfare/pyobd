@@ -46,6 +46,170 @@ struct DiscoveredAdapter: Identifiable {
     var id: UUID { peripheral.identifier }
 }
 
+enum MobileSection: Hashable {
+    case overview
+    case liveData
+    case diagnostics
+    case readiness
+    case connection
+}
+
+enum StandardPID: String, CaseIterable, Identifiable {
+    case engineLoad = "0104"
+    case coolantTemperature = "0105"
+    case engineRPM = "010C"
+    case vehicleSpeed = "010D"
+    case intakeTemperature = "010F"
+    case throttlePosition = "0111"
+    case controlModuleVoltage = "0142"
+
+    var id: String { rawValue }
+    var number: Int { Int(rawValue.suffix(2), radix: 16) ?? 0 }
+
+    var name: String {
+        switch self {
+        case .engineLoad: "Calculated engine load"
+        case .coolantTemperature: "Engine coolant temperature"
+        case .engineRPM: "Engine RPM"
+        case .vehicleSpeed: "Vehicle speed"
+        case .intakeTemperature: "Intake air temperature"
+        case .throttlePosition: "Throttle position"
+        case .controlModuleVoltage: "Control module voltage"
+        }
+    }
+
+    func reading(from response: String) -> PIDReading? {
+        guard let bytes = OBDParser.payload(
+            in: response,
+            marker: [0x41, UInt8(number)]
+        ) else { return nil }
+
+        switch self {
+        case .engineLoad:
+            guard let a = bytes.first else { return nil }
+            return PIDReading(pid: self, value: Double(a) * 100 / 255, unit: "%")
+        case .coolantTemperature, .intakeTemperature:
+            guard let a = bytes.first else { return nil }
+            return PIDReading(pid: self, value: Double(Int(a) - 40), unit: "°C")
+        case .engineRPM:
+            guard bytes.count >= 2 else { return nil }
+            return PIDReading(
+                pid: self,
+                value: Double(Int(bytes[0]) * 256 + Int(bytes[1])) / 4,
+                unit: "RPM"
+            )
+        case .vehicleSpeed:
+            guard let a = bytes.first else { return nil }
+            return PIDReading(pid: self, value: Double(a), unit: "km/h")
+        case .throttlePosition:
+            guard let a = bytes.first else { return nil }
+            return PIDReading(pid: self, value: Double(a) * 100 / 255, unit: "%")
+        case .controlModuleVoltage:
+            guard bytes.count >= 2 else { return nil }
+            return PIDReading(
+                pid: self,
+                value: Double(Int(bytes[0]) * 256 + Int(bytes[1])) / 1000,
+                unit: "V"
+            )
+        }
+    }
+}
+
+struct PIDReading: Identifiable, Equatable {
+    let pid: StandardPID
+    let value: Double
+    let unit: String
+
+    var id: String { pid.id }
+    var formattedValue: String {
+        switch pid {
+        case .engineRPM, .vehicleSpeed:
+            "\(Int(value.rounded())) \(unit)"
+        case .coolantTemperature, .intakeTemperature:
+            "\(Int(value.rounded()))\(unit)"
+        default:
+            "\(value.formatted(.number.precision(.fractionLength(1)))) \(unit)"
+        }
+    }
+}
+
+struct DiagnosticCode: Identifiable, Equatable {
+    let code: String
+    let category: String
+    var id: String { "\(category)-\(code)" }
+}
+
+struct ReadinessResult: Identifiable, Equatable {
+    let name: String
+    let supported: Bool
+    let complete: Bool
+    var id: String { name }
+}
+
+enum OBDCommandError: LocalizedError {
+    case notConnected
+    case timedOut
+    case noData
+
+    var errorDescription: String? {
+        switch self {
+        case .notConnected: "Adapter is not connected"
+        case .timedOut: "Adapter did not respond"
+        case .noData: "Vehicle returned no data"
+        }
+    }
+}
+
+enum OBDParser {
+    static func bytes(in response: String) -> [UInt8] {
+        response
+            .uppercased()
+            .components(separatedBy: CharacterSet.alphanumerics.inverted)
+            .flatMap { token -> [UInt8] in
+                guard !token.isEmpty,
+                      token.count.isMultiple(of: 2),
+                      token.allSatisfy({ $0.isHexDigit }) else { return [] }
+                return stride(from: 0, to: token.count, by: 2).compactMap { offset in
+                    let start = token.index(token.startIndex, offsetBy: offset)
+                    let end = token.index(start, offsetBy: 2)
+                    return UInt8(token[start..<end], radix: 16)
+                }
+            }
+    }
+
+    static func payload(in response: String, marker: [UInt8]) -> [UInt8]? {
+        let data = bytes(in: response)
+        guard marker.count <= data.count else { return nil }
+        for index in 0...(data.count - marker.count) {
+            if Array(data[index..<(index + marker.count)]) == marker {
+                return Array(data.dropFirst(index + marker.count))
+            }
+        }
+        return nil
+    }
+
+    static func troubleCodes(in response: String, responseMode: UInt8) -> [String] {
+        let data = bytes(in: response)
+        guard let modeIndex = data.firstIndex(of: responseMode) else { return [] }
+        let payload = Array(data.dropFirst(modeIndex + 1))
+        var codes: [String] = []
+        for index in stride(from: 0, to: payload.count - 1, by: 2) {
+            let first = payload[index]
+            let second = payload[index + 1]
+            guard first != 0 || second != 0 else { continue }
+            let family = ["P", "C", "B", "U"][Int(first >> 6)]
+            let code = String(
+                format: "%@%01X%02X",
+                family,
+                Int((first >> 4) & 0x03),
+                Int(first & 0x0F) * 256 + Int(second)
+            )
+            codes.append(code)
+        }
+        return codes
+    }
+}
+
 @MainActor
 final class ConnectionManager: NSObject, ObservableObject {
     @Published var transport: AdapterTransport = .wifi
@@ -53,6 +217,20 @@ final class ConnectionManager: NSObject, ObservableObject {
     @Published var wifiHost: String
     @Published var wifiPort: String
     @Published private(set) var discoveredAdapters: [DiscoveredAdapter] = []
+    @Published private(set) var liveReadings: [PIDReading] = []
+    @Published private(set) var diagnosticCodes: [DiagnosticCode] = []
+    @Published private(set) var readinessResults: [ReadinessResult] = []
+    @Published private(set) var vehicleVIN = "—"
+    @Published private(set) var vehicleProtocol = "—"
+    @Published private(set) var adapterVoltage = "—"
+    @Published private(set) var operationMessage: String?
+    @Published private(set) var isBusy = false
+
+    private struct QueuedCommand {
+        let id: UUID
+        let text: String
+        let continuation: CheckedContinuation<String, Error>
+    }
 
     private let defaults = UserDefaults.standard
     private var wifiConnection: NWConnection?
@@ -60,8 +238,15 @@ final class ConnectionManager: NSObject, ObservableObject {
     private var bluetoothPeripheral: CBPeripheral?
     private var bluetoothWriteCharacteristic: CBCharacteristic?
     private var reconnectTask: Task<Void, Never>?
+    private var initializationTask: Task<Void, Never>?
+    private var livePollingTask: Task<Void, Never>?
     private var shouldReconnect = false
     private var backgroundTask = UIBackgroundTaskIdentifier.invalid
+    private var commandQueue: [QueuedCommand] = []
+    private var activeCommand: QueuedCommand?
+    private var responseBuffer = ""
+    private var availablePIDs = StandardPID.allCases
+    private var activeSection: MobileSection = .connection
 
     private static let hostKey = "adapter.wifi.host"
     private static let portKey = "adapter.wifi.port"
@@ -107,6 +292,11 @@ final class ConnectionManager: NSObject, ObservableObject {
         shouldReconnect = false
         reconnectTask?.cancel()
         reconnectTask = nil
+        initializationTask?.cancel()
+        initializationTask = nil
+        livePollingTask?.cancel()
+        livePollingTask = nil
+        failPendingCommands(with: OBDCommandError.notConnected)
         centralManager.stopScan()
         wifiConnection?.cancel()
         wifiConnection = nil
@@ -116,8 +306,81 @@ final class ConnectionManager: NSObject, ObservableObject {
         }
         bluetoothPeripheral = nil
         bluetoothWriteCharacteristic = nil
+        liveReadings.removeAll()
+        diagnosticCodes.removeAll()
+        readinessResults.removeAll()
+        vehicleVIN = "—"
+        vehicleProtocol = "—"
+        adapterVoltage = "—"
+        operationMessage = nil
         state = .disconnected
         endBackgroundTask()
+    }
+
+    func setActiveSection(_ section: MobileSection) {
+        activeSection = section
+        if section == .overview || section == .liveData {
+            startLivePollingIfNeeded()
+        } else {
+            livePollingTask?.cancel()
+            livePollingTask = nil
+        }
+    }
+
+    func refreshDiagnosticCodes() async {
+        guard state == .connected else { return }
+        isBusy = true
+        operationMessage = nil
+        defer { isBusy = false }
+
+        do {
+            let categories: [(String, String, UInt8)] = [
+                ("Stored", "03", 0x43),
+                ("Pending", "07", 0x47),
+                ("Permanent", "0A", 0x4A),
+            ]
+            var results: [DiagnosticCode] = []
+            for (category, command, responseMode) in categories {
+                let response = try await sendOBDCommand(command)
+                results.append(contentsOf: OBDParser.troubleCodes(
+                    in: response,
+                    responseMode: responseMode
+                ).map { DiagnosticCode(code: $0, category: category) })
+            }
+            diagnosticCodes = results
+            operationMessage = results.isEmpty ? "No diagnostic trouble codes found" : nil
+        } catch {
+            operationMessage = error.localizedDescription
+        }
+    }
+
+    func clearDiagnosticCodes() async {
+        guard state == .connected else { return }
+        isBusy = true
+        operationMessage = nil
+        defer { isBusy = false }
+        do {
+            _ = try await sendOBDCommand("04")
+            diagnosticCodes.removeAll()
+            operationMessage = "Clear-code command sent"
+        } catch {
+            operationMessage = error.localizedDescription
+        }
+    }
+
+    func refreshReadiness() async {
+        guard state == .connected else { return }
+        isBusy = true
+        operationMessage = nil
+        defer { isBusy = false }
+        do {
+            let response = try await sendOBDCommand("0101")
+            guard let bytes = OBDParser.payload(in: response, marker: [0x41, 0x01]),
+                  bytes.count >= 4 else { throw OBDCommandError.noData }
+            readinessResults = Self.decodeReadiness(bytes: bytes)
+        } catch {
+            operationMessage = error.localizedDescription
+        }
     }
 
     func scanForBluetoothAdapters() {
@@ -185,11 +448,12 @@ final class ConnectionManager: NSObject, ObservableObject {
     private func handleWiFiState(_ newState: NWConnection.State) {
         switch newState {
         case .ready:
-            state = .connected
             receiveWiFiData()
+            beginAdapterInitialization()
         case .waiting:
             state = .reconnecting
         case .failed(let error):
+            failPendingCommands(with: error)
             state = .failed(error.localizedDescription)
             scheduleReconnect()
         case .cancelled:
@@ -201,10 +465,14 @@ final class ConnectionManager: NSObject, ObservableObject {
 
     private func receiveWiFiData() {
         guard let connection = wifiConnection else { return }
-        connection.receive(minimumIncompleteLength: 1, maximumLength: 65_536) { [weak self, weak connection] _, _, isComplete, error in
+        connection.receive(minimumIncompleteLength: 1, maximumLength: 65_536) { [weak self, weak connection] data, _, isComplete, error in
             Task { @MainActor in
                 guard let self, let connection, connection === self.wifiConnection else { return }
+                if let data {
+                    self.consumeAdapterData(data)
+                }
                 if error != nil || isComplete {
+                    self.failPendingCommands(with: OBDCommandError.notConnected)
                     self.state = .reconnecting
                     self.scheduleReconnect()
                 } else {
@@ -243,6 +511,9 @@ final class ConnectionManager: NSObject, ObservableObject {
     private func scheduleReconnect() {
         guard shouldReconnect else { return }
         reconnectTask?.cancel()
+        initializationTask?.cancel()
+        livePollingTask?.cancel()
+        livePollingTask = nil
         state = .reconnecting
         reconnectTask = Task { [weak self] in
             try? await Task.sleep(for: .seconds(2))
@@ -269,6 +540,220 @@ final class ConnectionManager: NSObject, ObservableObject {
         guard backgroundTask != .invalid else { return }
         UIApplication.shared.endBackgroundTask(backgroundTask)
         backgroundTask = .invalid
+    }
+
+    private func beginAdapterInitialization() {
+        initializationTask?.cancel()
+        operationMessage = nil
+        state = .connecting
+        initializationTask = Task { [weak self] in
+            guard let self else { return }
+            do {
+                for command in ["ATZ", "ATE0", "ATL0", "ATS0", "ATH0", "ATSP0"] {
+                    _ = try await self.sendOBDCommand(command)
+                }
+                try Task.checkCancellation()
+                self.state = .connected
+                await self.loadVehicleSummary()
+                await self.loadSupportedPIDs()
+                self.startLivePollingIfNeeded()
+            } catch is CancellationError {
+                return
+            } catch {
+                guard self.shouldReconnect, !Task.isCancelled else { return }
+                self.state = .failed(error.localizedDescription)
+                self.scheduleReconnect()
+            }
+        }
+    }
+
+    private func sendOBDCommand(_ command: String) async throws -> String {
+        guard wifiConnection != nil || bluetoothWriteCharacteristic != nil else {
+            throw OBDCommandError.notConnected
+        }
+        return try await withCheckedThrowingContinuation { continuation in
+            commandQueue.append(QueuedCommand(
+                id: UUID(),
+                text: command.uppercased(),
+                continuation: continuation
+            ))
+            sendNextCommandIfNeeded()
+        }
+    }
+
+    private func sendNextCommandIfNeeded() {
+        guard activeCommand == nil, !commandQueue.isEmpty else { return }
+        let command = commandQueue.removeFirst()
+        activeCommand = command
+        responseBuffer = ""
+        let data = Data("\(command.text)\r".utf8)
+
+        if transport == .wifi, let wifiConnection {
+            wifiConnection.send(content: data, completion: .contentProcessed { _ in })
+        } else if let bluetoothPeripheral, let bluetoothWriteCharacteristic {
+            let writeType: CBCharacteristicWriteType = bluetoothWriteCharacteristic.properties
+                .contains(.writeWithoutResponse) ? .withoutResponse : .withResponse
+            bluetoothPeripheral.writeValue(data, for: bluetoothWriteCharacteristic, type: writeType)
+        } else {
+            activeCommand = nil
+            command.continuation.resume(throwing: OBDCommandError.notConnected)
+            sendNextCommandIfNeeded()
+            return
+        }
+
+        Task { [weak self] in
+            try? await Task.sleep(for: .seconds(5))
+            self?.timeoutCommand(command.id)
+        }
+    }
+
+    private func timeoutCommand(_ id: UUID) {
+        guard activeCommand?.id == id else { return }
+        let command = activeCommand
+        activeCommand = nil
+        responseBuffer = ""
+        command?.continuation.resume(throwing: OBDCommandError.timedOut)
+        sendNextCommandIfNeeded()
+    }
+
+    private func consumeAdapterData(_ data: Data) {
+        guard let text = String(data: data, encoding: .utf8) else { return }
+        responseBuffer += text.replacingOccurrences(of: "\0", with: "")
+        while let prompt = responseBuffer.firstIndex(of: ">") {
+            let response = String(responseBuffer[..<prompt])
+            responseBuffer = String(responseBuffer[responseBuffer.index(after: prompt)...])
+            guard let command = activeCommand else { continue }
+            activeCommand = nil
+            command.continuation.resume(returning: response)
+            sendNextCommandIfNeeded()
+        }
+    }
+
+    private func failPendingCommands(with error: Error) {
+        initializationTask?.cancel()
+        if let activeCommand {
+            activeCommand.continuation.resume(throwing: error)
+        }
+        activeCommand = nil
+        commandQueue.forEach { $0.continuation.resume(throwing: error) }
+        commandQueue.removeAll()
+        responseBuffer = ""
+    }
+
+    private func loadVehicleSummary() async {
+        do {
+            vehicleProtocol = Self.cleanTextResponse(try await sendOBDCommand("ATDP"))
+            adapterVoltage = Self.cleanTextResponse(try await sendOBDCommand("ATRV"))
+            let vinResponse = try await sendOBDCommand("0902")
+            if let vin = Self.decodeVIN(vinResponse), !vin.isEmpty {
+                vehicleVIN = vin
+            }
+        } catch {
+            operationMessage = "Connected; some vehicle details are unavailable"
+        }
+    }
+
+    private func loadSupportedPIDs() async {
+        var supportedNumbers = Set<Int>()
+        do {
+            for base in [0x00, 0x20, 0x40] {
+                let command = String(format: "01%02X", base)
+                let response = try await sendOBDCommand(command)
+                guard let bytes = OBDParser.payload(
+                    in: response,
+                    marker: [0x41, UInt8(base)]
+                ), bytes.count >= 4 else { continue }
+                let mask = bytes.prefix(4).reduce(UInt32(0)) { ($0 << 8) | UInt32($1) }
+                for offset in 1...32 where mask & (UInt32(1) << UInt32(32 - offset)) != 0 {
+                    supportedNumbers.insert(base + offset)
+                }
+            }
+            let supported = StandardPID.allCases.filter { supportedNumbers.contains($0.number) }
+            if !supported.isEmpty { availablePIDs = supported }
+        } catch {
+            availablePIDs = StandardPID.allCases
+        }
+    }
+
+    private func startLivePollingIfNeeded() {
+        guard state == .connected,
+              activeSection == .overview || activeSection == .liveData,
+              livePollingTask == nil else { return }
+        livePollingTask = Task { [weak self] in
+            guard let self else { return }
+            while !Task.isCancelled, self.state == .connected {
+                for pid in self.availablePIDs {
+                    guard !Task.isCancelled else { break }
+                    if let response = try? await self.sendOBDCommand(pid.rawValue),
+                       let reading = pid.reading(from: response) {
+                        self.updateLiveReading(reading)
+                    }
+                }
+                try? await Task.sleep(for: .milliseconds(50))
+            }
+            self.livePollingTask = nil
+        }
+    }
+
+    private func updateLiveReading(_ reading: PIDReading) {
+        if let index = liveReadings.firstIndex(where: { $0.pid == reading.pid }) {
+            liveReadings[index] = reading
+        } else {
+            liveReadings.append(reading)
+            liveReadings.sort { $0.pid.number < $1.pid.number }
+        }
+    }
+
+    private static func cleanTextResponse(_ response: String) -> String {
+        response
+            .components(separatedBy: .newlines)
+            .map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }
+            .first { !$0.isEmpty && $0 != ">" } ?? "—"
+    }
+
+    private static func decodeVIN(_ response: String) -> String? {
+        guard let payload = OBDParser.payload(in: response, marker: [0x49, 0x02]) else {
+            return nil
+        }
+        let vinBytes = payload.filter { $0 >= 0x20 && $0 <= 0x7E }
+        return String(bytes: vinBytes, encoding: .ascii)?.trimmingCharacters(in: .whitespaces)
+    }
+
+    private static func decodeReadiness(bytes: [UInt8]) -> [ReadinessResult] {
+        let b = bytes[1]
+        let c = bytes[2]
+        let d = bytes[3]
+        var results = [
+            readinessResult("Misfire", supported: b & 0x01 != 0, incomplete: b & 0x10 != 0),
+            readinessResult("Fuel system", supported: b & 0x02 != 0, incomplete: b & 0x20 != 0),
+            readinessResult("Components", supported: b & 0x04 != 0, incomplete: b & 0x40 != 0),
+        ]
+        let names = b & 0x08 == 0
+            ? [
+                "Catalyst", "Heated catalyst", "Evaporative system", "Secondary air",
+                "A/C refrigerant", "Oxygen sensor", "Oxygen sensor heater", "EGR/VVT",
+            ]
+            : [
+                "NMHC catalyst", "NOx/SCR", "Reserved", "Boost pressure",
+                "Reserved", "Exhaust gas sensor", "PM filter", "EGR/VVT",
+            ]
+        for bit in 0..<8 {
+            let mask = UInt8(1 << bit)
+            results.append(readinessResult(
+                names[bit],
+                supported: c & mask != 0,
+                incomplete: d & mask != 0
+            ))
+        }
+        return results
+    }
+
+    private static func readinessResult(
+        _ name: String,
+        supported: Bool,
+        incomplete: Bool
+    ) -> ReadinessResult {
+        ReadinessResult(name: name, supported: supported, complete: supported && !incomplete)
     }
 }
 
@@ -340,6 +825,7 @@ extension ConnectionManager: @preconcurrency CBCentralManagerDelegate {
         error: Error?
     ) {
         bluetoothWriteCharacteristic = nil
+        failPendingCommands(with: error ?? OBDCommandError.notConnected)
         if shouldReconnect {
             state = .reconnecting
             if !isReconnecting {
@@ -375,8 +861,17 @@ extension ConnectionManager: @preconcurrency CBPeripheralDelegate {
                characteristic.properties.contains(.write)
                 || characteristic.properties.contains(.writeWithoutResponse) {
                 bluetoothWriteCharacteristic = characteristic
-                state = .connected
+                beginAdapterInitialization()
             }
         }
+    }
+
+    func peripheral(
+        _ peripheral: CBPeripheral,
+        didUpdateValueFor characteristic: CBCharacteristic,
+        error: Error?
+    ) {
+        guard error == nil, let data = characteristic.value else { return }
+        consumeAdapterData(data)
     }
 }
