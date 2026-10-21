@@ -1275,7 +1275,7 @@ class MyApp(SessionUIMixin, VehicleProfilesMixin, DashboardUIMixin, GraphUIMixin
 
         self.theme = AppTheme()
         self.frame = wx.Frame(None, -1, f"pyOBD v{APP_VERSION} - Modified by FareBrothers,LLC")
-        ico = wx.Icon(resource_path('pyobd.png'), wx.BITMAP_TYPE_PNG)
+        ico = wx.Icon(resource_path('assets/pyobd.png'), wx.BITMAP_TYPE_PNG)
         self.frame.SetIcon(ico)
 
         EVT_RESULT(self, self.OnResult, EVT_RESULT_ID)
@@ -1714,7 +1714,7 @@ class MyApp(SessionUIMixin, VehicleProfilesMixin, DashboardUIMixin, GraphUIMixin
     def CodeLookup(self, e=None):
         id = 0
         diag = wx.Frame(None, id, title="Diagnostic Trouble Codes")
-        ico = wx.Icon(resource_path('pyobd.png'), wx.BITMAP_TYPE_PNG)
+        ico = wx.Icon(resource_path('assets/pyobd.png'), wx.BITMAP_TYPE_PNG)
         diag.SetIcon(ico)
         tree = wx.TreeCtrl(diag, id, style=wx.TR_HAS_BUTTONS)
 

@@ -18,7 +18,7 @@ install -d \
 cp -R dist/pyOBD/. "$package_root/opt/pyobd/"
 install -m 755 packaging/linux/pyobd "$package_root/usr/bin/pyobd"
 install -m 644 packaging/linux/pyobd.desktop "$package_root/usr/share/applications/pyobd.desktop"
-install -m 644 pyobd.png "$package_root/usr/share/pixmaps/pyobd.png"
+install -m 644 assets/pyobd.png "$package_root/usr/share/pixmaps/pyobd.png"
 install -m 644 COPYING "$package_root/usr/share/doc/pyobd/copyright"
 install -m 644 THIRD_PARTY_NOTICES.md "$package_root/usr/share/doc/pyobd/THIRD_PARTY_NOTICES.md"
 cp -R third-party-licenses "$package_root/usr/share/doc/pyobd/"
