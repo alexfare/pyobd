@@ -208,22 +208,29 @@ class SensorProducer(threading.Thread):
         graph_was_streaming = False
         dashboard_last_emit_at = 0.0
         next_health_at = time.monotonic() + 1.0
+        health_failures = 0
 
         def reconnect():
+            nonlocal health_failures
             self.disconnect_status = "Connection lost"
             wx.PostEvent(self._notify_window, StatusEvent([0, 1, "Connection lost"]))
             if self.initCommunication(reconnecting=True) != "OK":
                 self._notify_window.ThreadControl = 666
                 return False
+            health_failures = 0
             self.disconnect_status = "Disconnected"
             return True
 
         def health_check(now):
-            nonlocal next_health_at
+            nonlocal next_health_at, health_failures
             if now < next_health_at:
                 return True
             next_health_at = now + 1.0
-            return self.connection.query(obd.commands.RPM).value is not None
+            if self.connection.query(obd.commands.RPM).value is None:
+                health_failures += 1
+                return health_failures < 3
+            health_failures = 0
+            return True
 
         while self._notify_window.ThreadControl != 666:
             if not self._is_connected_status(self.connection.connection.status()):
@@ -236,6 +243,8 @@ class SensorProducer(threading.Thread):
             page = getattr(self._notify_window, "active_polling_page", "idle")
             page_changed = page != previous_page
             now = time.monotonic()
+            if page_changed:
+                health_failures = 0
 
             if page != "graph" and graph_was_streaming:
                 graph_series.clear()
@@ -245,15 +254,13 @@ class SensorProducer(threading.Thread):
 
             if page == "status":
                 if now >= next_health_at:
-                    rpm = self.connection.query(obd.commands.RPM)
-                    if rpm.value is None:
+                    if not health_check(now):
                         if not reconnect():
                             break
                         previous_page = None
                         continue
                     voltage = self.connection.query(obd.commands.ELM_VOLTAGE)
                     wx.PostEvent(self._notify_window, StatusEvent([5, 1, str(voltage.value)]))
-                    next_health_at = now + 1.0
 
             elif page == "tests":
                 if page_changed or self._notify_window.tests_refresh_requested:
@@ -313,7 +320,7 @@ class SensorProducer(threading.Thread):
                         wx.PostEvent(self._notify_window, ResultEvent(catalog_updates))
 
                 updates = []
-                batch_size = 4 if self.demo_mode else 1
+                batch_size = 4
                 for _ in range(min(batch_size, len(sensor_commands))):
                     index = sensor_index % len(sensor_commands)
                     command = sensor_commands[index]
@@ -468,7 +475,10 @@ class SensorProducer(threading.Thread):
                 continue
 
             previous_page = page
-            self._wake_event.wait(self._target_loop_interval(self.demo_mode))
+            wait_interval = self._target_loop_interval(self.demo_mode)
+            if page == "sensors" and not self.demo_mode:
+                wait_interval = 1.0 / 60.0
+            self._wake_event.wait(wait_interval)
             self._wake_event.clear()
 
         self.state = "finished"

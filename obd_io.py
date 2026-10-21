@@ -44,6 +44,7 @@ import obd
 import decimal
 import math
 
+from app_events import StatusEvent
 from diagnostic_transport import ReadOnlyDiagnosticTransport
 
 
