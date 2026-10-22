@@ -608,6 +608,8 @@ class ELM327:
             default, the prompt) is seen
         """
         self.__write(cmd)
+        if self.__status == OBDStatus.NOT_CONNECTED:
+            return []
 
         delayed = 0.0
         if delay is not None:
@@ -617,7 +619,11 @@ class ELM327:
             delayed += delay
 
         r = self.__read(end_marker=end_marker)
-        while delayed < 1.0 and len(r) <= 0:
+        while (
+            self.__status != OBDStatus.NOT_CONNECTED
+            and delayed < 1.0
+            and len(r) <= 0
+        ):
             d = 0.1
             logger.debug("no response; wait: %f seconds" % d)
             print("no response; wait: %f seconds" % d)
@@ -639,9 +645,13 @@ class ELM327:
                 self.__port.flushInput()  # dump everything in the input buffer
                 self.__port.write(cmd)  # turn the string into bytes and write
                 self.__port.flush()  # wait for the output buffer to finish transmitting
-            except Exception:
+            except Exception as ex:
+                self.__last_error = str(ex) or "Adapter disconnected while writing"
                 self.__status = OBDStatus.NOT_CONNECTED
-                self.__port.close()
+                try:
+                    self.__port.close()
+                except Exception:
+                    pass
                 self.__port = None
                 logger.critical("Device disconnected while writing")
                 print("Device disconnected while writing")
@@ -668,9 +678,13 @@ class ELM327:
             # retrieve as much data as possible
             try:
                 data = self.__port.read(self.__port.in_waiting or 1)
-            except Exception:
+            except Exception as ex:
+                self.__last_error = str(ex) or "Adapter disconnected while reading"
                 self.__status = OBDStatus.NOT_CONNECTED
-                self.__port.close()
+                try:
+                    self.__port.close()
+                except Exception:
+                    pass
                 self.__port = None
                 logger.critical("Device disconnected while reading")
                 print("Device disconnected while reading")
@@ -678,10 +692,14 @@ class ELM327:
 
             # if nothing was received
             if not data:
+                self.__last_error = "Timed out waiting for adapter response"
                 logger.warning("Failed to read port")
                 print("Failed to read port")
                 self.__status = OBDStatus.NOT_CONNECTED
-                self.__port.close()
+                try:
+                    self.__port.close()
+                except Exception:
+                    pass
                 self.__port = None
                 break
 

@@ -66,15 +66,26 @@ class ConnectionService:
             if self.attempt_callback:
                 self.attempt_callback(state, attempt, self.attempts)
 
-            adapter = obd_io.OBDConnection(
-                self.target,
-                self.notify_window,
-                self.baudrate_setting,
-                self.timeout,
-                1,
-                self.fast,
-                cancel_check=self._cancelled,
-            )
+            try:
+                adapter = obd_io.OBDConnection(
+                    self.target,
+                    self.notify_window,
+                    self.baudrate_setting,
+                    self.timeout,
+                    1,
+                    self.fast,
+                    cancel_check=self._cancelled,
+                )
+            except Exception as ex:
+                self.failure_reason = str(ex) or "Unable to open adapter"
+                if attempt < self.attempts:
+                    delay = self._RETRY_DELAYS[
+                        min(attempt - 1, len(self._RETRY_DELAYS) - 1)
+                    ]
+                    if self._cancel_event.wait(delay):
+                        self.state = ConnectionState.DISCONNECTED
+                        return False
+                continue
             if self._cancelled():
                 adapter.close()
                 self.state = ConnectionState.DISCONNECTED
@@ -88,7 +99,11 @@ class ConnectionService:
                     self.failure_reason = None
                 return True
 
-            self.failure_reason = adapter.failure_reason or "Vehicle connection unavailable"
+            self.failure_reason = (
+                adapter.failure_reason
+                or self._adapter_failure_reason(adapter)
+                or "Vehicle connection unavailable"
+            )
             adapter.close()
             if attempt < self.attempts:
                 delay = self._RETRY_DELAYS[min(attempt - 1, len(self._RETRY_DELAYS) - 1)]
@@ -105,7 +120,10 @@ class ConnectionService:
                 return False
             if self._connected_status(self._adapter.connection.status()):
                 return True
-            self.failure_reason = "Adapter transport disconnected"
+            self.failure_reason = (
+                self._adapter_failure_reason(self._adapter)
+                or "Adapter transport disconnected"
+            )
             self.state = ConnectionState.DISCONNECTED
             return False
 
@@ -113,15 +131,38 @@ class ConnectionService:
         with self._lock:
             if not self.is_connected():
                 return obd.OBDResponse(command)
-            response = self._adapter.query(command, force=force)
-            if not self._connected_status(self._adapter.connection.status()):
-                self.failure_reason = "Adapter transport disconnected"
+            adapter = self._adapter
+
+        try:
+            response = adapter.query(command, force=force)
+        except Exception as ex:
+            with self._lock:
+                if adapter is self._adapter:
+                    self.failure_reason = str(ex) or "Adapter query failed"
+                    self.state = ConnectionState.DISCONNECTED
+            return obd.OBDResponse(command)
+
+        with self._lock:
+            if (
+                adapter is self._adapter
+                and not self._connected_status(adapter.connection.status())
+            ):
+                self.failure_reason = (
+                    self._adapter_failure_reason(adapter)
+                    or "Adapter transport disconnected"
+                )
                 self.state = ConnectionState.DISCONNECTED
-            return response
+        return response
 
     def supports(self, command):
         with self._lock:
-            return self._adapter is not None and self._adapter.supports(command)
+            adapter = self._adapter
+        if adapter is None:
+            return False
+        try:
+            return adapter.supports(command)
+        except Exception:
+            return False
 
     def protocol_name(self):
         return self.connection.protocol_name() if self.connection is not None else ""
@@ -142,6 +183,17 @@ class ConnectionService:
 
     def _cancelled(self):
         return self._cancel_event.is_set()
+
+    @staticmethod
+    def _adapter_failure_reason(adapter):
+        connection = getattr(adapter, "connection", None)
+        reason = getattr(connection, "last_error", None)
+        if reason:
+            return str(reason)
+        interface = getattr(connection, "interface", None)
+        if interface is not None and hasattr(interface, "last_error"):
+            return interface.last_error()
+        return None
 
     def _close_adapter(self):
         with self._lock:
