@@ -107,25 +107,33 @@ private struct LiveDataView: View {
     var body: some View {
         NavigationStack {
             Group {
-                if connection.liveReadings.isEmpty {
+                if connection.supportedPIDs.isEmpty {
                     ContentUnavailableView(
                         connection.state == .connected ? "Waiting for PIDs" : "Not connected",
                         systemImage: "waveform.path.ecg",
                         description: Text("Live Data displays standard PIDs supported by the vehicle.")
                     )
                 } else {
-                    List(connection.liveReadings) { reading in
+                    List(connection.supportedPIDs) { pid in
                         HStack {
                             VStack(alignment: .leading, spacing: 3) {
-                                Text(reading.pid.name)
-                                Text(reading.pid.rawValue)
+                                Text(pid.name)
+                                Text(pid.command)
                                     .font(.caption.monospaced())
                                     .foregroundStyle(.secondary)
                             }
                             Spacer()
-                            Text(reading.formattedValue)
-                                .font(.body.weight(.semibold))
-                                .monospacedDigit()
+                            if let reading = connection.liveReadings.first(where: {
+                                $0.pid.number == pid.number
+                            }) {
+                                Text(reading.formattedValue)
+                                    .font(.body.weight(.semibold))
+                                    .monospacedDigit()
+                            } else {
+                                Text("Supported")
+                                    .font(.caption)
+                                    .foregroundStyle(.secondary)
+                            }
                         }
                     }
                 }

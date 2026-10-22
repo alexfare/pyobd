@@ -54,6 +54,116 @@ enum MobileSection: Hashable {
     case connection
 }
 
+struct SupportedPID: Identifiable, Equatable {
+    let number: Int
+    let name: String
+
+    var id: Int { number }
+    var command: String { String(format: "01%02X", number) }
+}
+
+enum Mode01PIDCatalog {
+    static let names: [Int: String] = [
+        0x01: "Status since DTCs cleared",
+        0x02: "DTC that triggered the freeze frame",
+        0x03: "Fuel System Status",
+        0x04: "Calculated Engine Load",
+        0x05: "Engine Coolant Temperature",
+        0x06: "Short Term Fuel Trim - Bank 1",
+        0x07: "Long Term Fuel Trim - Bank 1",
+        0x08: "Short Term Fuel Trim - Bank 2",
+        0x09: "Long Term Fuel Trim - Bank 2",
+        0x0A: "Fuel Pressure",
+        0x0B: "Intake Manifold Pressure",
+        0x0C: "Engine RPM",
+        0x0D: "Vehicle Speed",
+        0x0E: "Timing Advance",
+        0x0F: "Intake Air Temperature",
+        0x10: "Air Flow Rate (MAF)",
+        0x11: "Throttle Position",
+        0x12: "Secondary Air Status",
+        0x13: "O2 Sensors Present",
+        0x14: "O2: Bank 1 - Sensor 1 Voltage",
+        0x15: "O2: Bank 1 - Sensor 2 Voltage",
+        0x16: "O2: Bank 1 - Sensor 3 Voltage",
+        0x17: "O2: Bank 1 - Sensor 4 Voltage",
+        0x18: "O2: Bank 2 - Sensor 1 Voltage",
+        0x19: "O2: Bank 2 - Sensor 2 Voltage",
+        0x1A: "O2: Bank 2 - Sensor 3 Voltage",
+        0x1B: "O2: Bank 2 - Sensor 4 Voltage",
+        0x1C: "OBD Standards Compliance",
+        0x1D: "O2 Sensors Present (alternate)",
+        0x1E: "Auxiliary Input Status",
+        0x1F: "Engine Run Time",
+        0x21: "Distance Traveled with MIL On",
+        0x22: "Fuel Rail Pressure (relative to vacuum)",
+        0x23: "Fuel Rail Pressure (direct injection)",
+        0x24: "O2 Sensor 1 Wide-Range Lambda Voltage",
+        0x25: "O2 Sensor 2 Wide-Range Lambda Voltage",
+        0x26: "O2 Sensor 3 Wide-Range Lambda Voltage",
+        0x27: "O2 Sensor 4 Wide-Range Lambda Voltage",
+        0x28: "O2 Sensor 5 Wide-Range Lambda Voltage",
+        0x29: "O2 Sensor 6 Wide-Range Lambda Voltage",
+        0x2A: "O2 Sensor 7 Wide-Range Lambda Voltage",
+        0x2B: "O2 Sensor 8 Wide-Range Lambda Voltage",
+        0x2C: "Commanded EGR",
+        0x2D: "EGR Error",
+        0x2E: "Commanded Evaporative Purge",
+        0x2F: "Fuel Level Input",
+        0x30: "Warm-ups Since Codes Cleared",
+        0x31: "Distance Traveled Since Codes Cleared",
+        0x32: "Evaporative System Vapor Pressure",
+        0x33: "Barometric Pressure",
+        0x34: "O2 Sensor 1 Wide-Range Lambda Current",
+        0x35: "O2 Sensor 2 Wide-Range Lambda Current",
+        0x36: "O2 Sensor 3 Wide-Range Lambda Current",
+        0x37: "O2 Sensor 4 Wide-Range Lambda Current",
+        0x38: "O2 Sensor 5 Wide-Range Lambda Current",
+        0x39: "O2 Sensor 6 Wide-Range Lambda Current",
+        0x3A: "O2 Sensor 7 Wide-Range Lambda Current",
+        0x3B: "O2 Sensor 8 Wide-Range Lambda Current",
+        0x3C: "Catalyst Temperature: Bank 1 - Sensor 1",
+        0x3D: "Catalyst Temperature: Bank 2 - Sensor 1",
+        0x3E: "Catalyst Temperature: Bank 1 - Sensor 2",
+        0x3F: "Catalyst Temperature: Bank 2 - Sensor 2",
+        0x41: "Monitor Status This Drive Cycle",
+        0x42: "Control Module Voltage",
+        0x43: "Absolute Load Value",
+        0x44: "Commanded Equivalence Ratio",
+        0x45: "Relative Throttle Position",
+        0x46: "Ambient Air Temperature",
+        0x47: "Absolute Throttle Position B",
+        0x48: "Absolute Throttle Position C",
+        0x49: "Accelerator Pedal Position D",
+        0x4A: "Accelerator Pedal Position E",
+        0x4B: "Accelerator Pedal Position F",
+        0x4C: "Commanded Throttle Actuator",
+        0x4D: "Time Run with MIL On",
+        0x4E: "Time Since Trouble Codes Cleared",
+        0x4F: "Maximum Supported Values",
+        0x50: "Maximum Mass Air Flow Rate",
+        0x51: "Fuel Type",
+        0x52: "Ethanol Fuel Percentage",
+        0x53: "Absolute Evaporative System Vapor Pressure",
+        0x54: "Evaporative System Vapor Pressure",
+        0x55: "Short-Term Secondary O2 Trim - Bank 1",
+        0x56: "Long-Term Secondary O2 Trim - Bank 1",
+        0x57: "Short-Term Secondary O2 Trim - Bank 2",
+        0x58: "Long-Term Secondary O2 Trim - Bank 2",
+        0x59: "Fuel Rail Pressure (absolute)",
+        0x5A: "Relative Accelerator Pedal Position",
+        0x5B: "Hybrid Battery Pack Remaining Life",
+        0x5C: "Engine Oil Temperature",
+        0x5D: "Fuel Injection Timing",
+        0x5E: "Engine Fuel Rate",
+        0x5F: "Designed Emission Requirements",
+    ]
+
+    static func name(for number: Int) -> String {
+        names[number] ?? String(format: "Mode 01 PID %02X", number)
+    }
+}
+
 enum StandardPID: String, CaseIterable, Identifiable {
     case engineLoad = "0104"
     case coolantTemperature = "0105"
@@ -67,15 +177,7 @@ enum StandardPID: String, CaseIterable, Identifiable {
     var number: Int { Int(rawValue.suffix(2), radix: 16) ?? 0 }
 
     var name: String {
-        switch self {
-        case .engineLoad: "Calculated engine load"
-        case .coolantTemperature: "Engine coolant temperature"
-        case .engineRPM: "Engine RPM"
-        case .vehicleSpeed: "Vehicle speed"
-        case .intakeTemperature: "Intake air temperature"
-        case .throttlePosition: "Throttle position"
-        case .controlModuleVoltage: "Control module voltage"
-        }
+        Mode01PIDCatalog.name(for: number)
     }
 
     func reading(from response: String) -> PIDReading? {
@@ -217,6 +319,7 @@ final class ConnectionManager: NSObject, ObservableObject {
     @Published var wifiHost: String
     @Published var wifiPort: String
     @Published private(set) var discoveredAdapters: [DiscoveredAdapter] = []
+    @Published private(set) var supportedPIDs: [SupportedPID] = []
     @Published private(set) var liveReadings: [PIDReading] = []
     @Published private(set) var diagnosticCodes: [DiagnosticCode] = []
     @Published private(set) var readinessResults: [ReadinessResult] = []
@@ -306,6 +409,7 @@ final class ConnectionManager: NSObject, ObservableObject {
         }
         bluetoothPeripheral = nil
         bluetoothWriteCharacteristic = nil
+        supportedPIDs.removeAll()
         liveReadings.removeAll()
         diagnosticCodes.removeAll()
         readinessResults.removeAll()
@@ -668,9 +772,19 @@ final class ConnectionManager: NSObject, ObservableObject {
                     supportedNumbers.insert(base + offset)
                 }
             }
+            supportedPIDs = supportedNumbers
+                .filter { $0 != 0x20 && $0 != 0x40 && $0 != 0x60 }
+                .sorted()
+                .map { SupportedPID(
+                    number: $0,
+                    name: Mode01PIDCatalog.name(for: $0)
+                ) }
             let supported = StandardPID.allCases.filter { supportedNumbers.contains($0.number) }
             if !supported.isEmpty { availablePIDs = supported }
         } catch {
+            supportedPIDs = StandardPID.allCases.map {
+                SupportedPID(number: $0.number, name: $0.name)
+            }
             availablePIDs = StandardPID.allCases
         }
     }
