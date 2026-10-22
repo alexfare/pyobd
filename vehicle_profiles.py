@@ -83,10 +83,16 @@ class VehicleProfilesMixin:
             label = self._vehicle_profile_name(
                 self.vehicle_profiles[self.active_vehicle_profile]
             )
+        is_demo = str(getattr(self, "CONNECTION_TYPE", "")).upper() == "DEMO"
+        display_label = "DEMO MODE" if is_demo else label
         header = getattr(self, "header_vehicle_profile", None)
         if header:
-            header.SetLabel(label if len(label) <= 22 else f"{label[:21]}…")
-            header.SetToolTip(label)
+            header.SetLabel(
+                display_label if len(display_label) <= 22 else f"{display_label[:21]}…"
+            )
+            header.SetToolTip("Simulated vehicle data" if is_demo else label)
+            header.SetForegroundColour(self.theme.warning if is_demo else self.theme.muted)
+            header.SetFont(self.theme.font(10, bold=is_demo))
             header.GetParent().Layout()
 
     def _activate_vehicle_profile_for_vin(self, vin):

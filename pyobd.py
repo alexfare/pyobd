@@ -160,7 +160,7 @@ class MyApp(SessionUIMixin, VehicleProfilesMixin, DashboardUIMixin, GraphUIMixin
 
         toolbar_sizer = wx.BoxSizer(wx.HORIZONTAL)
         self.bottom_toolbar.SetSizer(toolbar_sizer)
-        self.bottom_toolbar.SetMinSize((-1, 64))
+        self.bottom_toolbar.SetMinSize((-1, 52))
 
         toolbar_fields = [
             ("link", "Link", "Disconnected"),
@@ -176,11 +176,11 @@ class MyApp(SessionUIMixin, VehicleProfilesMixin, DashboardUIMixin, GraphUIMixin
 
             title = wx.StaticText(self.bottom_toolbar, -1, label.upper())
             title.SetForegroundColour(self.theme.sidebar_muted)
-            title.SetFont(wx.Font(8, wx.FONTFAMILY_SWISS, wx.FONTSTYLE_NORMAL, wx.FONTWEIGHT_NORMAL))
+            title.SetFont(wx.Font(7, wx.FONTFAMILY_SWISS, wx.FONTSTYLE_NORMAL, wx.FONTWEIGHT_NORMAL))
 
             value_widget = wx.StaticText(self.bottom_toolbar, -1, value)
             value_widget.SetForegroundColour(self.theme.sidebar_text)
-            value_widget.SetFont(wx.Font(12, wx.FONTFAMILY_SWISS, wx.FONTSTYLE_NORMAL, wx.FONTWEIGHT_BOLD))
+            value_widget.SetFont(wx.Font(10, wx.FONTFAMILY_SWISS, wx.FONTSTYLE_NORMAL, wx.FONTWEIGHT_BOLD))
 
             self.bottom_toolbar_values[key] = value_widget
 
@@ -189,7 +189,7 @@ class MyApp(SessionUIMixin, VehicleProfilesMixin, DashboardUIMixin, GraphUIMixin
             toolbar_sizer.Add(field_sizer, 1, wx.ALIGN_CENTER_VERTICAL | wx.LEFT | wx.RIGHT, 10)
 
             if index < len(toolbar_fields) - 1:
-                toolbar_sizer.Add(wx.StaticLine(self.bottom_toolbar, style=wx.LI_VERTICAL), 0, wx.EXPAND | wx.TOP | wx.BOTTOM, 10)
+                toolbar_sizer.Add(wx.StaticLine(self.bottom_toolbar, style=wx.LI_VERTICAL), 0, wx.EXPAND | wx.TOP | wx.BOTTOM, 8)
 
     def _set_bottom_status_defaults(self):
         defaults = {
@@ -349,16 +349,22 @@ class MyApp(SessionUIMixin, VehicleProfilesMixin, DashboardUIMixin, GraphUIMixin
         sidebar_sizer.Add(brand, 0, wx.LEFT | wx.RIGHT | wx.TOP, 22)
         sidebar_sizer.Add(subtitle, 0, wx.LEFT | wx.RIGHT | wx.TOP | wx.BOTTOM, 22)
 
-        primary_items = [
-            ("Overview", self.home_panel),
-            ("Dashboard", self.dashboard_panel),
-            ("Live Data", self.sensors_panel),
-            ("Diagnostics", self.DTCpanel),
-            ("Readiness", self.tests_panel),
-            ("Freeze Frame", self.freezeframe),
-            ("Graphs", self.graph_panel),
-            ("Vehicles", self.vehicle_profiles_panel),
-            ("Sessions", self.sessions_panel),
+        primary_groups = [
+            ("MONITOR", [
+                ("Overview", self.home_panel),
+                ("Dashboard", self.dashboard_panel),
+                ("Live Data", self.sensors_panel),
+                ("Graphs", self.graph_panel),
+            ]),
+            ("DIAGNOSE", [
+                ("Diagnostics", self.DTCpanel),
+                ("Readiness", self.tests_panel),
+                ("Freeze Frame", self.freezeframe),
+            ]),
+            ("MANAGE", [
+                ("Vehicles", self.vehicle_profiles_panel),
+                ("Sessions", self.sessions_panel),
+            ]),
         ]
         self.sidebar_buttons = {}
 
@@ -373,11 +379,16 @@ class MyApp(SessionUIMixin, VehicleProfilesMixin, DashboardUIMixin, GraphUIMixin
             button.SetMinSize((-1, 44))
             button.SetFont(self.theme.font(11, bold=label == "Overview"))
             button.Bind(wx.EVT_BUTTON, lambda _event, target=page, title=label: self._go_to_page(target, title))
-            sidebar_sizer.Add(button, 0, wx.EXPAND | wx.LEFT | wx.RIGHT | wx.BOTTOM, 10)
+            sidebar_sizer.Add(button, 0, wx.EXPAND | wx.LEFT | wx.RIGHT | wx.BOTTOM, 6)
             self.sidebar_buttons[page] = button
 
-        for label, page in primary_items:
-            add_item(label, page)
+        for group_label, items in primary_groups:
+            group = wx.StaticText(self.sidebar_panel, label=group_label)
+            group.SetForegroundColour(self.theme.sidebar_muted)
+            group.SetFont(self.theme.font(8, bold=True))
+            sidebar_sizer.Add(group, 0, wx.LEFT | wx.RIGHT | wx.TOP, 22)
+            for label, page in items:
+                add_item(label, page)
         sidebar_sizer.AddStretchSpacer()
         add_item("Activity Log", self.trace)
         self.sidebar_update_button = ModernButton(
@@ -505,7 +516,7 @@ class MyApp(SessionUIMixin, VehicleProfilesMixin, DashboardUIMixin, GraphUIMixin
                 self.page_title.SetLabel(title)
             self._refresh_sidebar_selection(page)
 
-    def _create_home_tile(self, parent, label, description, colour, hover_colour, handler):
+    def _create_home_tile(self, parent, label, description, colour, hover_colour, handler, icon):
         return ActionCard(
             parent,
             self.theme,
@@ -514,6 +525,7 @@ class MyApp(SessionUIMixin, VehicleProfilesMixin, DashboardUIMixin, GraphUIMixin
             colour,
             hover_colour,
             handler,
+            icon,
         )
 
     def build_home_page(self):
@@ -531,6 +543,7 @@ class MyApp(SessionUIMixin, VehicleProfilesMixin, DashboardUIMixin, GraphUIMixin
             self.theme.accent,
             self.theme.accent_hover,
             self.OnHomeDashboard,
+            "dashboard",
         )
         self.home_services_button = self._create_home_tile(
             self.home_panel,
@@ -539,6 +552,7 @@ class MyApp(SessionUIMixin, VehicleProfilesMixin, DashboardUIMixin, GraphUIMixin
             self.theme.success,
             self.theme.success_hover,
             self.OnHomeSensors,
+            "live",
         )
         self.home_graphs_button = self._create_home_tile(
             self.home_panel,
@@ -547,6 +561,7 @@ class MyApp(SessionUIMixin, VehicleProfilesMixin, DashboardUIMixin, GraphUIMixin
             self.theme.info,
             self.theme.info_hover,
             self.OnHomeGraphs,
+            "graphs",
         )
         self.home_readiness_button = self._create_home_tile(
             self.home_panel,
@@ -555,6 +570,7 @@ class MyApp(SessionUIMixin, VehicleProfilesMixin, DashboardUIMixin, GraphUIMixin
             self.theme.warning,
             self.theme.warning.ChangeLightness(85),
             self.OnHomeReadiness,
+            "readiness",
         )
         self.home_diagnostics_button = self._create_home_tile(
             self.home_panel,
@@ -563,6 +579,7 @@ class MyApp(SessionUIMixin, VehicleProfilesMixin, DashboardUIMixin, GraphUIMixin
             self.theme.danger,
             self.theme.danger.ChangeLightness(85),
             self.OnHomeDiagnostics,
+            "diagnostics",
         )
         vehicle_colour = wx.Colour(126, 34, 206)
         self.home_vehicle_button = self._create_home_tile(
@@ -572,6 +589,7 @@ class MyApp(SessionUIMixin, VehicleProfilesMixin, DashboardUIMixin, GraphUIMixin
             vehicle_colour,
             vehicle_colour.ChangeLightness(85),
             self.OnHomeVehicles,
+            "vehicles",
         )
         actions.Add(self.home_scan_button, pos=(0, 0), flag=wx.EXPAND)
         actions.Add(self.home_services_button, pos=(0, 1), flag=wx.EXPAND)
@@ -585,7 +603,7 @@ class MyApp(SessionUIMixin, VehicleProfilesMixin, DashboardUIMixin, GraphUIMixin
         actions.AddGrowableRow(0, 1)
         actions.AddGrowableRow(1, 1)
 
-        root_sizer.Add(actions, 1, wx.EXPAND | wx.ALL, 24)
+        root_sizer.Add(actions, 1, wx.EXPAND | wx.ALL, 28)
         self.home_panel.SetSizer(root_sizer)
 
         self.nb.AddPage(self.home_panel, "Home")
@@ -2307,6 +2325,7 @@ class MyApp(SessionUIMixin, VehicleProfilesMixin, DashboardUIMixin, GraphUIMixin
 
             # write configuration to cfg file
             self.config.write(open(self.configfilepath, 'w'))
+            self._update_active_vehicle_header()
 
     def OnExitMenu(self, event=None):
         self.frame.Close()
