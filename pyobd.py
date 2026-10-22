@@ -242,6 +242,7 @@ class MyApp(SessionUIMixin, VehicleProfilesMixin, DashboardUIMixin, GraphUIMixin
             if control is not None:
                 control.SetLabel(label)
                 control.SetForegroundColour(colour)
+                control.SetToolTip(state)
 
         if hasattr(self, "header_connect_button"):
             active = label in (
@@ -1550,7 +1551,7 @@ class MyApp(SessionUIMixin, VehicleProfilesMixin, DashboardUIMixin, GraphUIMixin
                     self.sensor_control_on()
                 elif "reconnecting" in normalized_state or "connection lost" in normalized_state:
                     self.sensor_control_reconnecting()
-                elif state_text in ("Disconnected", "Connection failed"):
+                elif normalized_state == "disconnected" or normalized_state.startswith("connection failed"):
                     self.sensor_control_off()
                     self._set_graph_streaming(False)
 
