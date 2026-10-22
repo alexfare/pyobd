@@ -24,8 +24,7 @@
 ###########################################################################
 
 def hex_to_int(str):
-    i = eval("0x" + str, {}, {})
-    return i
+    return int(str, 16)
 
 def maf(code):
     code = hex_to_int(code)
@@ -107,7 +106,7 @@ def hex_to_bitstring(str):
     for i in str:
         # silly type safety, we don't want to eval random stuff
         if type(i) == type(''): 
-            v = eval("0x%s" % i)
+            v = int(i, 16)
             if v & 8 :
                 bitstring += '1'
             else:
