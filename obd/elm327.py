@@ -126,6 +126,7 @@ class ELM327:
         self.__port = None
         self.__protocol = UnknownProtocol([])
         self.__low_power = False
+        self.__last_error = None
         self.timeout = timeout
 
 
@@ -239,9 +240,11 @@ class ELM327:
                         ))
         else:
             if self.__status == OBDStatus.OBD_CONNECTED:
+                self.__last_error = "Adapter connected, but the ignition is off"
                 logger.error("Adapter connected, but the ignition is off")
                 print("Adapter connected, but the ignition is off")
             else:
+                self.__last_error = "Connected to the adapter, but failed to connect to the vehicle"
                 logger.error("Connected to the adapter, "
                              "but failed to connect to the vehicle")
                 print("Connected to the adapter, "
@@ -443,9 +446,13 @@ class ELM327:
 
     def __error(self, msg):
         """ handles fatal failures, print logger.info info and closes serial """
+        self.__last_error = str(msg)
         self.close()
         logger.error(str(msg))
         print(str(msg))
+
+    def last_error(self):
+        return self.__last_error
     def port_name(self):
         if self.__port is not None:
             return self.__port.portstr

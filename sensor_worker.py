@@ -138,6 +138,10 @@ class SensorProducer(threading.Thread):
         current_status = self.connection.connection.status()
         if not self._is_connected_status(current_status):  # Cant open serial port
             print(current_status)
+            reason = getattr(self.connection, "failure_reason", None)
+            self.disconnect_status = (
+                f"Connection failed: {reason}" if reason else "Connection failed"
+            )
             #wx.PostEvent(self._notify_window, StatusEvent([666]))  # signal apl, that communication was disconnected
             #wx.PostEvent(self._notify_window, StatusEvent([0, 1, "Error cant connect..."]))
             #self.state="finished"
@@ -191,7 +195,7 @@ class SensorProducer(threading.Thread):
         if self.initCommunication() != "OK":
             self._notify_window.ThreadControl = 666
             self.state = "finished"
-            self.stop("Connection failed")
+            self.stop(self.disconnect_status)
             return
 
         self.baudrate = self.connection.connection.interface.baudrate()
