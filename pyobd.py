@@ -729,6 +729,7 @@ class MyApp(SessionUIMixin, VehicleProfilesMixin, DashboardUIMixin, GraphUIMixin
         self.tests_status_label.SetLabel("Ready to check monitors")
         if self.dtc.GetItemCount() == 0:
             self.dtc_status_label.SetLabel("Ready to scan")
+        self._update_sensor_selection_ui(connected=True)
 
     def sensor_control_off(self):  # after disconnect disable few buttons
         self._stop_sensor_recording()
@@ -744,6 +745,7 @@ class MyApp(SessionUIMixin, VehicleProfilesMixin, DashboardUIMixin, GraphUIMixin
         self.RefreshTestsButton.Enable(False)
         self.sensor_record_button.Enable(False)
         self.tests_status_label.SetLabel("Connect to check monitors")
+        self._update_sensor_selection_ui(connected=False)
         # http://pyserial.sourceforge.net/                                                    empty function
         # EVT_LIST_ITEM_ACTIVATED(self.sensors,self.sensor_id, lambda : None)
 
@@ -769,33 +771,62 @@ class MyApp(SessionUIMixin, VehicleProfilesMixin, DashboardUIMixin, GraphUIMixin
 
         self.sensors_panel = wx.Panel(self.nb)
         self.sensors_panel.SetBackgroundColour(self.theme.window)
+
+        toolbar_panel = wx.Panel(self.sensors_panel)
+        toolbar_panel.SetBackgroundColour(self.theme.surface)
+        toolbar_root = wx.BoxSizer(wx.VERTICAL)
+        status_row = wx.BoxSizer(wx.HORIZONTAL)
         toolbar = wx.BoxSizer(wx.HORIZONTAL)
-        self.sensor_search = wx.SearchCtrl(self.sensors_panel, style=wx.TE_PROCESS_ENTER)
-        self.sensor_search.SetDescriptiveText("Search PID or sensor")
-        self.sensor_search.ShowCancelButton(True)
-        self.sensor_search.SetMinSize((220, 36))
-        self.sensor_count_label = wx.StaticText(self.sensors_panel, label="Waiting for vehicle data")
+
+        guidance = wx.StaticText(
+            toolbar_panel,
+            label="Select one or more PIDs to record or add to a graph.",
+        )
+        guidance.SetForegroundColour(self.theme.muted)
+        self.sensor_count_label = wx.StaticText(toolbar_panel, label="Waiting for vehicle data")
         self.sensor_count_label.SetForegroundColour(self.theme.muted)
-        self.sensor_add_graph_button = ModernButton(
-            self.sensors_panel, "Graph", self.theme, variant="primary", size=(88, 36)
-        )
-        self.sensor_add_graph_button.SetToolTip("Add selected PIDs to Graphs")
-        self.sensor_record_status_label = wx.StaticText(
-            self.sensors_panel, label=""
-        )
+        self.sensor_selection_label = wx.StaticText(toolbar_panel, label="0 selected")
+        self.sensor_selection_label.SetForegroundColour(self.theme.accent)
+        self.sensor_selection_label.SetFont(self.theme.font(10, bold=True))
+        self.sensor_record_status_label = wx.StaticText(toolbar_panel, label="")
         self.sensor_record_status_label.SetForegroundColour(self.theme.muted)
         self.sensor_record_status_label.Hide()
+
+        status_row.Add(guidance, 1, wx.ALIGN_CENTER_VERTICAL)
+        status_row.Add(self.sensor_count_label, 0, wx.ALIGN_CENTER_VERTICAL | wx.RIGHT, 16)
+        status_row.Add(self.sensor_selection_label, 0, wx.ALIGN_CENTER_VERTICAL)
+
+        self.sensor_search = wx.SearchCtrl(toolbar_panel, style=wx.TE_PROCESS_ENTER)
+        self.sensor_search.SetDescriptiveText("Search PID or sensor")
+        self.sensor_search.ShowCancelButton(True)
+        self.sensor_search.SetMinSize((280, 36))
+        self.sensor_clear_button = ModernButton(
+            toolbar_panel, "Clear Selection", self.theme, variant="ghost", size=(120, 36)
+        )
+        self.sensor_add_graph_button = ModernButton(
+            toolbar_panel, "Add to Graph", self.theme, variant="primary", size=(118, 36)
+        )
+        self.sensor_add_graph_button.SetToolTip("Add selected PIDs to Graphs")
         self.sensor_record_button = ModernButton(
-            self.sensors_panel, "Record", self.theme, variant="success", size=(88, 36)
+            toolbar_panel, "Record Selected", self.theme, variant="success", size=(126, 36)
         )
         self.sensor_record_button.SetToolTip("Record selected PIDs to CSV")
 
-        toolbar.Add(self.sensor_search, 0, wx.RIGHT, 12)
-        toolbar.Add(self.sensor_count_label, 0, wx.ALIGN_CENTER_VERTICAL)
-        toolbar.AddStretchSpacer()
+        toolbar.Add(self.sensor_search, 1, wx.RIGHT, 12)
         toolbar.Add(self.sensor_record_status_label, 0, wx.ALIGN_CENTER_VERTICAL | wx.RIGHT, 12)
+        toolbar.Add(self.sensor_clear_button, 0, wx.RIGHT, 8)
         toolbar.Add(self.sensor_record_button, 0, wx.RIGHT, 8)
         toolbar.Add(self.sensor_add_graph_button, 0)
+        toolbar_root.Add(status_row, 0, wx.EXPAND | wx.LEFT | wx.RIGHT | wx.TOP, 16)
+        toolbar_root.Add(toolbar, 0, wx.EXPAND | wx.ALL, 16)
+        toolbar_panel.SetSizer(toolbar_root)
+
+        self.sensor_empty_label = wx.StaticText(
+            self.sensors_panel,
+            label="Connect to a vehicle to view supported live data.",
+        )
+        self.sensor_empty_label.SetForegroundColour(self.theme.muted)
+        self.sensor_empty_label.SetFont(self.theme.font(11))
 
         self.sensors = self.MyListCtrl(
             self.sensors_panel,
@@ -807,11 +838,13 @@ class MyApp(SessionUIMixin, VehicleProfilesMixin, DashboardUIMixin, GraphUIMixin
         self.sensors.InsertColumn(2, "Value", format=wx.LIST_FORMAT_RIGHT, width=220)
 
         root = wx.BoxSizer(wx.VERTICAL)
-        root.Add(toolbar, 0, wx.EXPAND | wx.ALL, 16)
-        root.Add(self.sensors, 1, wx.EXPAND | wx.LEFT | wx.RIGHT | wx.BOTTOM, 16)
+        root.Add(toolbar_panel, 0, wx.EXPAND | wx.ALL, 20)
+        root.Add(self.sensor_empty_label, 0, wx.LEFT | wx.RIGHT | wx.BOTTOM, 20)
+        root.Add(self.sensors, 1, wx.EXPAND | wx.LEFT | wx.RIGHT | wx.BOTTOM, 20)
         self.sensors_panel.SetSizer(root)
 
         self.sensor_search.Bind(wx.EVT_TEXT, self._schedule_sensor_filter)
+        self.sensor_clear_button.Bind(wx.EVT_BUTTON, self._clear_sensor_selection)
         self.sensor_add_graph_button.Bind(wx.EVT_BUTTON, self._add_selected_sensors_to_graph)
         self.sensor_record_button.Bind(wx.EVT_BUTTON, self._toggle_sensor_recording)
         self.sensors.Bind(wx.EVT_LIST_ITEM_SELECTED, self._on_sensor_selected)
@@ -820,6 +853,7 @@ class MyApp(SessionUIMixin, VehicleProfilesMixin, DashboardUIMixin, GraphUIMixin
         self.sensors_panel.Bind(
             wx.EVT_TIMER, self._update_sensor_recording_status, self.sensor_record_timer
         )
+        self._update_sensor_selection_ui()
         self.nb.AddPage(self.sensors_panel, "Sensors")
 
     def _toggle_sensor_recording(self, event=None):
@@ -880,7 +914,7 @@ class MyApp(SessionUIMixin, VehicleProfilesMixin, DashboardUIMixin, GraphUIMixin
         self.sensor_record_started_at = time.monotonic()
         self.sensor_record_sample_count = 0
         self.sensor_record_flush_count = 0
-        self.sensor_record_button.SetLabel("Stop")
+        self.sensor_record_button.SetLabel("Stop Recording")
         self.sensor_record_button.SetVariant("danger")
         self.sensor_record_button.SetToolTip("Stop and save recording")
         self.sensor_record_status_label.Show()
@@ -954,13 +988,14 @@ class MyApp(SessionUIMixin, VehicleProfilesMixin, DashboardUIMixin, GraphUIMixin
         self.sensor_record_session = None
         self.sensor_record_started_at = None
         self.sensor_record_flush_count = 0
-        self.sensor_record_button.SetLabel("Record")
+        self.sensor_record_button.SetLabel("Record Selected")
         self.sensor_record_button.SetVariant("success")
         self.sensor_record_button.SetToolTip("Record selected PIDs to CSV")
         self.sensor_record_status_label.Show()
         self.sensor_record_status_label.SetLabel(
             status or f"Saved {sample_count} samples"
         )
+        self._update_sensor_selection_ui()
         self.sensors_panel.Layout()
 
     def _schedule_sensor_filter(self, event=None):
@@ -1001,6 +1036,7 @@ class MyApp(SessionUIMixin, VehicleProfilesMixin, DashboardUIMixin, GraphUIMixin
         visible = len(self.sensor_visible_indices)
         total = len(self.sensor_rows)
         self.sensor_count_label.SetLabel(f"{visible} of {total} PIDs" if total else "Waiting for vehicle data")
+        self._update_sensor_selection_ui()
 
     def _selected_sensor_rows(self):
         selected = []
@@ -1015,11 +1051,54 @@ class MyApp(SessionUIMixin, VehicleProfilesMixin, DashboardUIMixin, GraphUIMixin
             if 0 <= view_index < len(self.sensor_visible_indices):
                 self.sensor_selected_sources.add(self.sensor_visible_indices[view_index])
 
+    def _clear_sensor_selection(self, event=None):
+        self._rebuilding_sensor_list = True
+        try:
+            for view_index in self._selected_sensor_rows():
+                self.sensors.Select(view_index, False)
+            self.sensor_selected_sources.clear()
+        finally:
+            self._rebuilding_sensor_list = False
+        self._update_sensor_selection_ui()
+
+    def _update_sensor_selection_ui(self, connected=None):
+        selected = len(self.sensor_selected_sources)
+        if connected is None:
+            connected = bool(self.senprod and self.senprod.is_alive())
+        visible = len(self.sensor_visible_indices)
+        total = len(self.sensor_rows)
+
+        self.sensor_selection_label.SetLabel(
+            f"{selected} selected" if selected != 1 else "1 selected"
+        )
+        self.sensor_clear_button.Enable(selected > 0)
+        self.sensor_add_graph_button.Enable(selected > 0)
+        if not self.sensor_record_file:
+            self.sensor_record_button.Enable(connected and selected > 0)
+
+        if not connected:
+            self.sensor_empty_label.SetLabel("Disconnected — displayed values are not updating.")
+            self.sensor_empty_label.Show()
+        elif total and not visible:
+            self.sensor_empty_label.SetLabel("No PIDs match the current search.")
+            self.sensor_empty_label.Show()
+        elif not total:
+            self.sensor_empty_label.SetLabel(
+                "Waiting for supported PIDs…"
+                if connected
+                else "Connect to a vehicle to view supported live data."
+            )
+            self.sensor_empty_label.Show()
+        else:
+            self.sensor_empty_label.Hide()
+        self.sensors_panel.Layout()
+
     def _on_sensor_selected(self, event):
         if not self._rebuilding_sensor_list:
             view_index = event.GetIndex()
             if 0 <= view_index < len(self.sensor_visible_indices):
                 self.sensor_selected_sources.add(self.sensor_visible_indices[view_index])
+            self._update_sensor_selection_ui()
         event.Skip()
 
     def _on_sensor_deselected(self, event):
@@ -1027,6 +1106,7 @@ class MyApp(SessionUIMixin, VehicleProfilesMixin, DashboardUIMixin, GraphUIMixin
             view_index = event.GetIndex()
             if 0 <= view_index < len(self.sensor_visible_indices):
                 self.sensor_selected_sources.discard(self.sensor_visible_indices[view_index])
+            self._update_sensor_selection_ui()
         event.Skip()
 
     def _add_selected_sensors_to_graph(self, event=None):
@@ -1547,6 +1627,8 @@ class MyApp(SessionUIMixin, VehicleProfilesMixin, DashboardUIMixin, GraphUIMixin
         self.sensor_count_label.SetLabel(
             f"{len(self.sensor_visible_indices)} of {len(self.sensor_rows)} PIDs"
         )
+        if not query_active and self.sensor_empty_label.IsShown() and self.sensor_rows:
+            self._update_sensor_selection_ui()
 
     def OnFreezeframeResult(self, event):
         self.freezeframe.SetItem(event.data[0], event.data[1], event.data[2])
