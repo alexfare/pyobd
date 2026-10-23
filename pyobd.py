@@ -256,6 +256,7 @@ class MyApp(SessionUIMixin, VehicleProfilesMixin, DashboardUIMixin, GraphUIMixin
     def sensor_control_reconnecting(self):
         self._stop_sensor_recording()
         self._set_graph_streaming(False)
+        self._set_graph_connection_state(False)
         self._reset_dashboard_values()
         self.settingmenu.Enable(ID_CONFIG, False)
         self.settingmenu.Enable(ID_RESET, False)
@@ -740,6 +741,7 @@ class MyApp(SessionUIMixin, VehicleProfilesMixin, DashboardUIMixin, GraphUIMixin
         self.sensor_record_button.Enable(True)
         self.tests_status_label.SetLabel("Ready to check monitors")
         self.tests_status_label.SetForegroundColour(self.theme.muted)
+        self._set_graph_connection_state(True)
         if self.dtc.GetItemCount() == 0:
             self.dtc_status_label.SetLabel("Ready to scan")
             self.dtc_empty_label.SetLabel("No scan results yet.")
@@ -771,6 +773,7 @@ class MyApp(SessionUIMixin, VehicleProfilesMixin, DashboardUIMixin, GraphUIMixin
         self.tests_status_label.SetForegroundColour(self.theme.muted)
         for count in self.tests_summary_labels.values():
             count.SetLabel("—")
+        self._set_graph_connection_state(False)
         self._update_sensor_selection_ui(connected=False)
         self.DTCpanel.Layout()
         self.tests_panel.Layout()
