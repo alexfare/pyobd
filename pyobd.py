@@ -705,12 +705,24 @@ class MyApp(SessionUIMixin, VehicleProfilesMixin, DashboardUIMixin, GraphUIMixin
             if self.tests_active_section == "misfire"
             else "Reading monitor status…"
         )
+        self.tests_status_label.SetForegroundColour(self.theme.warning)
+        if self.tests_active_section == "readiness":
+            for count in self.tests_summary_labels.values():
+                count.SetLabel("…")
         self.RefreshTestsButton.Enable(False)
         if self.senprod and self.senprod.is_alive():
             self.senprod.wake()
 
     def OnTestsPageChanged(self, event):
         self.tests_active_section = "misfire" if event.GetSelection() == 1 else "readiness"
+        is_readiness = self.tests_active_section == "readiness"
+        self.tests_summary_panel.Show(is_readiness)
+        self.tests_help_label.SetLabel(
+            "Readiness shows which emissions monitors have completed. Clearing codes resets readiness."
+            if is_readiness
+            else "Mode 06 misfire results are shown only for cylinder monitors supported by the vehicle."
+        )
+        self.tests_panel.Layout()
         if self.senprod and self.senprod.is_alive():
             self.RefreshTests()
         event.Skip()
@@ -727,6 +739,7 @@ class MyApp(SessionUIMixin, VehicleProfilesMixin, DashboardUIMixin, GraphUIMixin
         self.RefreshTestsButton.Enable(True)
         self.sensor_record_button.Enable(True)
         self.tests_status_label.SetLabel("Ready to check monitors")
+        self.tests_status_label.SetForegroundColour(self.theme.muted)
         if self.dtc.GetItemCount() == 0:
             self.dtc_status_label.SetLabel("Ready to scan")
             self.dtc_empty_label.SetLabel("No scan results yet.")
@@ -735,6 +748,7 @@ class MyApp(SessionUIMixin, VehicleProfilesMixin, DashboardUIMixin, GraphUIMixin
             self.dtc_empty_label.Hide()
         self._update_sensor_selection_ui(connected=True)
         self.DTCpanel.Layout()
+        self.tests_panel.Layout()
 
     def sensor_control_off(self):  # after disconnect disable few buttons
         self._stop_sensor_recording()
@@ -754,8 +768,12 @@ class MyApp(SessionUIMixin, VehicleProfilesMixin, DashboardUIMixin, GraphUIMixin
         self.RefreshTestsButton.Enable(False)
         self.sensor_record_button.Enable(False)
         self.tests_status_label.SetLabel("Connect to check monitors")
+        self.tests_status_label.SetForegroundColour(self.theme.muted)
+        for count in self.tests_summary_labels.values():
+            count.SetLabel("—")
         self._update_sensor_selection_ui(connected=False)
         self.DTCpanel.Layout()
+        self.tests_panel.Layout()
         # http://pyserial.sourceforge.net/                                                    empty function
         # EVT_LIST_ITEM_ACTIVATED(self.sensors,self.sensor_id, lambda : None)
 
@@ -1478,20 +1496,58 @@ class MyApp(SessionUIMixin, VehicleProfilesMixin, DashboardUIMixin, GraphUIMixin
         self.tests_panel = wx.Panel(self.nb)
         self.tests_panel.SetBackgroundColour(self.theme.window)
         tests_root = wx.BoxSizer(wx.VERTICAL)
+        toolbar_panel = wx.Panel(self.tests_panel)
+        toolbar_panel.SetBackgroundColour(self.theme.surface)
+        toolbar_root = wx.BoxSizer(wx.VERTICAL)
         tests_toolbar = wx.BoxSizer(wx.HORIZONTAL)
         self.tests_status_label = wx.StaticText(
-            self.tests_panel, label="Connect to check monitors"
+            toolbar_panel, label="Connect to check monitors"
         )
         self.tests_status_label.SetForegroundColour(self.theme.muted)
         self.RefreshTestsButton = ModernButton(
-            self.tests_panel, "Refresh", self.theme, variant="primary"
+            toolbar_panel, "Refresh", self.theme, variant="primary"
         )
         self.RefreshTestsButton.Enable(False)
         self.RefreshTestsButton.Bind(wx.EVT_BUTTON, self.RefreshTests)
         tests_toolbar.Add(self.tests_status_label, 1, wx.ALIGN_CENTER_VERTICAL)
         tests_toolbar.Add(self.RefreshTestsButton, 0)
+        toolbar_root.Add(tests_toolbar, 0, wx.EXPAND | wx.ALL, 10)
+        toolbar_panel.SetSizer(toolbar_root)
 
-        tests_help = wx.StaticText(
+        self.tests_summary_panel = wx.Panel(self.tests_panel)
+        self.tests_summary_panel.SetBackgroundColour(self.theme.window)
+        tests_summary = wx.BoxSizer(wx.HORIZONTAL)
+        self.tests_summary_labels = {}
+        for category, colour in (
+            ("Ready", self.theme.success),
+            ("Not Ready", self.theme.warning),
+            ("Unsupported", self.theme.muted),
+        ):
+            card = wx.Panel(self.tests_summary_panel, style=wx.BORDER_SIMPLE)
+            card.SetBackgroundColour(self.theme.surface)
+            card.SetMinSize((-1, 54))
+            card_sizer = wx.BoxSizer(wx.HORIZONTAL)
+            name = wx.StaticText(card, label=category)
+            name.SetForegroundColour(self.theme.muted)
+            count = wx.StaticText(card, label="—")
+            count.SetForegroundColour(colour)
+            count.SetFont(self.theme.font(16, bold=True))
+            card_sizer.AddSpacer(14)
+            card_sizer.Add(name, 0, wx.ALIGN_CENTER_VERTICAL)
+            card_sizer.AddStretchSpacer()
+            card_sizer.Add(count, 0, wx.ALIGN_CENTER_VERTICAL)
+            card_sizer.AddSpacer(14)
+            card.SetSizer(card_sizer)
+            tests_summary.Add(
+                card,
+                1,
+                wx.EXPAND | wx.RIGHT,
+                10 if category != "Unsupported" else 0,
+            )
+            self.tests_summary_labels[category] = count
+        self.tests_summary_panel.SetSizer(tests_summary)
+
+        self.tests_help_label = wx.StaticText(
             self.tests_panel,
             label=(
                 "Readiness shows which emissions monitors have completed. "
@@ -1499,7 +1555,7 @@ class MyApp(SessionUIMixin, VehicleProfilesMixin, DashboardUIMixin, GraphUIMixin
                 "Clearing diagnostic codes resets readiness."
             ),
         )
-        tests_help.SetForegroundColour(self.theme.muted)
+        self.tests_help_label.SetForegroundColour(self.theme.muted)
 
         self.tests_notebook = wx.Notebook(self.tests_panel)
         self.OBDTests = self.MyListCtrl(
@@ -1516,14 +1572,15 @@ class MyApp(SessionUIMixin, VehicleProfilesMixin, DashboardUIMixin, GraphUIMixin
         )
         self.misfire_tests.InsertColumn(0, "Monitor", width=330)
         self.misfire_tests.InsertColumn(1, "Mode 06 result", width=180)
-        for cylinder in range(1, 13):
-            self.misfire_tests.Append([f"Cylinder {cylinder}", "—"])
+        self.misfire_tests.Append(["Refresh to detect supported cylinder monitors", "—"])
 
         self.tests_notebook.AddPage(self.OBDTests, "Readiness")
         self.tests_notebook.AddPage(self.misfire_tests, "Misfire Results")
         self.tests_notebook.Bind(wx.EVT_NOTEBOOK_PAGE_CHANGED, self.OnTestsPageChanged)
-        tests_root.Add(tests_toolbar, 0, wx.EXPAND | wx.ALL, 20)
-        tests_root.Add(tests_help, 0, wx.LEFT | wx.RIGHT | wx.BOTTOM, 20)
+        tests_root.AddSpacer(8)
+        tests_root.Add(toolbar_panel, 0, wx.EXPAND | wx.LEFT | wx.RIGHT, 20)
+        tests_root.Add(self.tests_summary_panel, 0, wx.EXPAND | wx.LEFT | wx.RIGHT | wx.TOP, 20)
+        tests_root.Add(self.tests_help_label, 0, wx.LEFT | wx.RIGHT | wx.TOP | wx.BOTTOM, 20)
         tests_root.Add(self.tests_notebook, 1, wx.EXPAND | wx.LEFT | wx.RIGHT | wx.BOTTOM, 20)
         self.tests_panel.SetSizer(tests_root)
         self.nb.AddPage(self.tests_panel, "Readiness")
@@ -1735,6 +1792,15 @@ class MyApp(SessionUIMixin, VehicleProfilesMixin, DashboardUIMixin, GraphUIMixin
             self.OBDTests.SetItemTextColour(data["index"], colour)
         elif data["kind"] == "misfire":
             self.misfire_tests.SetItem(data["index"], 1, data["result"])
+            result = data["result"]
+            colour = (
+                self.theme.muted
+                if result == "Unsupported"
+                else self.theme.success
+                if result.startswith("0 ")
+                else self.theme.warning
+            )
+            self.misfire_tests.SetItemTextColour(data["index"], colour)
         elif data["kind"] == "misfire_reset":
             self.misfire_tests.DeleteAllItems()
             cylinders = data["cylinders"]
@@ -1744,9 +1810,15 @@ class MyApp(SessionUIMixin, VehicleProfilesMixin, DashboardUIMixin, GraphUIMixin
             else:
                 self.misfire_tests.Append(["No supported cylinder monitors", "—"])
         elif data["kind"] == "complete":
+            self.tests_summary_labels["Ready"].SetLabel(str(data["ready"]))
+            self.tests_summary_labels["Not Ready"].SetLabel(str(data["not_ready"]))
+            self.tests_summary_labels["Unsupported"].SetLabel(str(data["unsupported"]))
             self.tests_status_label.SetLabel(
                 f"{data['ready']} ready  •  {data['not_ready']} not ready  •  "
                 f"{data['unsupported']} unsupported"
+            )
+            self.tests_status_label.SetForegroundColour(
+                self.theme.warning if data["not_ready"] else self.theme.success
             )
             self.RefreshTestsButton.Enable(True)
         elif data["kind"] == "misfire_complete":
@@ -1756,10 +1828,15 @@ class MyApp(SessionUIMixin, VehicleProfilesMixin, DashboardUIMixin, GraphUIMixin
                 if count
                 else "No supported per-cylinder misfire monitors"
             )
+            self.tests_status_label.SetForegroundColour(
+                self.theme.success if count else self.theme.muted
+            )
             self.RefreshTestsButton.Enable(True)
         elif data["kind"] == "error":
             self.tests_status_label.SetLabel("Unable to read monitor status")
+            self.tests_status_label.SetForegroundColour(self.theme.danger)
             self.RefreshTestsButton.Enable(True)
+        self.tests_panel.Layout()
 
     """
     def OnCombo(self, event):
