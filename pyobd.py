@@ -817,8 +817,8 @@ class MyApp(SessionUIMixin, VehicleProfilesMixin, DashboardUIMixin, GraphUIMixin
         toolbar.Add(self.sensor_clear_button, 0, wx.RIGHT, 8)
         toolbar.Add(self.sensor_record_button, 0, wx.RIGHT, 8)
         toolbar.Add(self.sensor_add_graph_button, 0)
-        toolbar_root.Add(status_row, 0, wx.EXPAND | wx.LEFT | wx.RIGHT | wx.TOP, 16)
-        toolbar_root.Add(toolbar, 0, wx.EXPAND | wx.ALL, 16)
+        toolbar_root.Add(status_row, 0, wx.EXPAND | wx.LEFT | wx.RIGHT | wx.TOP, 10)
+        toolbar_root.Add(toolbar, 0, wx.EXPAND | wx.ALL, 10)
         toolbar_panel.SetSizer(toolbar_root)
 
         self.sensor_empty_label = wx.StaticText(
@@ -838,7 +838,8 @@ class MyApp(SessionUIMixin, VehicleProfilesMixin, DashboardUIMixin, GraphUIMixin
         self.sensors.InsertColumn(2, "Value", format=wx.LIST_FORMAT_RIGHT, width=220)
 
         root = wx.BoxSizer(wx.VERTICAL)
-        root.Add(toolbar_panel, 0, wx.EXPAND | wx.ALL, 20)
+        root.AddSpacer(8)
+        root.Add(toolbar_panel, 0, wx.EXPAND | wx.LEFT | wx.RIGHT, 20)
         root.Add(self.sensor_empty_label, 0, wx.LEFT | wx.RIGHT | wx.BOTTOM, 20)
         root.Add(self.sensors, 1, wx.EXPAND | wx.LEFT | wx.RIGHT | wx.BOTTOM, 20)
         self.sensors_panel.SetSizer(root)
@@ -1492,7 +1493,7 @@ class MyApp(SessionUIMixin, VehicleProfilesMixin, DashboardUIMixin, GraphUIMixin
 
         content_sizer = wx.BoxSizer(wx.VERTICAL)
         content_sizer.Add(self.content_header, 0, wx.EXPAND | wx.LEFT | wx.RIGHT | wx.TOP, 20)
-        content_sizer.Add(self.nb, 1, wx.EXPAND | wx.ALL, 20)
+        content_sizer.Add(self.nb, 1, wx.EXPAND | wx.LEFT | wx.RIGHT | wx.BOTTOM, 20)
         content_sizer.Add(self.bottom_toolbar, 0, wx.EXPAND)
         self.content_panel.SetSizer(content_sizer)
 
