@@ -729,7 +729,12 @@ class MyApp(SessionUIMixin, VehicleProfilesMixin, DashboardUIMixin, GraphUIMixin
         self.tests_status_label.SetLabel("Ready to check monitors")
         if self.dtc.GetItemCount() == 0:
             self.dtc_status_label.SetLabel("Ready to scan")
+            self.dtc_empty_label.SetLabel("No scan results yet.")
+            self.dtc_empty_label.Show()
+        else:
+            self.dtc_empty_label.Hide()
         self._update_sensor_selection_ui(connected=True)
+        self.DTCpanel.Layout()
 
     def sensor_control_off(self):  # after disconnect disable few buttons
         self._stop_sensor_recording()
@@ -742,10 +747,15 @@ class MyApp(SessionUIMixin, VehicleProfilesMixin, DashboardUIMixin, GraphUIMixin
         self.GetDTCButton.Enable(False)
         self.ClearDTCButton.Enable(False)
         self.dtc_status_label.SetLabel("Connect to scan vehicle")
+        self.dtc_empty_label.SetLabel(
+            "Disconnected — displayed diagnostic results may be out of date."
+        )
+        self.dtc_empty_label.Show()
         self.RefreshTestsButton.Enable(False)
         self.sensor_record_button.Enable(False)
         self.tests_status_label.SetLabel("Connect to check monitors")
         self._update_sensor_selection_ui(connected=False)
+        self.DTCpanel.Layout()
         # http://pyserial.sourceforge.net/                                                    empty function
         # EVT_LIST_ITEM_ACTIVATED(self.sensors,self.sensor_id, lambda : None)
 
@@ -1272,17 +1282,33 @@ class MyApp(SessionUIMixin, VehicleProfilesMixin, DashboardUIMixin, GraphUIMixin
         tID = wx.NewIdRef(count=1)
         self.DTCpanel = wx.Panel(self.nb, -1)
         self.DTCpanel.SetBackgroundColour(self.theme.window)
+        toolbar_panel = wx.Panel(self.DTCpanel)
+        toolbar_panel.SetBackgroundColour(self.theme.surface)
         self.GetDTCButton = ModernButton(
-            self.DTCpanel, "Scan codes", self.theme, variant="primary"
+            toolbar_panel, "Scan codes", self.theme, variant="primary"
         )
         self.ClearDTCButton = ModernButton(
-            self.DTCpanel, "Clear codes", self.theme, variant="danger"
+            toolbar_panel, "Clear codes", self.theme, variant="danger"
         )
         self.LookupDTCButton = ModernButton(
-            self.DTCpanel, "Code lookup", self.theme, variant="secondary"
+            toolbar_panel, "Code lookup", self.theme, variant="ghost"
         )
-        self.dtc_status_label = wx.StaticText(self.DTCpanel, label="Connect to scan vehicle")
+        self.dtc_status_label = wx.StaticText(
+            toolbar_panel, label="Connect to scan vehicle"
+        )
         self.dtc_status_label.SetForegroundColour(self.theme.muted)
+
+        toolbar_root = wx.BoxSizer(wx.VERTICAL)
+        status_row = wx.BoxSizer(wx.HORIZONTAL)
+        toolbar = wx.BoxSizer(wx.HORIZONTAL)
+
+        guidance = wx.StaticText(
+            toolbar_panel,
+            label="Scan the vehicle for emissions-related diagnostic trouble codes.",
+        )
+        guidance.SetForegroundColour(self.theme.muted)
+        status_row.Add(guidance, 1, wx.ALIGN_CENTER_VERTICAL)
+        status_row.Add(self.dtc_status_label, 0, wx.ALIGN_CENTER_VERTICAL)
 
         self.GetDTCButton.Bind(wx.EVT_BUTTON, self.GetDTC)
         self.ClearDTCButton.Bind(wx.EVT_BUTTON, self.QueryClear)
@@ -1298,15 +1324,52 @@ class MyApp(SessionUIMixin, VehicleProfilesMixin, DashboardUIMixin, GraphUIMixin
         self.dtc.InsertColumn(1, "Category", width=140)
         self.dtc.InsertColumn(2, "Description", width=520)
 
-        toolbar = wx.BoxSizer(wx.HORIZONTAL)
         toolbar.Add(self.GetDTCButton, 0, wx.RIGHT, 8)
-        toolbar.Add(self.ClearDTCButton, 0, wx.RIGHT, 8)
-        toolbar.Add(self.LookupDTCButton, 0, wx.RIGHT, 16)
-        toolbar.Add(self.dtc_status_label, 0, wx.ALIGN_CENTER_VERTICAL)
+        toolbar.Add(self.LookupDTCButton, 0, wx.RIGHT, 8)
+        toolbar.AddStretchSpacer()
+        toolbar.Add(self.ClearDTCButton, 0)
+        toolbar_root.Add(status_row, 0, wx.EXPAND | wx.LEFT | wx.RIGHT | wx.TOP, 10)
+        toolbar_root.Add(toolbar, 0, wx.EXPAND | wx.ALL, 10)
+        toolbar_panel.SetSizer(toolbar_root)
+
+        summary = wx.BoxSizer(wx.HORIZONTAL)
+        self.dtc_summary_labels = {}
+        for category, colour in (
+            ("Stored", self.theme.danger),
+            ("Pending", self.theme.warning),
+            ("Permanent", self.theme.accent),
+        ):
+            card = wx.Panel(self.DTCpanel, style=wx.BORDER_SIMPLE)
+            card.SetBackgroundColour(self.theme.surface)
+            card.SetMinSize((-1, 54))
+            card_sizer = wx.BoxSizer(wx.HORIZONTAL)
+            name = wx.StaticText(card, label=category)
+            name.SetForegroundColour(self.theme.muted)
+            count = wx.StaticText(card, label="0")
+            count.SetForegroundColour(colour)
+            count.SetFont(self.theme.font(16, bold=True))
+            card_sizer.Add(name, 0, wx.ALIGN_CENTER_VERTICAL)
+            card_sizer.AddStretchSpacer()
+            card_sizer.Add(count, 0, wx.ALIGN_CENTER_VERTICAL)
+            card.SetSizer(card_sizer)
+            summary.Add(card, 1, wx.EXPAND | wx.RIGHT, 10 if category != "Permanent" else 0)
+            card_sizer.AddSpacer(14)
+            card_sizer.PrependSpacer(14)
+            self.dtc_summary_labels[category] = count
+
+        self.dtc_empty_label = wx.StaticText(
+            self.DTCpanel,
+            label="Connect to a vehicle to scan diagnostic trouble codes.",
+        )
+        self.dtc_empty_label.SetForegroundColour(self.theme.muted)
+        self.dtc_empty_label.SetFont(self.theme.font(11))
 
         root = wx.BoxSizer(wx.VERTICAL)
-        root.Add(toolbar, 0, wx.EXPAND | wx.ALL, 16)
-        root.Add(self.dtc, 1, wx.EXPAND | wx.LEFT | wx.RIGHT | wx.BOTTOM, 16)
+        root.AddSpacer(8)
+        root.Add(toolbar_panel, 0, wx.EXPAND | wx.LEFT | wx.RIGHT, 20)
+        root.Add(summary, 0, wx.EXPAND | wx.LEFT | wx.RIGHT | wx.TOP, 20)
+        root.Add(self.dtc_empty_label, 0, wx.LEFT | wx.RIGHT | wx.TOP, 20)
+        root.Add(self.dtc, 1, wx.EXPAND | wx.ALL, 20)
         self.DTCpanel.SetSizer(root)
 
         self.nb.AddPage(self.DTCpanel, "DTC")
@@ -1749,10 +1812,16 @@ class MyApp(SessionUIMixin, VehicleProfilesMixin, DashboardUIMixin, GraphUIMixin
     def OnDtc(self, event):
         if event.data == 0:  # signal, that DTC was cleared
             self.dtc.DeleteAllItems()
+            for count in self.dtc_summary_labels.values():
+                count.SetLabel("0")
             self.dtc_status_label.SetLabel("Scanning diagnostic trouble codes…")
+            self.dtc_empty_label.SetLabel("Scanning diagnostic trouble codes…")
+            self.dtc_empty_label.Show()
             self.GetDTCButton.Enable(False)
         elif isinstance(event.data, dict):
             counts = event.data.get("counts", {})
+            for category, count in self.dtc_summary_labels.items():
+                count.SetLabel(str(counts.get(category, 0)))
             total = sum(counts.values())
             if total:
                 self.dtc_status_label.SetLabel(
@@ -1760,11 +1829,25 @@ class MyApp(SessionUIMixin, VehicleProfilesMixin, DashboardUIMixin, GraphUIMixin
                     f"{counts.get('Pending', 0)} pending  •  "
                     f"{counts.get('Permanent', 0)} permanent"
                 )
+                self.dtc_empty_label.Hide()
             else:
                 self.dtc_status_label.SetLabel("No diagnostic trouble codes reported")
+                self.dtc_empty_label.SetLabel("No diagnostic trouble codes were reported.")
+                self.dtc_empty_label.Show()
             self.GetDTCButton.Enable(True)
         else:
-            self.dtc.Append(event.data)
+            row = tuple(event.data)
+            row_index = self.dtc.Append(row)
+            category_colours = {
+                "Stored": self.theme.danger,
+                "Pending": self.theme.warning,
+                "Permanent": self.theme.accent,
+            }
+            self.dtc.SetItemTextColour(
+                row_index, category_colours.get(row[1], self.theme.text)
+            )
+            self.dtc_empty_label.Hide()
+        self.DTCpanel.Layout()
 
     def OnDisconnect(self, event):  # disconnect connection to ECU
         self._stop_sensor_recording()
@@ -1804,6 +1887,8 @@ class MyApp(SessionUIMixin, VehicleProfilesMixin, DashboardUIMixin, GraphUIMixin
 
     def GetDTC(self, e):
         self.dtc_status_label.SetLabel("Scanning diagnostic trouble codes…")
+        self.dtc_empty_label.SetLabel("Scanning diagnostic trouble codes…")
+        self.dtc_empty_label.Show()
         self.GetDTCButton.Enable(False)
         self.ThreadControl = 2
         self._go_to_page(self.DTCpanel)
@@ -1814,25 +1899,76 @@ class MyApp(SessionUIMixin, VehicleProfilesMixin, DashboardUIMixin, GraphUIMixin
         self.dtc.SetItem(0, 1, code[1])
 
     def CodeLookup(self, e=None):
-        id = 0
-        diag = wx.Frame(None, id, title="Diagnostic Trouble Codes")
+        diag = wx.Frame(
+            self.frame,
+            title="Diagnostic Trouble Code Lookup",
+            size=(760, 620),
+        )
         ico = wx.Icon(resource_path('assets/pyobd.png'), wx.BITMAP_TYPE_PNG)
         diag.SetIcon(ico)
-        tree = wx.TreeCtrl(diag, id, style=wx.TR_HAS_BUTTONS)
+        diag.SetBackgroundColour(self.theme.window)
 
-        root = tree.AddRoot("Code Reference")
-        proot = root;  # tree.AppendItem(root,"Powertrain (P) Codes")
-        codes = pcodes.keys()
-        codes = sorted(codes)
-        group = ""
-        for c in codes:
-            if c[:3] != group:
-                group_root = tree.AppendItem(proot, c[:3] + "XX")
-                group = c[:3]
-            leaf = tree.AppendItem(group_root, c)
-            tree.AppendItem(leaf, pcodes[c])
+        panel = wx.Panel(diag)
+        panel.SetBackgroundColour(self.theme.window)
+        search = wx.SearchCtrl(panel, style=wx.TE_PROCESS_ENTER)
+        search.SetDescriptiveText("Search code or description")
+        search.ShowCancelButton(True)
+        search.SetMinSize((-1, 38))
+        result_label = wx.StaticText(panel, label="")
+        result_label.SetForegroundColour(self.theme.muted)
 
-        diag.SetSize((400, 500))
+        results = self.MyListCtrl(
+            panel,
+            wx.NewIdRef(),
+            style=wx.LC_REPORT | wx.BORDER_NONE | wx.LC_HRULES | wx.LC_SINGLE_SEL,
+        )
+        results.InsertColumn(0, "Code", width=120)
+        results.InsertColumn(1, "Description", width=560)
+        self.theme.style_list(results)
+
+        rows = sorted(pcodes.items())
+        pending_filter = {"timer": None}
+
+        def populate():
+            pending_filter["timer"] = None
+            query = search.GetValue().strip().lower()
+            filtered = [
+                (code, description)
+                for code, description in rows
+                if not query or query in code.lower() or query in description.lower()
+            ]
+            results.Freeze()
+            try:
+                results.DeleteAllItems()
+                for code, description in filtered:
+                    results.Append([code, description])
+            finally:
+                results.Thaw()
+            result_label.SetLabel(f"{len(filtered)} codes")
+            panel.Layout()
+
+        def schedule_filter(event):
+            timer = pending_filter["timer"]
+            if timer and timer.IsRunning():
+                timer.Stop()
+            pending_filter["timer"] = wx.CallLater(120, populate)
+            event.Skip()
+
+        def close_lookup(event):
+            timer = pending_filter["timer"]
+            if timer and timer.IsRunning():
+                timer.Stop()
+            event.Skip()
+
+        root = wx.BoxSizer(wx.VERTICAL)
+        root.Add(search, 0, wx.EXPAND | wx.ALL, 16)
+        root.Add(result_label, 0, wx.LEFT | wx.RIGHT | wx.BOTTOM, 16)
+        root.Add(results, 1, wx.EXPAND | wx.LEFT | wx.RIGHT | wx.BOTTOM, 16)
+        panel.SetSizer(root)
+        search.Bind(wx.EVT_TEXT, schedule_filter)
+        diag.Bind(wx.EVT_CLOSE, close_lookup)
+        populate()
+        diag.CentreOnParent()
         diag.Show(True)
 
     def QueryClear(self, e):
@@ -1847,6 +1983,7 @@ class MyApp(SessionUIMixin, VehicleProfilesMixin, DashboardUIMixin, GraphUIMixin
             self.ClearDTC()
 
     def ClearDTC(self):
+        self.dtc_status_label.SetLabel("Clearing diagnostic trouble codes…")
         self.ThreadControl = 1
         self._go_to_page(self.DTCpanel)
         self.senprod.wake()
