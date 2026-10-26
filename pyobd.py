@@ -258,6 +258,7 @@ class MyApp(SessionUIMixin, VehicleProfilesMixin, DashboardUIMixin, GraphUIMixin
         self._set_graph_streaming(False)
         self._set_graph_connection_state(False)
         self._reset_dashboard_values()
+        self._clear_connected_vehicle_header()
         self.settingmenu.Enable(ID_CONFIG, False)
         self.settingmenu.Enable(ID_RESET, False)
         self.settingmenu.Enable(ID_DISCONNECT, True)
@@ -730,6 +731,7 @@ class MyApp(SessionUIMixin, VehicleProfilesMixin, DashboardUIMixin, GraphUIMixin
 
 
     def sensor_control_on(self):  # after connection enable few buttons
+        self._update_active_vehicle_header()
         self.settingmenu.Enable(ID_CONFIG, False)
         self.settingmenu.Enable(ID_RESET, False)
         self.settingmenu.Enable(ID_DISCONNECT, True)
@@ -755,6 +757,7 @@ class MyApp(SessionUIMixin, VehicleProfilesMixin, DashboardUIMixin, GraphUIMixin
     def sensor_control_off(self):  # after disconnect disable few buttons
         self._stop_sensor_recording()
         self._reset_dashboard_values()
+        self._clear_connected_vehicle_header()
         self.dtcmenu.Enable(ID_GETC, False)
         self.dtcmenu.Enable(ID_CLEAR, False)
         self.settingmenu.Enable(ID_DISCONNECT, False)
@@ -1037,6 +1040,10 @@ class MyApp(SessionUIMixin, VehicleProfilesMixin, DashboardUIMixin, GraphUIMixin
             self.sensor_filter_timer.Stop()
         self.sensor_filter_timer = wx.CallLater(150, self._apply_sensor_filter)
 
+    def _style_sensor_row(self, row_index):
+        colour = self.theme.surface_alt if row_index % 2 else self.theme.surface
+        self.sensors.SetItemBackgroundColour(row_index, colour)
+
     def _apply_sensor_filter(self):
         self.sensor_filter_timer = None
         if self._shutdown_started:
@@ -1056,6 +1063,7 @@ class MyApp(SessionUIMixin, VehicleProfilesMixin, DashboardUIMixin, GraphUIMixin
             view_index = self.sensors.InsertItem(self.sensors.GetItemCount(), row[0])
             self.sensors.SetItem(view_index, 1, row[1])
             self.sensors.SetItem(view_index, 2, row[2])
+            self._style_sensor_row(view_index)
             self.sensor_visible_indices.append(source_index)
             self.sensor_view_by_source[source_index] = view_index
         self.sensor_selected_sources.intersection_update(self.sensor_visible_indices)
@@ -1727,6 +1735,7 @@ class MyApp(SessionUIMixin, VehicleProfilesMixin, DashboardUIMixin, GraphUIMixin
                     self.sensor_rows.append(["", "", ""])
                 if source_index not in self.sensor_view_by_source and not query_active:
                     view_index = self.sensors.InsertItem(self.sensors.GetItemCount(), "")
+                    self._style_sensor_row(view_index)
                     self.sensor_visible_indices.append(source_index)
                     self.sensor_view_by_source[source_index] = view_index
 
