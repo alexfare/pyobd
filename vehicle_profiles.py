@@ -95,6 +95,13 @@ class VehicleProfilesMixin:
             header.SetFont(self.theme.font(10, bold=is_demo))
             header.GetParent().Layout()
 
+    def _clear_connected_vehicle_header(self):
+        header = getattr(self, "header_vehicle_profile", None)
+        if header:
+            header.SetLabel("")
+            header.SetToolTip("")
+            header.GetParent().Layout()
+
     def _activate_vehicle_profile_for_vin(self, vin):
         normalized_vin = self._normalize_vin(vin)
         if not normalized_vin:
