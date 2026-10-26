@@ -6,4 +6,4 @@ __pycache__/
 /installer-dist/
 /third-party-licenses/
 *.spec
-.Notes/
+/.Notes
