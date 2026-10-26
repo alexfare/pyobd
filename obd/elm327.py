@@ -608,8 +608,6 @@ class ELM327:
             default, the prompt) is seen
         """
         self.__write(cmd)
-        if self.__status == OBDStatus.NOT_CONNECTED:
-            return []
 
         delayed = 0.0
         if delay is not None:
