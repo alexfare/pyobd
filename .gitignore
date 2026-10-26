@@ -1,9 +1,9 @@
-/__pycache__
-/obd/__pycache__
-/obd/protocols/__pycache__
+__pycache__/
+*.py[cod]
 *.ini
 /build/
 /dist/
 /installer-dist/
+/third-party-licenses/
 *.spec
 /.Notes

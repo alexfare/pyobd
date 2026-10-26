@@ -1,2 +1,5 @@
+# Modified by FareBrothers, LLC.
+# Modifications made from 2026-10-10 through 2026-10-16.
+
 -r requirements/requirements-core.txt
 wxPython>=4.2.1,<5

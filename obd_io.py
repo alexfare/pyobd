@@ -5,6 +5,8 @@
 # Copyright 2004 Donour Sizemore (donour@uchicago.edu)
 # Copyright 2009 Secons Ltd. (www.obdtester.com)
 # Copyright 2021 Jure Poljsak (https://github.com/barracuda-fsh/pyobd)
+# Modified by FareBrothers, LLC.
+# Modifications made from 2026-04-05 through 2026-10-20.
 #
 # This file is part of pyOBD.
 #
@@ -27,6 +29,7 @@ from pdb import set_trace as bp
 import serial
 from serial.tools import list_ports
 import string
+import threading
 import time
 from math import ceil
 import wx #due to debugEvent messaging
@@ -40,6 +43,9 @@ from obd_sensors import hex_to_int
 import obd
 import decimal
 import math
+
+from app_events import StatusEvent
+from diagnostic_transport import ReadOnlyDiagnosticTransport
 
 
 class _FakeMonitorStatus:
@@ -117,6 +123,8 @@ class _DemoConnection:
     def __init__(self, baudrate=None):
         self._start = time.time()
         self._dtc_active = [("P0301", "Cylinder 1 Misfire Detected")]
+        self._dtc_pending = [("P0171", "System Too Lean (Bank 1)")]
+        self._dtc_permanent = [("P0420", "Catalyst System Efficiency Below Threshold")]
         self._freeze_dtc = ("P0301", "Cylinder 1 Misfire Detected")
         self.interface = _FakeInterface(baudrate)
 
@@ -179,10 +187,15 @@ class _DemoConnection:
         # Mode 03/07/04 DTC handling
         if command == obd.commands.GET_DTC:
             return _FakeResponse(list(self._dtc_active))
+        if command == obd.commands.GET_CURRENT_DTC:
+            return _FakeResponse(list(self._dtc_pending))
+        if command == obd.commands.GET_PERMANENT_DTC:
+            return _FakeResponse(list(self._dtc_permanent))
         if command == obd.commands.FREEZE_DTC:
             return _FakeResponse(self._freeze_dtc)
         if command == obd.commands["CLEAR_DTC"]:
             self._dtc_active = []
+            self._dtc_pending = []
             self._freeze_dtc = ("P0000", "No stored freeze code")
             return _FakeResponse("OK")
 
@@ -284,8 +297,14 @@ logger = logging.getLogger(__name__)
 
 class OBDConnection:
 
-    def __init__(self,portnum,_notify_window, baud, SERTIMEOUT,RECONNATTEMPTS, FAST):
+    def __init__(
+        self, portnum, _notify_window, baud, SERTIMEOUT, RECONNATTEMPTS, FAST,
+        attempt_status=None, cancel_check=None,
+    ):
         self._notify_window = _notify_window
+        self.query_lock = threading.RLock()
+        self.transport = ReadOnlyDiagnosticTransport(self, self.query_lock)
+        self.failure_reason = None
         if baud == 'AUTO':
             baud = None
         original_baud = baud
@@ -323,6 +342,7 @@ class OBDConnection:
             candidate_ports = [p.device for p in list_ports.comports() if p.device]
             candidate_ports = sorted(candidate_ports)
             if not candidate_ports:
+                self.failure_reason = "No connected serial ports detected"
                 wx.PostEvent(self._notify_window, DebugEvent([1, "No connected serial ports detected."]))
                 self.connection = _DisconnectedConnection("Not Connected")
                 return
@@ -332,6 +352,12 @@ class OBDConnection:
             port_attempts = [portnum] * max_attempts
 
         for counter, candidate_port in enumerate(port_attempts, start=1):
+            if cancel_check and cancel_check():
+                break
+            if attempt_status:
+                wx.PostEvent(self._notify_window, StatusEvent([
+                    0, 1, f"{attempt_status} ({counter}/{len(port_attempts)})..."
+                ]))
             wx.PostEvent(self._notify_window, DebugEvent([2, "Connection attempt:" + str(counter) + " (" + str(candidate_port) + ")"]))
             try:
                 self.connection.close()
@@ -349,16 +375,27 @@ class OBDConnection:
                     start_low_power=False,
                 )
             except Exception as ex:
-                wx.PostEvent(self._notify_window, DebugEvent([1, "Open failed on " + str(candidate_port) + ": " + str(ex)]))
+                self.failure_reason = str(ex)
+                wx.PostEvent(self._notify_window, DebugEvent([1, "Open failed on " + str(candidate_port) + ": " + self.failure_reason]))
                 self.connection = _DisconnectedConnection("Not Connected")
                 continue
 
             if self.connection.status() == "Car Connected":
+                self.failure_reason = None
                 wx.PostEvent(self._notify_window, DebugEvent([2, "Connected to: " + str(self.connection.port_name())]))
                 break
 
+            self.failure_reason = (
+                getattr(self.connection, "last_error", None)
+                or "Adapter opened, but no vehicle connection was established"
+            )
+            wx.PostEvent(self._notify_window, DebugEvent([
+                1, "Connection failed on " + str(candidate_port) + ": " + self.failure_reason
+            ]))
             self.connection.close()
             self.connection = _DisconnectedConnection("Not Connected")
+            if cancel_check and cancel_check():
+                break
             time.sleep(0.2)
 
     def _normalize_adapter_target(self, portnum):
@@ -403,6 +440,20 @@ class OBDConnection:
         self.connection.close()
         self.ELMver = "Unknown"
 
+    def query(self, command, force=False):
+        with self.query_lock:
+            if isinstance(self.connection, _DemoConnection):
+                return self.connection.query(command)
+            return self.connection.query(command, force=force)
+
+    def supports(self, command):
+        if isinstance(self.connection, _DemoConnection):
+            return True
+        try:
+            return self.connection.supports(command)
+        except AttributeError:
+            return False
+
     def sensor(self , sensor_index):
         """Returns 3-tuple of given sensors. 3-tuple consists of
          (Sensor Name (string), Sensor Value (string), Sensor Unit (string) ) """
@@ -416,7 +467,7 @@ class OBDConnection:
         """Clears all DTCs and freeze frame data"""
         #self.send_command(CLEAR_DTC_COMMAND)
         #r = self.get_result()
-        r = self.connection.query(obd.commands["CLEAR_DTC"])
+        r = self.query(obd.commands["CLEAR_DTC"])
         return r
 
     def log(self, sensor_index, filename): 

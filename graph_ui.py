@@ -1,12 +1,18 @@
 """Graph page UI and interaction logic for pyOBD."""
 
+import json
+
 import wx
 from wx.lib import plot as wxplot
 
 import obd
+from ui_theme import ModernButton
 
 
-GRAPH_COLOURS = ["blue", "red", "green", "orange", "purple", "brown", "black", "cyan"]
+GRAPH_COLOURS = [
+    "#2563EB", "#DC2626", "#16A34A", "#D97706",
+    "#7E22CE", "#A16207", "#0891B2", "#DB2777",
+]
 
 
 class GraphUIMixin:
@@ -26,15 +32,207 @@ class GraphUIMixin:
         self.selected_graph_commands = []
         self.isolated_graph_command_key = None
 
+    def _load_graph_presets(self):
+        try:
+            saved = json.loads(self.config.get("pyOBD", "GRAPH_PRESETS", fallback="{}"))
+        except (TypeError, ValueError):
+            saved = {}
+        self.graph_presets = {
+            str(name): [str(command) for command in commands]
+            for name, commands in saved.items()
+            if str(name).strip() and isinstance(commands, list)
+        } if isinstance(saved, dict) else {}
+
+    def _save_graph_presets(self):
+        if not self.config.has_section("pyOBD"):
+            self.config.add_section("pyOBD")
+        self.config.set("pyOBD", "GRAPH_PRESETS", json.dumps(self.graph_presets, sort_keys=True))
+        try:
+            with open(self.configfilepath, "w", encoding="utf-8") as config_file:
+                self.config.write(config_file)
+        except OSError as error:
+            wx.MessageBox(
+                f"Unable to save graph presets.\n\n{error}",
+                "Graph Presets",
+                wx.OK | wx.ICON_ERROR,
+            )
+            return False
+        return True
+
+    def _refresh_graph_preset_choice(self, selected_name=None):
+        names = sorted(self.graph_presets, key=str.casefold)
+        self.graph_preset_choice.Set(["Select preset"] + names)
+        if selected_name in names:
+            self.graph_preset_choice.SetSelection(names.index(selected_name) + 1)
+        else:
+            self.graph_preset_choice.SetSelection(0)
+
+    def _selected_graph_preset_name(self):
+        return (
+            self.graph_preset_choice.GetStringSelection()
+            if self.graph_preset_choice.GetSelection() > 0
+            else None
+        )
+
+    def _apply_graph_preset(self, name):
+        catalog = {
+            command.command.decode(errors="ignore").upper(): command
+            for command in self.graph_command_catalog
+        }
+        commands = []
+        seen = set()
+        for key in self.graph_presets.get(name, []):
+            command = catalog.get(key.upper())
+            if command and command.command not in seen:
+                commands.append(command)
+                seen.add(command.command)
+        self.selected_graph_commands = commands
+        self.isolated_graph_command_key = None
+        self._refresh_graph_selection_ui()
+
+    def OnGraphPresetSelected(self, _event):
+        name = self._selected_graph_preset_name()
+        if name:
+            self._apply_graph_preset(name)
+
+    def _save_current_graph_preset(self, _event=None):
+        if not self.selected_graph_commands:
+            wx.MessageBox(
+                "Add at least one PID before saving a preset.",
+                "Graph Presets",
+                wx.OK | wx.ICON_INFORMATION,
+            )
+            return
+        current_name = self._selected_graph_preset_name() or ""
+        dialog = wx.TextEntryDialog(self.frame, "Preset name:", "Save Graph Preset", current_name)
+        try:
+            if dialog.ShowModal() != wx.ID_OK:
+                return
+            name = dialog.GetValue().strip()
+        finally:
+            dialog.Destroy()
+        if not name:
+            return
+        if name in self.graph_presets and wx.MessageBox(
+            f'Replace the existing preset "{name}"?',
+            "Graph Presets",
+            wx.YES_NO | wx.NO_DEFAULT | wx.ICON_QUESTION,
+        ) != wx.YES:
+            return
+        self.graph_presets[name] = [
+            command.command.decode(errors="ignore")
+            for command in self.selected_graph_commands
+        ]
+        if self._save_graph_presets():
+            self._refresh_graph_preset_choice(name)
+
+    def _rename_graph_preset(self, _event=None):
+        old_name = self._selected_graph_preset_name()
+        if not old_name:
+            return
+        dialog = wx.TextEntryDialog(self.frame, "Preset name:", "Rename Graph Preset", old_name)
+        try:
+            if dialog.ShowModal() != wx.ID_OK:
+                return
+            new_name = dialog.GetValue().strip()
+        finally:
+            dialog.Destroy()
+        if not new_name or new_name == old_name:
+            return
+        if new_name in self.graph_presets:
+            wx.MessageBox(
+                "A preset with that name already exists.",
+                "Graph Presets",
+                wx.OK | wx.ICON_INFORMATION,
+            )
+            return
+        self.graph_presets[new_name] = self.graph_presets.pop(old_name)
+        if self._save_graph_presets():
+            self._refresh_graph_preset_choice(new_name)
+
+    def _delete_graph_preset(self, _event=None):
+        name = self._selected_graph_preset_name()
+        if not name or wx.MessageBox(
+            f'Delete the preset "{name}"?',
+            "Graph Presets",
+            wx.YES_NO | wx.NO_DEFAULT | wx.ICON_QUESTION,
+        ) != wx.YES:
+            return
+        del self.graph_presets[name]
+        if self._save_graph_presets():
+            self._refresh_graph_preset_choice()
+
+    def OnManageGraphPresets(self, _event):
+        menu = wx.Menu()
+        save_item = menu.Append(wx.ID_ANY, "Save current as…")
+        rename_item = menu.Append(wx.ID_ANY, "Rename selected")
+        delete_item = menu.Append(wx.ID_ANY, "Delete selected")
+        has_selection = self._selected_graph_preset_name() is not None
+        rename_item.Enable(has_selection)
+        delete_item.Enable(has_selection)
+        self.graph_preset_button.Bind(wx.EVT_MENU, self._save_current_graph_preset, save_item)
+        self.graph_preset_button.Bind(wx.EVT_MENU, self._rename_graph_preset, rename_item)
+        self.graph_preset_button.Bind(wx.EVT_MENU, self._delete_graph_preset, delete_item)
+        self.graph_preset_button.PopupMenu(menu)
+        menu.Destroy()
+
     def _set_graph_streaming(self, enabled):
         self.graph_streaming_enabled = bool(enabled)
+        self.graph_has_received_data = False
         if hasattr(self, "graph_play_button"):
-            self.graph_play_button.SetLabel("Stop" if self.graph_streaming_enabled else "Play")
+            self.graph_play_button.SetLabel(
+                "Stop Graph" if self.graph_streaming_enabled else "Start Graph"
+            )
+            self.graph_play_button.SetVariant("danger" if self.graph_streaming_enabled else "success")
 
         if not self.graph_streaming_enabled:
             for row in range(self.graph_list_ctrl.GetItemCount()):
                 self.graph_list_ctrl.SetItem(row, 2, "---")
             self._clear_graph_canvases()
+        if hasattr(self, "graph_status_label"):
+            self._update_graph_control_state()
+
+    def _set_graph_connection_state(self, connected):
+        self.graph_connected = bool(connected)
+        if not self.graph_connected and self.graph_streaming_enabled:
+            self._set_graph_streaming(False)
+        elif hasattr(self, "graph_status_label"):
+            self._update_graph_control_state()
+
+    def _update_graph_control_state(self):
+        pid_count = len(self.selected_graph_commands)
+        selected_count = len(self._selected_graph_keys())
+        self.graph_selection_label.SetLabel(
+            f"{pid_count} PID{'s' if pid_count != 1 else ''}  •  "
+            f"{selected_count} selected"
+        )
+        self.remove_graph_pid_button.Enable(selected_count > 0)
+        self.graph_play_button.Enable(self.graph_connected and pid_count > 0)
+
+        if not self.graph_connected:
+            status = "Disconnected"
+            colour = self.theme.muted
+            state = "Connect to a vehicle to begin graphing live data."
+        elif not pid_count:
+            status = "Add PIDs to begin"
+            colour = self.theme.muted
+            state = "Add one or more PIDs to create a live graph."
+        elif self.graph_streaming_enabled:
+            status = "●  Live"
+            colour = self.theme.success
+            state = "Waiting for graph data…"
+        else:
+            status = "Paused"
+            colour = self.theme.warning
+            state = "Graph paused. Current selections are ready to start."
+
+        self.graph_status_label.SetLabel(status)
+        self.graph_status_label.SetForegroundColour(colour)
+        self.graph_state_label.SetLabel(state)
+        self.graph_state_label.Show(
+            not self.graph_streaming_enabled or not self.graph_has_received_data
+        )
+        self.graph_panel.Layout()
 
     def OnToggleGraphStreaming(self, _event):
         if not self.graph_streaming_enabled:
@@ -45,6 +243,7 @@ class GraphUIMixin:
                     wx.OK | wx.ICON_INFORMATION,
                 )
                 return
+            self.graph_title_override = None
             self._set_graph_streaming(True)
         else:
             self._set_graph_streaming(False)
@@ -60,51 +259,72 @@ class GraphUIMixin:
 
     def _refresh_graph_selection_ui(self):
         selected_keys = set(self._selected_graph_keys()) if hasattr(self, "graph_list_ctrl") else set()
+        self.graph_list_ctrl.Freeze()
         self.graph_list_ctrl.DeleteAllItems()
         for index, command in enumerate(self.selected_graph_commands):
             self.graph_list_ctrl.InsertItem(index, command.command.decode(errors="ignore"))
             self.graph_list_ctrl.SetItem(index, 1, command.desc)
             self.graph_list_ctrl.SetItem(index, 2, "---")
+            self.graph_list_ctrl.SetItemTextColour(
+                index, wx.Colour(GRAPH_COLOURS[index % len(GRAPH_COLOURS)])
+            )
             if command.command in selected_keys:
                 self.graph_list_ctrl.Select(index)
+        self.graph_list_ctrl.Thaw()
 
         valid_keys = {command.command for command in self.selected_graph_commands}
         if self.isolated_graph_command_key not in valid_keys:
             self.isolated_graph_command_key = None
-        self._rebuild_graph_canvases()
+        if self.graph_individual_mode or self.panel is None:
+            self._rebuild_graph_canvases()
+        self._update_graph_control_state()
 
     def _add_graph_commands_by_catalog_indices(self, catalog_indices):
-        added_count = 0
+        existing_keys = {command.command for command in self.selected_graph_commands}
+        additions = []
         for index in catalog_indices:
             if not 0 <= index < len(self.graph_command_catalog):
                 continue
             command = self.graph_command_catalog[index]
-            if command not in self.selected_graph_commands:
-                self.selected_graph_commands.append(command)
-                added_count += 1
+            if command.command not in existing_keys:
+                additions.append(command)
+                existing_keys.add(command.command)
 
-        if added_count:
+        if additions:
+            self.selected_graph_commands.extend(additions)
             self._refresh_graph_selection_ui()
-        return added_count
+        return len(additions)
 
     def _show_add_graph_pid_dialog(self):
         dialog = wx.Dialog(self.frame, -1, "Add PID", size=(680, 540))
+        dialog.SetBackgroundColour(self.theme.window)
         root = wx.BoxSizer(wx.VERTICAL)
-        search_ctrl = wx.TextCtrl(dialog)
+        heading = wx.StaticText(dialog, label="Choose live-data PIDs")
+        heading.SetForegroundColour(self.theme.text)
+        heading.SetFont(self.theme.font(16, bold=True))
+        search_ctrl = wx.SearchCtrl(dialog, style=wx.TE_PROCESS_ENTER)
+        search_ctrl.SetDescriptiveText("Search PID or sensor")
+        search_ctrl.ShowCancelButton(True)
         list_box = wx.ListBox(dialog, style=wx.LB_EXTENDED)
-        add_button = wx.Button(dialog, label="Add Selected")
-        done_button = wx.Button(dialog, wx.ID_CANCEL, "Done")
+        list_box.SetBackgroundColour(self.theme.surface)
+        list_box.SetForegroundColour(self.theme.text)
+        result_label = wx.StaticText(dialog, label="")
+        result_label.SetForegroundColour(self.theme.muted)
+        add_button = ModernButton(dialog, "Add Selected", self.theme, variant="primary")
+        done_button = ModernButton(
+            dialog, "Done", self.theme, variant="secondary", id=wx.ID_CANCEL
+        )
 
         button_row = wx.BoxSizer(wx.HORIZONTAL)
         button_row.Add(add_button)
         button_row.AddStretchSpacer()
         button_row.Add(done_button)
 
-        root.Add(wx.StaticText(dialog, label="Search (contains):"), 0, wx.LEFT | wx.RIGHT | wx.TOP, 10)
-        root.Add(search_ctrl, 0, wx.EXPAND | wx.LEFT | wx.RIGHT | wx.TOP, 6)
-        root.Add(list_box, 1, wx.EXPAND | wx.ALL, 10)
-        root.Add(wx.StaticText(dialog, label="Tip: use Ctrl/Shift to select multiple PIDs."), 0, wx.LEFT | wx.RIGHT, 10)
-        root.Add(button_row, 0, wx.EXPAND | wx.ALL, 10)
+        root.Add(heading, 0, wx.LEFT | wx.RIGHT | wx.TOP, 16)
+        root.Add(search_ctrl, 0, wx.EXPAND | wx.LEFT | wx.RIGHT | wx.TOP, 16)
+        root.Add(result_label, 0, wx.LEFT | wx.RIGHT | wx.TOP, 16)
+        root.Add(list_box, 1, wx.EXPAND | wx.LEFT | wx.RIGHT | wx.TOP, 16)
+        root.Add(button_row, 0, wx.EXPAND | wx.ALL, 16)
         dialog.SetSizer(root)
 
         filtered_indices = []
@@ -120,15 +340,21 @@ class GraphUIMixin:
         def update_filter(_event=None):
             selected_catalog_indices.update(current_catalog_indices())
             query = search_ctrl.GetValue().strip().lower()
-            list_box.Clear()
             filtered_indices.clear()
+            labels = []
+            existing_keys = {command.command for command in self.selected_graph_commands}
             for index, label in enumerate(self.graph_command_labels):
-                if not query or query in label.lower():
+                command = self.graph_command_catalog[index]
+                if command.command not in existing_keys and (not query or query in label.lower()):
                     filtered_indices.append(index)
-                    list_box.Append(label)
+                    labels.append(label)
+            list_box.Freeze()
+            list_box.Set(labels)
             for view_index, catalog_index in enumerate(filtered_indices):
                 if catalog_index in selected_catalog_indices:
                     list_box.SetSelection(view_index)
+            list_box.Thaw()
+            result_label.SetLabel(f"{len(filtered_indices)} available PIDs")
 
         def add_selected(_event=None):
             selected_catalog_indices.update(current_catalog_indices())
@@ -142,11 +368,16 @@ class GraphUIMixin:
 
         search_ctrl.Bind(wx.EVT_TEXT, update_filter)
         add_button.Bind(wx.EVT_BUTTON, add_selected)
+        done_button.Bind(wx.EVT_BUTTON, lambda _event: dialog.EndModal(wx.ID_CANCEL))
         list_box.Bind(wx.EVT_LISTBOX_DCLICK, add_selected)
-        update_filter()
-        search_ctrl.SetFocus()
-        dialog.ShowModal()
-        dialog.Destroy()
+        self.graph_interaction_paused = True
+        try:
+            update_filter()
+            search_ctrl.SetFocus()
+            dialog.ShowModal()
+        finally:
+            self.graph_interaction_paused = False
+            dialog.Destroy()
 
     def OnAddGraphPid(self, _event):
         self._show_add_graph_pid_dialog()
@@ -172,6 +403,7 @@ class GraphUIMixin:
             return
         is_selected = bool(self.graph_list_ctrl.GetItemState(index, wx.LIST_STATE_SELECTED))
         self.graph_list_ctrl.Select(index, not is_selected)
+        self._update_graph_control_state()
 
     def OnGraphListClick(self, event):
         index, _flags = self.graph_list_ctrl.HitTest(event.GetPosition())
@@ -198,6 +430,11 @@ class GraphUIMixin:
     def _clear_graph_selection(self):
         for index in range(self.graph_list_ctrl.GetItemCount()):
             self.graph_list_ctrl.Select(index, False)
+        self._update_graph_control_state()
+
+    def _on_graph_selection_changed(self, event):
+        wx.CallAfter(self._update_graph_control_state)
+        event.Skip()
 
     def _isolate_graph_index(self, index):
         if not 0 <= index < len(self.selected_graph_commands):
@@ -271,13 +508,42 @@ class GraphUIMixin:
 
     def build_graph_page(self):
         self.graph_panel = wx.Panel(self.nb)
+        self.graph_panel.SetBackgroundColour(self.theme.window)
         root = wx.BoxSizer(wx.VERTICAL)
+        toolbar_panel = wx.Panel(self.graph_panel)
+        toolbar_panel.SetBackgroundColour(self.theme.surface)
+        toolbar_root = wx.BoxSizer(wx.VERTICAL)
+        status_row = wx.BoxSizer(wx.HORIZONTAL)
         toolbar = wx.BoxSizer(wx.HORIZONTAL)
 
-        self.add_graph_pid_button = wx.Button(self.graph_panel, label="Add PID")
-        self.remove_graph_pid_button = wx.Button(self.graph_panel, label="Remove Selected")
-        self.graph_play_button = wx.Button(self.graph_panel, label="Play")
-        self.graph_view_button = wx.Button(self.graph_panel, label="▦", size=(48, 42))
+        self.graph_status_label = wx.StaticText(toolbar_panel, label="Disconnected")
+        self.graph_status_label.SetForegroundColour(self.theme.muted)
+        self.graph_status_label.SetFont(self.theme.font(10, bold=True))
+        self.graph_selection_label = wx.StaticText(toolbar_panel, label="0 PIDs  •  0 selected")
+        self.graph_selection_label.SetForegroundColour(self.theme.muted)
+        status_row.Add(self.graph_status_label, 1, wx.ALIGN_CENTER_VERTICAL)
+        status_row.Add(self.graph_selection_label, 0, wx.ALIGN_CENTER_VERTICAL)
+
+        self.add_graph_pid_button = ModernButton(
+            toolbar_panel, "Add PID", self.theme, variant="primary"
+        )
+        self.remove_graph_pid_button = ModernButton(
+            toolbar_panel, "Remove Selected", self.theme, variant="danger"
+        )
+        self.remove_graph_pid_button.SetMinSize((160, 40))
+        self.graph_play_button = ModernButton(
+            toolbar_panel, "Start Graph", self.theme, variant="success"
+        )
+        self.graph_play_button.SetMinSize((120, 40))
+        self.graph_preset_choice = wx.Choice(toolbar_panel, choices=["Select preset"])
+        self.graph_preset_choice.SetMinSize((170, 40))
+        self.graph_preset_button = ModernButton(
+            toolbar_panel, "Manage", self.theme, variant="secondary"
+        )
+        self.graph_preset_button.SetToolTip("Save, rename, or delete graph presets")
+        self.graph_view_button = ModernButton(
+            toolbar_panel, "▦", self.theme, variant="secondary", size=(48, 42)
+        )
         self.graph_individual_mode = False
         view_font = self.graph_view_button.GetFont()
         view_font.SetPointSize(18)
@@ -287,12 +553,17 @@ class GraphUIMixin:
         toolbar.Add(self.remove_graph_pid_button, 0, wx.RIGHT, 8)
         toolbar.Add(self.graph_play_button, 0, wx.RIGHT, 16)
         toolbar.AddStretchSpacer(1)
+        toolbar.Add(self.graph_preset_choice, 0, wx.ALIGN_CENTER_VERTICAL | wx.RIGHT, 8)
+        toolbar.Add(self.graph_preset_button, 0, wx.RIGHT, 8)
         toolbar.Add(self.graph_view_button, 0, wx.ALIGN_CENTER_VERTICAL)
+        toolbar_root.Add(status_row, 0, wx.EXPAND | wx.LEFT | wx.RIGHT | wx.TOP, 10)
+        toolbar_root.Add(toolbar, 0, wx.EXPAND | wx.ALL, 10)
+        toolbar_panel.SetSizer(toolbar_root)
 
         self.graph_list_ctrl = self.MyListCtrl(
             self.graph_panel,
             wx.NewIdRef(),
-            style=wx.LC_REPORT | wx.SUNKEN_BORDER | wx.LC_HRULES,
+            style=wx.LC_REPORT | wx.BORDER_NONE | wx.LC_HRULES,
         )
         self.graph_list_ctrl.InsertColumn(0, "PID", width=80)
         self.graph_list_ctrl.InsertColumn(1, "Sensor", width=360)
@@ -302,23 +573,42 @@ class GraphUIMixin:
             "Click rows to select or unselect them. Right-click a row for graph actions."
         )
 
+        self.graph_state_label = wx.StaticText(
+            self.graph_panel,
+            label="Connect to a vehicle to begin graphing live data.",
+        )
+        self.graph_state_label.SetForegroundColour(self.theme.muted)
+        self.graph_state_label.SetFont(self.theme.font(11))
+
         self.graph_plot_host = wx.ScrolledWindow(self.graph_panel, style=wx.VSCROLL)
         self.graph_plot_sizer = wx.BoxSizer(wx.VERTICAL)
         self.graph_plot_host.SetSizer(self.graph_plot_sizer)
         self.individual_graph_canvases = []
 
-        root.Add(toolbar, 0, wx.EXPAND | wx.ALL, 10)
-        root.Add(self.graph_list_ctrl, 0, wx.EXPAND | wx.LEFT | wx.RIGHT, 10)
-        root.Add(self.graph_plot_host, 1, wx.EXPAND | wx.ALL, 6)
+        root.AddSpacer(8)
+        root.Add(toolbar_panel, 0, wx.EXPAND | wx.LEFT | wx.RIGHT, 20)
+        root.Add(self.graph_list_ctrl, 0, wx.EXPAND | wx.LEFT | wx.RIGHT | wx.TOP, 20)
+        root.Add(self.graph_state_label, 0, wx.LEFT | wx.RIGHT | wx.TOP, 20)
+        root.Add(self.graph_plot_host, 1, wx.EXPAND | wx.LEFT | wx.RIGHT | wx.BOTTOM, 16)
         self.graph_panel.SetSizer(root)
 
         self._build_graph_command_catalog()
+        self._load_graph_presets()
+        self._refresh_graph_preset_choice()
         self.graph_streaming_enabled = False
+        self.graph_connected = False
+        self.graph_has_received_data = False
+        self.graph_interaction_paused = False
+        self.graph_event_pending = False
         self.add_graph_pid_button.Bind(wx.EVT_BUTTON, self.OnAddGraphPid)
         self.remove_graph_pid_button.Bind(wx.EVT_BUTTON, self.OnRemoveGraphPid)
         self.graph_play_button.Bind(wx.EVT_BUTTON, self.OnToggleGraphStreaming)
+        self.graph_preset_choice.Bind(wx.EVT_CHOICE, self.OnGraphPresetSelected)
+        self.graph_preset_button.Bind(wx.EVT_BUTTON, self.OnManageGraphPresets)
         self.graph_view_button.Bind(wx.EVT_BUTTON, self.OnGraphViewToggle)
         self.graph_list_ctrl.Bind(wx.EVT_LEFT_DOWN, self.OnGraphListClick)
+        self.graph_list_ctrl.Bind(wx.EVT_LIST_ITEM_SELECTED, self._on_graph_selection_changed)
+        self.graph_list_ctrl.Bind(wx.EVT_LIST_ITEM_DESELECTED, self._on_graph_selection_changed)
         self.graph_list_ctrl.Bind(wx.EVT_LIST_ITEM_RIGHT_CLICK, self.OnGraphListRightClick)
 
         self.nb.AddPage(self.graph_panel, "Graph")
@@ -346,8 +636,15 @@ class GraphUIMixin:
 
     def OnGraph(self, event):
         plot_series, graph_counter, _first_time = event.data
+        if not self.graph_streaming_enabled:
+            self.graph_event_pending = False
+            return
 
         try:
+            if plot_series and not self.graph_has_received_data:
+                self.graph_has_received_data = True
+                self.graph_state_label.Hide()
+                self.graph_panel.Layout()
             if self.graph_individual_mode:
                 if len(self.individual_graph_canvases) != len(self.selected_graph_commands):
                     self._rebuild_graph_canvases()
@@ -360,10 +657,9 @@ class GraphUIMixin:
                         command.desc,
                         graph_counter,
                     )
-                self.graph_plot_host.FitInside()
             else:
                 visible_series = plot_series
-                title = "Live Graphs"
+                title = getattr(self, "graph_title_override", None) or "Live Graphs"
                 if self.isolated_graph_command_key is not None:
                     visible_series = [
                         series for series in plot_series
@@ -374,6 +670,8 @@ class GraphUIMixin:
                 self._draw_series(self.panel, visible_series, title, graph_counter)
         except Exception:
             self._clear_graph_canvases()
+        finally:
+            self.graph_event_pending = False
 
     def OnGraphValue(self, event):
         command_key, column, value = event.data

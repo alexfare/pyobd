@@ -300,6 +300,11 @@ __mode9__ = [
 #    OBDCommand("PERF_TRACKING_COMPRESSION"  , "In-use performance tracking (compression ignition)", b"090b",  4, raw_string,         ECU.ALL,     True),
 ]
 
+
+__modeA__ = [
+    OBDCommand("GET_PERMANENT_DTC", "Get permanent DTCs", b"0A", 0, dtc, ECU.ALL, False),
+]
+
 __misc__ = [
     OBDCommand("ELM_VERSION", "ELM327 version string", b"ATI", 0, raw_string, ECU.UNKNOWN, False),
     OBDCommand("ELM_VOLTAGE", "Voltage detected by OBD-II adapter", b"ATRV", 0, elm_voltage, ECU.UNKNOWN, False),
@@ -325,6 +330,7 @@ class Commands():
             __mode7__,
             [],
             __mode9__,
+            __modeA__,
         ]
 
         # allow commands to be accessed by name
@@ -377,6 +383,7 @@ class Commands():
             self.GET_DTC,
             self.CLEAR_DTC,
             self.GET_CURRENT_DTC,
+            self.GET_PERMANENT_DTC,
             self.ELM_VERSION,
             self.ELM_VOLTAGE,
         ]

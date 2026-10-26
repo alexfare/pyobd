@@ -1,5 +1,7 @@
 # pyOBD
 
+> Modified by FareBrothers, LLC. Modifications made from 2026-04-05 through 2026-10-16.
+
 An open-source OBD-II diagnostic app for viewing engine sensors, readiness tests,
 trouble codes, freeze-frame data, and live graphs. Includes a demo mode without
 an adapter. Modified by FareBrothers, based on
@@ -7,14 +9,11 @@ an adapter. Modified by FareBrothers, based on
 project by Donour Sizemore. Licensed under GPL-2.0; see [COPYING](COPYING).
 
 ## About FareBrothers
-
 Operating since 2023, FareBrothers, LLC develops iOS and Android applications
 and maintains automotive software projects including pyOBD, DodgeOBD, and
-NissanOBD. Through Great Lakes IT Services, the company also provides website
-hosting and game server hosting.
+NissanOBD.
 
 ### More from us
-
 Visit [Farebros.com](https://farebros.com) or explore the
 [FareBrothers divisions](https://farebros.com/divisions.php). Our mobile apps
 are available through the
@@ -22,7 +21,6 @@ are available through the
 and [Google Play](https://play.google.com/store/apps/developer?id=FareBrothers).
 
 ## Download
-
 For the easiest setup, download the latest Windows installer, Apple Silicon
 macOS disk image, or Ubuntu/Debian package from
 [Releases](https://github.com/alexfare/pyobd/releases/latest). These packages
@@ -33,7 +31,6 @@ Open pyOBD and select **DEMO** to try every main screen without an adapter or
 vehicle.
 
 ## Ubuntu setup
-
 Use Ubuntu's wxPython package to avoid compiling the GUI toolkit. Run these
 commands in a terminal:
 
@@ -61,8 +58,7 @@ source .venv/bin/activate
 python pyobd.py
 ```
 
-### Optional adapter setup
-
+### Optional adapter setup (Fix Permission Denied)
 No new user account is needed. If a USB serial adapter reports **Permission
 denied**, give your existing account serial-port access:
 
@@ -82,12 +78,10 @@ Pair the adapter before connecting. Bluetooth connections require a serial
 profile (SPP/RFCOMM); BLE-only adapters are not supported by this connection mode.
 
 ## Windows and macOS
-
 Install Python 3.8 or newer and any driver required by your adapter. From the
 project folder, create and activate an environment:
 
 Windows:
-
 ```powershell
 py -m venv .venv
 .venv\Scripts\Activate.ps1
@@ -96,20 +90,17 @@ python pyobd.py
 ```
 
 macOS:
-
 ```bash
 python3 -m venv .venv
 source .venv/bin/activate
 python -m pip install -r requirements.txt
 python pyobd.py
 ```
-
 The Python dependencies are wxPython, NumPy, Pint, and pyserial. Ubuntu gets
 wxPython through apt; the other setup uses pip. The bundled `obd` module is
 included in this repository.
 
 ## Connect
-
 Connect an ELM327-compatible adapter to the car and computer, then turn the
 ignition on. Open **Configure**, choose a connection type, and click **Connect**:
 
@@ -121,12 +112,12 @@ ignition on. Open **Configure**, choose a connection type, and click **Connect**
 | BLUETOOTH | Windows COM port or `MAC:channel` for an SPP adapter |
 | CUSTOM | pyserial URL, such as `socket://192.168.0.10:35000` |
 
-On Home, **Scan DTC** reads trouble codes, **Services** opens vehicle status,
-and **Graphs** opens live plots. Available readings depend on the vehicle;
-some require the engine to be running.
+On Home, **Scan DTC** reads diagnostic trouble codes, **Services** displays vehicle status,
+and **Graphs** shows live vehicle data. Use **Dashboard** to customize your display by
+selecting which readings and gauges you want to monitor. Available readings vary by
+vehicle, and some require the engine to be running.
 
 ### Graph views
-
 Add or remove PIDs before or during playback. Click a PID to select it and click
 it again to unselect it; several rows can stay selected for removal. Right-click
 a PID to delete selected rows, isolate that PID on the graph, show all PIDs, or
