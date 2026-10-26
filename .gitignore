@@ -6,3 +6,4 @@
 /dist/
 /installer-dist/
 *.spec
+/.Notes
