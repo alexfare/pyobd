@@ -38,6 +38,9 @@ headless diagnostics.
 ### Phase 2 — Core diagnostics
 
 - [ ] Add Connection configuration and status.
+- [ ] Make Overview a customizable, responsive widget grid.
+- [ ] Allow users to add, remove, reorder, and resize Overview widgets.
+- [ ] Save a global Overview layout and optional per-vehicle layouts.
 - [ ] Add Live Data with search, favorites, and supported-PID filtering.
 - [ ] Add stored, pending, and permanent DTCs with descriptions.
 - [ ] Add Readiness and Freeze Frame screens.
@@ -46,6 +49,7 @@ headless diagnostics.
 ### Phase 3 — Visualization
 
 - [ ] Add responsive live graphs.
+- [ ] Add PID value, graph, vehicle health, readiness, connection, and shortcut Overview widgets.
 - [ ] Rebuild the customizable dashboard.
 - [ ] Support dial, digital, and combined widgets.
 - [ ] Support free positioning, resizing, layering, and layout import/export.
@@ -69,11 +73,12 @@ headless diagnostics.
 
 1. Application state and event boundary
 2. Connection lifecycle
-3. Live Data
-4. Diagnostics and readiness
-5. Graphs
-6. Dashboard
-7. Settings and secondary dialogs
+3. Customizable Overview
+4. Live Data
+5. Diagnostics and readiness
+6. Graphs
+7. Dashboard
+8. Settings and secondary dialogs
 
 ## v3.0 release gate
 
@@ -82,3 +87,4 @@ headless diagnostics.
 - Disconnect and shutdown complete without background-thread exceptions.
 - Feature parity with v2.6 on all supported desktop systems.
 - Demo mode and recorded-response tests work without an adapter.
+- Overview layouts persist, recover safely, and remain usable at supported window sizes.

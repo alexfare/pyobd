@@ -1,0 +1,66 @@
+# pyOBD v3 Build Checklist
+
+## Foundation
+
+- [x] Parallel `pyobd_v3` package created.
+- [x] PySide6 dependency isolated from the v2 application.
+- [x] Qt/QML shell created.
+- [x] Initial visual theme created.
+- [x] Overview prototype created with Demo data.
+- [ ] Framework-neutral application models created.
+- [ ] UI-neutral event sink replaces direct wx event posting.
+- [ ] Connection and polling services run without a UI.
+- [ ] Demo service supplies the same models as a real connection.
+
+## Screen migration
+
+- [ ] Overview customization completed.
+- [ ] Connection configuration completed.
+- [ ] Live Data completed.
+- [ ] Diagnostics and DTC lookup completed.
+- [ ] Readiness completed.
+- [ ] Freeze Frame completed.
+- [ ] Graphs completed.
+- [ ] Dashboard completed.
+- [ ] Vehicle profiles completed.
+- [ ] Settings, updates, About, and support completed.
+
+## Behavior parity
+
+- [ ] Serial/USB connection matches v2.6.
+- [ ] Wi-Fi connection matches v2.6.
+- [ ] Supported Bluetooth connection matches v2.6.
+- [ ] Demo mode matches v2.6.
+- [ ] Reconnect and connection-loss behavior verified.
+- [ ] Supported PID discovery verified.
+- [ ] Stored, pending, and permanent DTC behavior verified.
+- [ ] Clear-code confirmation and readiness warning verified.
+- [ ] Dashboard layout import/export verified.
+- [ ] Vehicle-specific defaults verified.
+
+## Quality
+
+- [ ] No OBD or transport service imports wxPython or PySide6.
+- [ ] No blocking adapter work runs on the UI thread.
+- [ ] Repeated page changes remain responsive while connected.
+- [ ] Disconnect and shutdown leave no worker running.
+- [ ] Light, dark, and high-contrast appearances are usable.
+- [ ] Keyboard navigation and screen-reader labels are present.
+- [ ] Common display scaling and window sizes do not clip controls.
+
+## Platform validation
+
+| Platform | Demo | USB | Wi-Fi | Bluetooth | Vehicle | Package |
+| --- | --- | --- | --- | --- | --- | --- |
+| macOS Apple Silicon | [ ] | [ ] | [ ] | [ ] | [ ] | [ ] |
+| Windows 10/11 x64 | [ ] | [ ] | [ ] | [ ] | [ ] | [ ] |
+| Ubuntu/Debian x64 | [ ] | [ ] | [ ] | [ ] | [ ] | [ ] |
+
+## Release gate
+
+- [ ] v2.6 feature parity documented.
+- [ ] Accepted differences documented.
+- [ ] Real-vehicle regression checklist completed.
+- [ ] Installers launch without requiring Python or pip.
+- [ ] v3 becomes the default application entry point.
+- [ ] wxPython retirement is approved.
