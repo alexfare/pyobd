@@ -1,3 +1,4 @@
+import Charts
 import SwiftUI
 
 struct ContentView: View {
@@ -14,6 +15,10 @@ struct ContentView: View {
                 .tag(MobileSection.liveData)
                 .tabItem { Label("Live Data", systemImage: "waveform.path.ecg") }
 
+            GraphsView()
+                .tag(MobileSection.graphs)
+                .tabItem { Label("Graphs", systemImage: "chart.xyaxis.line") }
+
             DiagnosticsView()
                 .tag(MobileSection.diagnostics)
                 .tabItem { Label("Diagnostics", systemImage: "stethoscope") }
@@ -22,6 +27,10 @@ struct ContentView: View {
                 .tag(MobileSection.readiness)
                 .tabItem { Label("Readiness", systemImage: "checklist") }
 
+            FreezeFrameView()
+                .tag(MobileSection.freezeFrame)
+                .tabItem { Label("Freeze Frame", systemImage: "snowflake") }
+
             ConnectionView()
                 .tag(MobileSection.connection)
                 .tabItem { Label("Connection", systemImage: "cable.connector") }
@@ -29,6 +38,57 @@ struct ContentView: View {
         .onAppear { connection.setActiveSection(selectedSection) }
         .onChange(of: selectedSection) { _, section in
             connection.setActiveSection(section)
+        }
+    }
+}
+
+private struct GraphsView: View {
+    @EnvironmentObject private var connection: ConnectionManager
+    @State private var selectedPID = StandardPID.engineRPM
+
+    private var samples: [PIDSample] {
+        connection.liveHistory[selectedPID] ?? []
+    }
+
+    var body: some View {
+        NavigationStack {
+            VStack(spacing: 16) {
+                Picker("PID", selection: $selectedPID) {
+                    ForEach(StandardPID.allCases) { pid in
+                        Text(pid.name).tag(pid)
+                    }
+                }
+                .pickerStyle(.menu)
+                .frame(maxWidth: .infinity, alignment: .leading)
+
+                if samples.isEmpty {
+                    ContentUnavailableView(
+                        connection.state == .connected ? "Waiting for data" : "Not connected",
+                        systemImage: "chart.xyaxis.line",
+                        description: Text("Connect an adapter or Demo mode to graph live data.")
+                    )
+                } else {
+                    Chart(samples) { sample in
+                        LineMark(
+                            x: .value("Time", sample.date),
+                            y: .value(selectedPID.name, sample.value)
+                        )
+                        .interpolationMethod(.catmullRom)
+                        .foregroundStyle(.blue)
+                    }
+                    .chartXAxis(.hidden)
+                    .frame(maxHeight: .infinity)
+
+                    if let reading = connection.liveReadings.first(where: { $0.pid == selectedPID }) {
+                        Text(reading.formattedValue)
+                            .font(.largeTitle.bold())
+                            .monospacedDigit()
+                    }
+                }
+            }
+            .padding()
+            .navigationTitle("Graphs")
+            .toolbar { ConnectionStatusLabel() }
         }
     }
 }
@@ -169,7 +229,14 @@ private struct DiagnosticsView: View {
                         if !codes.isEmpty {
                             Section(category) {
                                 ForEach(codes) { code in
-                                    Text(code.code).font(.body.monospaced().weight(.semibold))
+                                    VStack(alignment: .leading, spacing: 4) {
+                                        Text(code.code)
+                                            .font(.body.monospaced().weight(.semibold))
+                                        Text(code.description)
+                                            .font(.subheadline)
+                                            .foregroundStyle(.secondary)
+                                    }
+                                    .padding(.vertical, 2)
                                 }
                             }
                         }
@@ -264,6 +331,46 @@ private struct ReadinessView: View {
     }
 }
 
+private struct FreezeFrameView: View {
+    @EnvironmentObject private var connection: ConnectionManager
+
+    var body: some View {
+        NavigationStack {
+            List {
+                if let message = connection.operationMessage {
+                    Section { Text(message).foregroundStyle(.secondary) }
+                }
+
+                if connection.freezeFrameReadings.isEmpty {
+                    Section {
+                        ContentUnavailableView(
+                            "No freeze-frame data",
+                            systemImage: "snowflake",
+                            description: Text("Load the snapshot stored when a trouble code was recorded.")
+                        )
+                    }
+                } else {
+                    Section("Frame 0") {
+                        ForEach(connection.freezeFrameReadings) { reading in
+                            LabeledContent(reading.pid.name, value: reading.formattedValue)
+                        }
+                    }
+                }
+
+                Section {
+                    Button("Load freeze frame", systemImage: "arrow.clockwise") {
+                        Task { await connection.refreshFreezeFrame() }
+                    }
+                    .disabled(connection.state != .connected || connection.isBusy)
+                }
+            }
+            .navigationTitle("Freeze Frame")
+            .toolbar { ConnectionStatusLabel() }
+            .overlay { if connection.isBusy { ProgressView().controlSize(.large) } }
+        }
+    }
+}
+
 private struct ConnectionView: View {
     @EnvironmentObject private var connection: ConnectionManager
 
@@ -289,7 +396,7 @@ private struct ConnectionView: View {
                         TextField("Port", text: $connection.wifiPort)
                             .keyboardType(.numberPad)
                     }
-                } else {
+                } else if connection.transport == .bluetooth {
                     Section("Bluetooth LE adapters") {
                         Button("Scan for adapters", systemImage: "antenna.radiowaves.left.and.right") {
                             connection.scanForBluetoothAdapters()
@@ -307,6 +414,11 @@ private struct ConnectionView: View {
                                 }
                             }
                         }
+                    }
+                } else {
+                    Section("Demo mode") {
+                        Text("Explore live data, diagnostics, readiness, graphs, and freeze-frame data without an adapter.")
+                            .foregroundStyle(.secondary)
                     }
                 }
 
