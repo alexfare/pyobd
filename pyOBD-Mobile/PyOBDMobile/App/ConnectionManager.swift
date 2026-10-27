@@ -7,6 +7,7 @@ import UIKit
 enum AdapterTransport: String, CaseIterable, Identifiable {
     case wifi = "Wi-Fi"
     case bluetooth = "Bluetooth"
+    case demo = "Demo"
 
     var id: Self { self }
 }
@@ -49,8 +50,10 @@ struct DiscoveredAdapter: Identifiable {
 enum MobileSection: Hashable {
     case overview
     case liveData
+    case graphs
     case diagnostics
     case readiness
+    case freezeFrame
     case connection
 }
 
@@ -180,11 +183,14 @@ enum StandardPID: String, CaseIterable, Identifiable {
         Mode01PIDCatalog.name(for: number)
     }
 
-    func reading(from response: String) -> PIDReading? {
-        guard let bytes = OBDParser.payload(
-            in: response,
-            marker: [0x41, UInt8(number)]
-        ) else { return nil }
+    func reading(
+        from response: String,
+        responseMode: UInt8 = 0x41,
+        frame: UInt8? = nil
+    ) -> PIDReading? {
+        var marker = [responseMode, UInt8(number)]
+        if let frame { marker.append(frame) }
+        guard let bytes = OBDParser.payload(in: response, marker: marker) else { return nil }
 
         switch self {
         case .engineLoad:
@@ -233,6 +239,12 @@ struct PIDReading: Identifiable, Equatable {
             "\(value.formatted(.number.precision(.fractionLength(1)))) \(unit)"
         }
     }
+}
+
+struct PIDSample: Identifiable {
+    let id = UUID()
+    let date: Date
+    let value: Double
 }
 
 struct DiagnosticCode: Identifiable, Equatable {
@@ -321,8 +333,10 @@ final class ConnectionManager: NSObject, ObservableObject {
     @Published private(set) var discoveredAdapters: [DiscoveredAdapter] = []
     @Published private(set) var supportedPIDs: [SupportedPID] = []
     @Published private(set) var liveReadings: [PIDReading] = []
+    @Published private(set) var liveHistory: [StandardPID: [PIDSample]] = [:]
     @Published private(set) var diagnosticCodes: [DiagnosticCode] = []
     @Published private(set) var readinessResults: [ReadinessResult] = []
+    @Published private(set) var freezeFrameReadings: [PIDReading] = []
     @Published private(set) var vehicleVIN = "—"
     @Published private(set) var vehicleProtocol = "—"
     @Published private(set) var adapterVoltage = "—"
@@ -340,6 +354,8 @@ final class ConnectionManager: NSObject, ObservableObject {
     private var centralManager: CBCentralManager!
     private var bluetoothPeripheral: CBPeripheral?
     private var bluetoothWriteCharacteristic: CBCharacteristic?
+    private var bluetoothWriteCandidates: [CBCharacteristic] = []
+    private var pendingBluetoothServices = Set<CBUUID>()
     private var reconnectTask: Task<Void, Never>?
     private var initializationTask: Task<Void, Never>?
     private var livePollingTask: Task<Void, Never>?
@@ -379,6 +395,8 @@ final class ConnectionManager: NSObject, ObservableObject {
             connectWiFi()
         case .bluetooth:
             reconnectBluetoothOrScan()
+        case .demo:
+            connectDemo()
         }
     }
 
@@ -409,10 +427,14 @@ final class ConnectionManager: NSObject, ObservableObject {
         }
         bluetoothPeripheral = nil
         bluetoothWriteCharacteristic = nil
+        bluetoothWriteCandidates.removeAll()
+        pendingBluetoothServices.removeAll()
         supportedPIDs.removeAll()
         liveReadings.removeAll()
+        liveHistory.removeAll()
         diagnosticCodes.removeAll()
         readinessResults.removeAll()
+        freezeFrameReadings.removeAll()
         vehicleVIN = "—"
         vehicleProtocol = "—"
         adapterVoltage = "—"
@@ -423,7 +445,7 @@ final class ConnectionManager: NSObject, ObservableObject {
 
     func setActiveSection(_ section: MobileSection) {
         activeSection = section
-        if section == .overview || section == .liveData {
+        if section == .overview || section == .liveData || section == .graphs {
             startLivePollingIfNeeded()
         } else {
             livePollingTask?.cancel()
@@ -433,6 +455,14 @@ final class ConnectionManager: NSObject, ObservableObject {
 
     func refreshDiagnosticCodes() async {
         guard state == .connected else { return }
+        if transport == .demo {
+            diagnosticCodes = [
+                DiagnosticCode(code: "P0300", category: "Stored"),
+                DiagnosticCode(code: "P0456", category: "Pending"),
+            ]
+            operationMessage = nil
+            return
+        }
         isBusy = true
         operationMessage = nil
         defer { isBusy = false }
@@ -460,6 +490,11 @@ final class ConnectionManager: NSObject, ObservableObject {
 
     func clearDiagnosticCodes() async {
         guard state == .connected else { return }
+        if transport == .demo {
+            diagnosticCodes.removeAll()
+            operationMessage = "Demo codes cleared"
+            return
+        }
         isBusy = true
         operationMessage = nil
         defer { isBusy = false }
@@ -474,6 +509,11 @@ final class ConnectionManager: NSObject, ObservableObject {
 
     func refreshReadiness() async {
         guard state == .connected else { return }
+        if transport == .demo {
+            readinessResults = Self.demoReadiness
+            operationMessage = nil
+            return
+        }
         isBusy = true
         operationMessage = nil
         defer { isBusy = false }
@@ -485,6 +525,35 @@ final class ConnectionManager: NSObject, ObservableObject {
         } catch {
             operationMessage = error.localizedDescription
         }
+    }
+
+    func refreshFreezeFrame() async {
+        guard state == .connected else { return }
+        if transport == .demo {
+            freezeFrameReadings = Self.demoReadings(at: Date()).map {
+                PIDReading(pid: $0.pid, value: $0.value * 0.92, unit: $0.unit)
+            }
+            operationMessage = nil
+            return
+        }
+
+        isBusy = true
+        operationMessage = nil
+        defer { isBusy = false }
+        var readings: [PIDReading] = []
+        for pid in availablePIDs {
+            do {
+                let command = String(format: "02%02X00", pid.number)
+                let response = try await sendOBDCommand(command)
+                if let reading = pid.reading(from: response, responseMode: 0x42, frame: 0x00) {
+                    readings.append(reading)
+                }
+            } catch {
+                continue
+            }
+        }
+        freezeFrameReadings = readings
+        if readings.isEmpty { operationMessage = "No freeze-frame data available" }
     }
 
     func scanForBluetoothAdapters() {
@@ -609,6 +678,7 @@ final class ConnectionManager: NSObject, ObservableObject {
         switch transport {
         case .wifi: connectWiFi()
         case .bluetooth: reconnectBluetoothOrScan()
+        case .demo: connectDemo()
         }
     }
 
@@ -627,10 +697,25 @@ final class ConnectionManager: NSObject, ObservableObject {
     }
 
     private func connectBluetooth(_ peripheral: CBPeripheral) {
+        bluetoothWriteCharacteristic = nil
+        bluetoothWriteCandidates.removeAll()
+        pendingBluetoothServices.removeAll()
         centralManager.connect(
             peripheral,
             options: [CBConnectPeripheralOptionEnableAutoReconnect: true]
         )
+    }
+
+    private func connectDemo() {
+        shouldReconnect = false
+        state = .connected
+        vehicleVIN = "DEMO0000000000001"
+        vehicleProtocol = "Demo OBD-II"
+        adapterVoltage = "13.8 V"
+        availablePIDs = StandardPID.allCases
+        supportedPIDs = availablePIDs.map { SupportedPID(number: $0.number, name: $0.name) }
+        readinessResults = Self.demoReadiness
+        startLivePollingIfNeeded()
     }
 
     private func beginBackgroundTask() {
@@ -796,14 +881,21 @@ final class ConnectionManager: NSObject, ObservableObject {
         livePollingTask = Task { [weak self] in
             guard let self else { return }
             while !Task.isCancelled, self.state == .connected {
-                for pid in self.availablePIDs {
-                    guard !Task.isCancelled else { break }
-                    if let response = try? await self.sendOBDCommand(pid.rawValue),
-                       let reading = pid.reading(from: response) {
+                if self.transport == .demo {
+                    for reading in Self.demoReadings(at: Date()) {
                         self.updateLiveReading(reading)
                     }
+                    try? await Task.sleep(for: .milliseconds(250))
+                } else {
+                    for pid in self.availablePIDs {
+                        guard !Task.isCancelled else { break }
+                        if let response = try? await self.sendOBDCommand(pid.rawValue),
+                           let reading = pid.reading(from: response) {
+                            self.updateLiveReading(reading)
+                        }
+                    }
+                    try? await Task.sleep(for: .milliseconds(50))
                 }
-                try? await Task.sleep(for: .milliseconds(50))
             }
             self.livePollingTask = nil
         }
@@ -816,7 +908,33 @@ final class ConnectionManager: NSObject, ObservableObject {
             liveReadings.append(reading)
             liveReadings.sort { $0.pid.number < $1.pid.number }
         }
+        var samples = liveHistory[reading.pid, default: []]
+        samples.append(PIDSample(date: Date(), value: reading.value))
+        if samples.count > 180 { samples.removeFirst(samples.count - 180) }
+        liveHistory[reading.pid] = samples
     }
+
+    private static func demoReadings(at date: Date) -> [PIDReading] {
+        let phase = date.timeIntervalSinceReferenceDate
+        return [
+            PIDReading(pid: .engineLoad, value: 31 + sin(phase * 0.8) * 8, unit: "%"),
+            PIDReading(pid: .coolantTemperature, value: 91 + sin(phase * 0.08) * 2, unit: "°C"),
+            PIDReading(pid: .engineRPM, value: 820 + sin(phase * 1.4) * 90, unit: "RPM"),
+            PIDReading(pid: .vehicleSpeed, value: 42 + sin(phase * 0.35) * 12, unit: "km/h"),
+            PIDReading(pid: .intakeTemperature, value: 28 + sin(phase * 0.1), unit: "°C"),
+            PIDReading(pid: .throttlePosition, value: 18 + sin(phase * 0.7) * 5, unit: "%"),
+            PIDReading(pid: .controlModuleVoltage, value: 13.8 + sin(phase * 0.2) * 0.1, unit: "V"),
+        ]
+    }
+
+    private static let demoReadiness = [
+        ReadinessResult(name: "Misfire", supported: true, complete: true),
+        ReadinessResult(name: "Fuel system", supported: true, complete: true),
+        ReadinessResult(name: "Components", supported: true, complete: true),
+        ReadinessResult(name: "Catalyst", supported: true, complete: true),
+        ReadinessResult(name: "Evaporative system", supported: true, complete: false),
+        ReadinessResult(name: "Oxygen sensor", supported: true, complete: true),
+    ]
 
     private static func cleanTextResponse(_ response: String) -> String {
         response
@@ -918,6 +1036,9 @@ extension ConnectionManager: @preconcurrency CBCentralManagerDelegate {
 
     func centralManager(_ central: CBCentralManager, didConnect peripheral: CBPeripheral) {
         bluetoothPeripheral = peripheral
+        bluetoothWriteCharacteristic = nil
+        bluetoothWriteCandidates.removeAll()
+        pendingBluetoothServices.removeAll()
         peripheral.delegate = self
         peripheral.discoverServices(nil)
     }
@@ -958,7 +1079,9 @@ extension ConnectionManager: @preconcurrency CBPeripheralDelegate {
             scheduleReconnect()
             return
         }
-        peripheral.services?.forEach { peripheral.discoverCharacteristics(nil, for: $0) }
+        let services = peripheral.services ?? []
+        pendingBluetoothServices = Set(services.map(\.uuid))
+        services.forEach { peripheral.discoverCharacteristics(nil, for: $0) }
     }
 
     func peripheral(
@@ -971,12 +1094,24 @@ extension ConnectionManager: @preconcurrency CBPeripheralDelegate {
             if characteristic.properties.contains(.notify) || characteristic.properties.contains(.indicate) {
                 peripheral.setNotifyValue(true, for: characteristic)
             }
-            if bluetoothWriteCharacteristic == nil,
-               characteristic.properties.contains(.write)
+            if characteristic.properties.contains(.write)
                 || characteristic.properties.contains(.writeWithoutResponse) {
-                bluetoothWriteCharacteristic = characteristic
-                beginAdapterInitialization()
+                bluetoothWriteCandidates.append(characteristic)
             }
+        }
+        pendingBluetoothServices.remove(service.uuid)
+        guard pendingBluetoothServices.isEmpty, bluetoothWriteCharacteristic == nil else { return }
+        bluetoothWriteCharacteristic = bluetoothWriteCandidates.max {
+            Self.bluetoothWritePriority($0) < Self.bluetoothWritePriority($1)
+        }
+        guard bluetoothWriteCharacteristic != nil else {
+            state = .failed("No compatible Bluetooth data channel found")
+            return
+        }
+        Task { [weak self] in
+            try? await Task.sleep(for: .milliseconds(250))
+            guard !Task.isCancelled else { return }
+            self?.beginAdapterInitialization()
         }
     }
 
@@ -987,5 +1122,15 @@ extension ConnectionManager: @preconcurrency CBPeripheralDelegate {
     ) {
         guard error == nil, let data = characteristic.value else { return }
         consumeAdapterData(data)
+    }
+}
+
+private extension ConnectionManager {
+    static func bluetoothWritePriority(_ characteristic: CBCharacteristic) -> Int {
+        switch characteristic.uuid.uuidString.uppercased() {
+        case "6E400002-B5A3-F393-E0A9-E50E24DCCA9E": 100
+        case "FFE1", "FFF2", "ABF1": 90
+        default: characteristic.properties.contains(.writeWithoutResponse) ? 20 : 10
+        }
     }
 }

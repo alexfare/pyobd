@@ -8,17 +8,31 @@
 
 /* Begin PBXBuildFile section */
 		06448AD2A4F5CEA2478BABD4 /* Assets.xcassets in Resources */ = {isa = PBXBuildFile; fileRef = 6E98F4CA789CA9618A87EDE2 /* Assets.xcassets */; };
+		2E6D331051A525FCC82D5DFE /* ConnectionManager.swift in Sources */ = {isa = PBXBuildFile; fileRef = 92EC36F3024F7ECDE3499E3A /* ConnectionManager.swift */; };
+		8F515B5AE860383A9CF07BB9 /* OBDParserTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = D0439D1949571CF973FEF85B /* OBDParserTests.swift */; };
 		91EBFEE584708FFBBC7831A3 /* PyOBDMobileApp.swift in Sources */ = {isa = PBXBuildFile; fileRef = 9CF274BD2797F6059EED2C65 /* PyOBDMobileApp.swift */; };
-		A4C71D69E4B2496EB54A4E17 /* ConnectionManager.swift in Sources */ = {isa = PBXBuildFile; fileRef = B0B751E7D3494B2A908F9C32 /* ConnectionManager.swift */; };
 		EB034A882F9A9FE09ABE5971 /* ContentView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 302D888DDFAAD44FDEA7549E /* ContentView.swift */; };
 /* End PBXBuildFile section */
 
+/* Begin PBXContainerItemProxy section */
+		48651B1091D52D4F6655D3C9 /* PBXContainerItemProxy */ = {
+			isa = PBXContainerItemProxy;
+			containerPortal = A1AC1D83AA61D07E70F4C0BA /* Project object */;
+			proxyType = 1;
+			remoteGlobalIDString = 80E1A808E1DD7A950B7FB64E;
+			remoteInfo = PyOBDMobile;
+		};
+/* End PBXContainerItemProxy section */
+
 /* Begin PBXFileReference section */
+		1CD4FE17FAF02594D7F5A98B /* PyOBDMobileTests.xctest */ = {isa = PBXFileReference; includeInIndex = 0; lastKnownFileType = wrapper.cfbundle; path = PyOBDMobileTests.xctest; sourceTree = BUILT_PRODUCTS_DIR; };
 		302D888DDFAAD44FDEA7549E /* ContentView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ContentView.swift; sourceTree = "<group>"; };
-		570B1A100B6118DE591BAC7D /* pyOBD Mobile.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = "pyOBD Mobile.app"; sourceTree = BUILT_PRODUCTS_DIR; };
+		570B1A100B6118DE591BAC7D /* pyOBD Mobile.app */ = {isa = PBXFileReference; includeInIndex = 0; lastKnownFileType = wrapper.application; path = "pyOBD Mobile.app"; sourceTree = BUILT_PRODUCTS_DIR; };
+		674ACFDD1A37F1D6735BEB23 /* Info.plist */ = {isa = PBXFileReference; lastKnownFileType = text.plist; path = Info.plist; sourceTree = "<group>"; };
 		6E98F4CA789CA9618A87EDE2 /* Assets.xcassets */ = {isa = PBXFileReference; lastKnownFileType = folder.assetcatalog; path = Assets.xcassets; sourceTree = "<group>"; };
+		92EC36F3024F7ECDE3499E3A /* ConnectionManager.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ConnectionManager.swift; sourceTree = "<group>"; };
 		9CF274BD2797F6059EED2C65 /* PyOBDMobileApp.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PyOBDMobileApp.swift; sourceTree = "<group>"; };
-		B0B751E7D3494B2A908F9C32 /* ConnectionManager.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ConnectionManager.swift; sourceTree = "<group>"; };
+		D0439D1949571CF973FEF85B /* OBDParserTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = OBDParserTests.swift; sourceTree = "<group>"; };
 /* End PBXFileReference section */
 
 /* Begin PBXGroup section */
@@ -26,6 +40,7 @@
 			isa = PBXGroup;
 			children = (
 				1B20067EA6D6373C61A0D6C2 /* PyOBDMobile */,
+				7CBF9466D52A852AC0EB2B2D /* PyOBDMobileTests */,
 				0121BF7EBC14C0A01F451F7A /* Products */,
 			);
 			sourceTree = "<group>";
@@ -34,6 +49,7 @@
 			isa = PBXGroup;
 			children = (
 				570B1A100B6118DE591BAC7D /* pyOBD Mobile.app */,
+				1CD4FE17FAF02594D7F5A98B /* PyOBDMobileTests.xctest */,
 			);
 			name = Products;
 			sourceTree = "<group>";
@@ -41,6 +57,7 @@
 		1B20067EA6D6373C61A0D6C2 /* PyOBDMobile */ = {
 			isa = PBXGroup;
 			children = (
+				674ACFDD1A37F1D6735BEB23 /* Info.plist */,
 				2B4CF94C4FE3E5CE0AFE7AF0 /* App */,
 				24F33AB3D8FC2420C402B30E /* Resources */,
 			);
@@ -58,16 +75,42 @@
 		2B4CF94C4FE3E5CE0AFE7AF0 /* App */ = {
 			isa = PBXGroup;
 			children = (
-				B0B751E7D3494B2A908F9C32 /* ConnectionManager.swift */,
+				92EC36F3024F7ECDE3499E3A /* ConnectionManager.swift */,
 				302D888DDFAAD44FDEA7549E /* ContentView.swift */,
 				9CF274BD2797F6059EED2C65 /* PyOBDMobileApp.swift */,
 			);
 			path = App;
 			sourceTree = "<group>";
 		};
+		7CBF9466D52A852AC0EB2B2D /* PyOBDMobileTests */ = {
+			isa = PBXGroup;
+			children = (
+				D0439D1949571CF973FEF85B /* OBDParserTests.swift */,
+			);
+			path = PyOBDMobileTests;
+			sourceTree = "<group>";
+		};
 /* End PBXGroup section */
 
 /* Begin PBXNativeTarget section */
+		12646B57B3992272F1A46002 /* PyOBDMobileTests */ = {
+			isa = PBXNativeTarget;
+			buildConfigurationList = 14034062BEDD5D35352DD24F /* Build configuration list for PBXNativeTarget "PyOBDMobileTests" */;
+			buildPhases = (
+				49F5941B0CA8CB358F4056F5 /* Sources */,
+			);
+			buildRules = (
+			);
+			dependencies = (
+				A5C372032B94172719CB2645 /* PBXTargetDependency */,
+			);
+			name = PyOBDMobileTests;
+			packageProductDependencies = (
+			);
+			productName = PyOBDMobileTests;
+			productReference = 1CD4FE17FAF02594D7F5A98B /* PyOBDMobileTests.xctest */;
+			productType = "com.apple.product-type.bundle.unit-test";
+		};
 		80E1A808E1DD7A950B7FB64E /* PyOBDMobile */ = {
 			isa = PBXNativeTarget;
 			buildConfigurationList = BF89A0932BF43CE72F3AABCA /* Build configuration list for PBXNativeTarget "PyOBDMobile" */;
@@ -96,6 +139,7 @@
 				LastUpgradeCheck = 1430;
 				TargetAttributes = {
 					80E1A808E1DD7A950B7FB64E = {
+						DevelopmentTeam = GC6DD3L4UQ;
 						ProvisioningStyle = Automatic;
 					};
 				};
@@ -115,6 +159,7 @@
 			projectRoot = "";
 			targets = (
 				80E1A808E1DD7A950B7FB64E /* PyOBDMobile */,
+				12646B57B3992272F1A46002 /* PyOBDMobileTests */,
 			);
 		};
 /* End PBXProject section */
@@ -131,17 +176,33 @@
 /* End PBXResourcesBuildPhase section */
 
 /* Begin PBXSourcesBuildPhase section */
+		49F5941B0CA8CB358F4056F5 /* Sources */ = {
+			isa = PBXSourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+				8F515B5AE860383A9CF07BB9 /* OBDParserTests.swift in Sources */,
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
 		D721B0B78F6D717126A3FCE6 /* Sources */ = {
 			isa = PBXSourcesBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
-				A4C71D69E4B2496EB54A4E17 /* ConnectionManager.swift in Sources */,
+				2E6D331051A525FCC82D5DFE /* ConnectionManager.swift in Sources */,
 				EB034A882F9A9FE09ABE5971 /* ContentView.swift in Sources */,
 				91EBFEE584708FFBBC7831A3 /* PyOBDMobileApp.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
 /* End PBXSourcesBuildPhase section */
+
+/* Begin PBXTargetDependency section */
+		A5C372032B94172719CB2645 /* PBXTargetDependency */ = {
+			isa = PBXTargetDependency;
+			target = 80E1A808E1DD7A950B7FB64E /* PyOBDMobile */;
+			targetProxy = 48651B1091D52D4F6655D3C9 /* PBXContainerItemProxy */;
+		};
+/* End PBXTargetDependency section */
 
 /* Begin XCBuildConfiguration section */
 		0FBFE2077CBA87063B34A61D /* Release */ = {
@@ -154,6 +215,7 @@
 				DEVELOPMENT_TEAM = GC6DD3L4UQ;
 				GENERATE_INFOPLIST_FILE = NO;
 				INFOPLIST_FILE = PyOBDMobile/Info.plist;
+				INFOPLIST_KEY_LSApplicationCategoryType = "public.app-category.utilities";
 				LD_RUNPATH_SEARCH_PATHS = (
 					"$(inherited)",
 					"@executable_path/Frameworks",
@@ -241,6 +303,7 @@
 				DEVELOPMENT_TEAM = GC6DD3L4UQ;
 				GENERATE_INFOPLIST_FILE = NO;
 				INFOPLIST_FILE = PyOBDMobile/Info.plist;
+				INFOPLIST_KEY_LSApplicationCategoryType = "public.app-category.utilities";
 				LD_RUNPATH_SEARCH_PATHS = (
 					"$(inherited)",
 					"@executable_path/Frameworks",
@@ -250,6 +313,40 @@
 				PRODUCT_NAME = "pyOBD Mobile";
 				SDKROOT = iphoneos;
 				TARGETED_DEVICE_FAMILY = 1;
+			};
+			name = Debug;
+		};
+		AD0B968BEB527872A520B192 /* Release */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				BUNDLE_LOADER = "$(TEST_HOST)";
+				GENERATE_INFOPLIST_FILE = YES;
+				LD_RUNPATH_SEARCH_PATHS = (
+					"$(inherited)",
+					"@executable_path/Frameworks",
+					"@loader_path/Frameworks",
+				);
+				PRODUCT_BUNDLE_IDENTIFIER = com.farebrothers.PyOBDMobileTests;
+				SDKROOT = iphoneos;
+				TARGETED_DEVICE_FAMILY = "1,2";
+				TEST_HOST = "$(BUILT_PRODUCTS_DIR)/pyOBD Mobile.app/pyOBD Mobile";
+			};
+			name = Release;
+		};
+		BCCF4BB3BD24AD20B189AE4B /* Debug */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				BUNDLE_LOADER = "$(TEST_HOST)";
+				GENERATE_INFOPLIST_FILE = YES;
+				LD_RUNPATH_SEARCH_PATHS = (
+					"$(inherited)",
+					"@executable_path/Frameworks",
+					"@loader_path/Frameworks",
+				);
+				PRODUCT_BUNDLE_IDENTIFIER = com.farebrothers.PyOBDMobileTests;
+				SDKROOT = iphoneos;
+				TARGETED_DEVICE_FAMILY = "1,2";
+				TEST_HOST = "$(BUILT_PRODUCTS_DIR)/pyOBD Mobile.app/pyOBD Mobile";
 			};
 			name = Debug;
 		};
@@ -314,6 +411,15 @@
 /* End XCBuildConfiguration section */
 
 /* Begin XCConfigurationList section */
+		14034062BEDD5D35352DD24F /* Build configuration list for PBXNativeTarget "PyOBDMobileTests" */ = {
+			isa = XCConfigurationList;
+			buildConfigurations = (
+				BCCF4BB3BD24AD20B189AE4B /* Debug */,
+				AD0B968BEB527872A520B192 /* Release */,
+			);
+			defaultConfigurationIsVisible = 0;
+			defaultConfigurationName = Debug;
+		};
 		7EE98FE5D9F1C0106291DD54 /* Build configuration list for PBXProject "PyOBDMobile" */ = {
 			isa = XCConfigurationList;
 			buildConfigurations = (
