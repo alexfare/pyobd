@@ -11,6 +11,8 @@
 		2E6D331051A525FCC82D5DFE /* ConnectionManager.swift in Sources */ = {isa = PBXBuildFile; fileRef = 92EC36F3024F7ECDE3499E3A /* ConnectionManager.swift */; };
 		8F515B5AE860383A9CF07BB9 /* OBDParserTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = D0439D1949571CF973FEF85B /* OBDParserTests.swift */; };
 		91EBFEE584708FFBBC7831A3 /* PyOBDMobileApp.swift in Sources */ = {isa = PBXBuildFile; fileRef = 9CF274BD2797F6059EED2C65 /* PyOBDMobileApp.swift */; };
+		A4C6A20C5D074A03F2E9713B /* DTCCatalog.swift in Sources */ = {isa = PBXBuildFile; fileRef = D062360E434E70702D529755 /* DTCCatalog.swift */; };
+		B1CD1ED0F570E6207949F371 /* dtc_codes.json in Resources */ = {isa = PBXBuildFile; fileRef = B2B2497C3B5D0480FD5DFB7C /* dtc_codes.json */; };
 		EB034A882F9A9FE09ABE5971 /* ContentView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 302D888DDFAAD44FDEA7549E /* ContentView.swift */; };
 /* End PBXBuildFile section */
 
@@ -32,7 +34,9 @@
 		6E98F4CA789CA9618A87EDE2 /* Assets.xcassets */ = {isa = PBXFileReference; lastKnownFileType = folder.assetcatalog; path = Assets.xcassets; sourceTree = "<group>"; };
 		92EC36F3024F7ECDE3499E3A /* ConnectionManager.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ConnectionManager.swift; sourceTree = "<group>"; };
 		9CF274BD2797F6059EED2C65 /* PyOBDMobileApp.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PyOBDMobileApp.swift; sourceTree = "<group>"; };
+		B2B2497C3B5D0480FD5DFB7C /* dtc_codes.json */ = {isa = PBXFileReference; lastKnownFileType = text.json; path = dtc_codes.json; sourceTree = "<group>"; };
 		D0439D1949571CF973FEF85B /* OBDParserTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = OBDParserTests.swift; sourceTree = "<group>"; };
+		D062360E434E70702D529755 /* DTCCatalog.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DTCCatalog.swift; sourceTree = "<group>"; };
 /* End PBXFileReference section */
 
 /* Begin PBXGroup section */
@@ -68,6 +72,7 @@
 			isa = PBXGroup;
 			children = (
 				6E98F4CA789CA9618A87EDE2 /* Assets.xcassets */,
+				B2B2497C3B5D0480FD5DFB7C /* dtc_codes.json */,
 			);
 			path = Resources;
 			sourceTree = "<group>";
@@ -77,6 +82,7 @@
 			children = (
 				92EC36F3024F7ECDE3499E3A /* ConnectionManager.swift */,
 				302D888DDFAAD44FDEA7549E /* ContentView.swift */,
+				D062360E434E70702D529755 /* DTCCatalog.swift */,
 				9CF274BD2797F6059EED2C65 /* PyOBDMobileApp.swift */,
 			);
 			path = App;
@@ -170,6 +176,7 @@
 			buildActionMask = 2147483647;
 			files = (
 				06448AD2A4F5CEA2478BABD4 /* Assets.xcassets in Resources */,
+				B1CD1ED0F570E6207949F371 /* dtc_codes.json in Resources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -190,6 +197,7 @@
 			files = (
 				2E6D331051A525FCC82D5DFE /* ConnectionManager.swift in Sources */,
 				EB034A882F9A9FE09ABE5971 /* ContentView.swift in Sources */,
+				A4C6A20C5D074A03F2E9713B /* DTCCatalog.swift in Sources */,
 				91EBFEE584708FFBBC7831A3 /* PyOBDMobileApp.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;

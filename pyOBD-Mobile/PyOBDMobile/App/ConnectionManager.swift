@@ -251,6 +251,7 @@ struct DiagnosticCode: Identifiable, Equatable {
     let code: String
     let category: String
     var id: String { "\(category)-\(code)" }
+    var description: String { DTCCatalog.description(for: code) }
 }
 
 struct ReadinessResult: Identifiable, Equatable {

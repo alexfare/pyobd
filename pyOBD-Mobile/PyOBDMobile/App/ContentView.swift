@@ -229,7 +229,14 @@ private struct DiagnosticsView: View {
                         if !codes.isEmpty {
                             Section(category) {
                                 ForEach(codes) { code in
-                                    Text(code.code).font(.body.monospaced().weight(.semibold))
+                                    VStack(alignment: .leading, spacing: 4) {
+                                        Text(code.code)
+                                            .font(.body.monospaced().weight(.semibold))
+                                        Text(code.description)
+                                            .font(.subheadline)
+                                            .foregroundStyle(.secondary)
+                                    }
+                                    .padding(.vertical, 2)
                                 }
                             }
                         }
