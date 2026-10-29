@@ -154,9 +154,18 @@ private struct OverviewView: View {
         switch pid {
         case .engineRPM: "gauge.with.dots.needle.67percent"
         case .vehicleSpeed: "speedometer"
-        case .coolantTemperature, .intakeTemperature: "thermometer.medium"
-        case .engineLoad, .throttlePosition: "percent"
+        case .coolantTemperature, .intakeTemperature, .ambientTemperature,
+             .engineOilTemperature, .catalystTemperature: "thermometer.medium"
+        case .engineLoad, .throttlePosition, .fuelLevel,
+             .shortFuelTrimBank1, .longFuelTrimBank1,
+             .shortFuelTrimBank2, .longFuelTrimBank2: "percent"
         case .controlModuleVoltage: "bolt.fill"
+        case .fuelPressure, .intakeManifoldPressure, .barometricPressure: "gauge.open.with.lines.needle.33percent"
+        case .massAirFlow: "wind"
+        case .timingAdvance, .fuelInjectionTiming: "clock.arrow.circlepath"
+        case .engineRunTime, .distanceWithMIL, .warmupsSinceClear,
+             .distanceSinceClear: "clock"
+        case .engineFuelRate: "fuelpump.fill"
         }
     }
 }

@@ -170,11 +170,30 @@ enum Mode01PIDCatalog {
 enum StandardPID: String, CaseIterable, Identifiable {
     case engineLoad = "0104"
     case coolantTemperature = "0105"
+    case shortFuelTrimBank1 = "0106"
+    case longFuelTrimBank1 = "0107"
+    case shortFuelTrimBank2 = "0108"
+    case longFuelTrimBank2 = "0109"
+    case fuelPressure = "010A"
+    case intakeManifoldPressure = "010B"
     case engineRPM = "010C"
     case vehicleSpeed = "010D"
+    case timingAdvance = "010E"
     case intakeTemperature = "010F"
+    case massAirFlow = "0110"
     case throttlePosition = "0111"
+    case engineRunTime = "011F"
+    case distanceWithMIL = "0121"
+    case fuelLevel = "012F"
+    case warmupsSinceClear = "0130"
+    case distanceSinceClear = "0131"
+    case barometricPressure = "0133"
+    case catalystTemperature = "013C"
     case controlModuleVoltage = "0142"
+    case ambientTemperature = "0146"
+    case engineOilTemperature = "015C"
+    case fuelInjectionTiming = "015D"
+    case engineFuelRate = "015E"
 
     var id: String { rawValue }
     var number: Int { Int(rawValue.suffix(2), radix: 16) ?? 0 }
@@ -193,12 +212,23 @@ enum StandardPID: String, CaseIterable, Identifiable {
         guard let bytes = OBDParser.payload(in: response, marker: marker) else { return nil }
 
         switch self {
-        case .engineLoad:
+        case .engineLoad, .throttlePosition, .fuelLevel:
             guard let a = bytes.first else { return nil }
             return PIDReading(pid: self, value: Double(a) * 100 / 255, unit: "%")
-        case .coolantTemperature, .intakeTemperature:
+        case .shortFuelTrimBank1, .longFuelTrimBank1,
+             .shortFuelTrimBank2, .longFuelTrimBank2:
+            guard let a = bytes.first else { return nil }
+            return PIDReading(pid: self, value: Double(Int(a) - 128) * 100 / 128, unit: "%")
+        case .coolantTemperature, .intakeTemperature,
+             .ambientTemperature, .engineOilTemperature:
             guard let a = bytes.first else { return nil }
             return PIDReading(pid: self, value: Double(Int(a) - 40), unit: "°C")
+        case .fuelPressure:
+            guard let a = bytes.first else { return nil }
+            return PIDReading(pid: self, value: Double(a) * 3, unit: "kPa")
+        case .intakeManifoldPressure, .barometricPressure:
+            guard let a = bytes.first else { return nil }
+            return PIDReading(pid: self, value: Double(a), unit: "kPa")
         case .engineRPM:
             guard bytes.count >= 2 else { return nil }
             return PIDReading(
@@ -209,17 +239,42 @@ enum StandardPID: String, CaseIterable, Identifiable {
         case .vehicleSpeed:
             guard let a = bytes.first else { return nil }
             return PIDReading(pid: self, value: Double(a), unit: "km/h")
-        case .throttlePosition:
+        case .timingAdvance:
             guard let a = bytes.first else { return nil }
-            return PIDReading(pid: self, value: Double(a) * 100 / 255, unit: "%")
+            return PIDReading(pid: self, value: Double(Int(a) - 128) / 2, unit: "°")
+        case .massAirFlow:
+            guard bytes.count >= 2 else { return nil }
+            return PIDReading(pid: self, value: Double(Self.word(bytes)) / 100, unit: "g/s")
+        case .engineRunTime:
+            guard bytes.count >= 2 else { return nil }
+            return PIDReading(pid: self, value: Double(Self.word(bytes)), unit: "s")
+        case .distanceWithMIL, .distanceSinceClear:
+            guard bytes.count >= 2 else { return nil }
+            return PIDReading(pid: self, value: Double(Self.word(bytes)), unit: "km")
+        case .warmupsSinceClear:
+            guard let a = bytes.first else { return nil }
+            return PIDReading(pid: self, value: Double(a), unit: "")
+        case .catalystTemperature:
+            guard bytes.count >= 2 else { return nil }
+            return PIDReading(pid: self, value: Double(Self.word(bytes)) / 10 - 40, unit: "°C")
         case .controlModuleVoltage:
             guard bytes.count >= 2 else { return nil }
             return PIDReading(
                 pid: self,
-                value: Double(Int(bytes[0]) * 256 + Int(bytes[1])) / 1000,
+                value: Double(Self.word(bytes)) / 1000,
                 unit: "V"
             )
+        case .fuelInjectionTiming:
+            guard bytes.count >= 2 else { return nil }
+            return PIDReading(pid: self, value: Double(Self.word(bytes) - 26_880) / 128, unit: "°")
+        case .engineFuelRate:
+            guard bytes.count >= 2 else { return nil }
+            return PIDReading(pid: self, value: Double(Self.word(bytes)) * 0.05, unit: "L/h")
         }
+    }
+
+    private static func word(_ bytes: [UInt8]) -> Int {
+        Int(bytes[0]) * 256 + Int(bytes[1])
     }
 }
 
@@ -231,9 +286,12 @@ struct PIDReading: Identifiable, Equatable {
     var id: String { pid.id }
     var formattedValue: String {
         switch pid {
-        case .engineRPM, .vehicleSpeed:
+        case .engineRPM, .vehicleSpeed, .engineRunTime,
+             .distanceWithMIL, .warmupsSinceClear, .distanceSinceClear:
             "\(Int(value.rounded())) \(unit)"
-        case .coolantTemperature, .intakeTemperature:
+                .trimmingCharacters(in: .whitespaces)
+        case .coolantTemperature, .intakeTemperature,
+             .ambientTemperature, .engineOilTemperature, .catalystTemperature:
             "\(Int(value.rounded()))\(unit)"
         default:
             "\(value.formatted(.number.precision(.fractionLength(1)))) \(unit)"
@@ -713,7 +771,7 @@ final class ConnectionManager: NSObject, ObservableObject {
         vehicleVIN = "DEMO0000000000001"
         vehicleProtocol = "Demo OBD-II"
         adapterVoltage = "13.8 V"
-        availablePIDs = StandardPID.allCases
+        availablePIDs = Self.demoPIDs
         supportedPIDs = availablePIDs.map { SupportedPID(number: $0.number, name: $0.name) }
         readinessResults = Self.demoReadiness
         startLivePollingIfNeeded()
@@ -927,6 +985,16 @@ final class ConnectionManager: NSObject, ObservableObject {
             PIDReading(pid: .controlModuleVoltage, value: 13.8 + sin(phase * 0.2) * 0.1, unit: "V"),
         ]
     }
+
+    private static let demoPIDs: [StandardPID] = [
+        .engineLoad,
+        .coolantTemperature,
+        .engineRPM,
+        .vehicleSpeed,
+        .intakeTemperature,
+        .throttlePosition,
+        .controlModuleVoltage,
+    ]
 
     private static let demoReadiness = [
         ReadinessResult(name: "Misfire", supported: true, complete: true),
