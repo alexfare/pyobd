@@ -183,8 +183,17 @@ private struct LiveDataView: View {
                         description: Text("Live Data displays standard PIDs supported by the vehicle.")
                     )
                 } else {
-                    List(connection.supportedPIDs) { pid in
-                        HStack {
+                    List(connection.sortedSupportedPIDs) { pid in
+                        HStack(spacing: 12) {
+                            Button {
+                                connection.toggleFavorite(pid.number)
+                            } label: {
+                                Image(systemName: connection.isFavorite(pid.number) ? "star.fill" : "star")
+                                    .foregroundStyle(connection.isFavorite(pid.number) ? .yellow : .secondary)
+                            }
+                            .buttonStyle(.plain)
+                            .disabled(!connection.isDecodable(pid.number))
+
                             VStack(alignment: .leading, spacing: 3) {
                                 Text(pid.name)
                                 Text(pid.command)
@@ -192,17 +201,42 @@ private struct LiveDataView: View {
                                     .foregroundStyle(.secondary)
                             }
                             Spacer()
-                            if let reading = connection.liveReadings.first(where: {
-                                $0.pid.number == pid.number
-                            }) {
-                                Text(reading.formattedValue)
-                                    .font(.body.weight(.semibold))
-                                    .monospacedDigit()
-                            } else {
-                                Text("Supported")
-                                    .font(.caption)
-                                    .foregroundStyle(.secondary)
+
+                            VStack(alignment: .trailing, spacing: 3) {
+                                if let reading = connection.liveReadings.first(where: {
+                                    $0.pid.number == pid.number
+                                }) {
+                                    Text(reading.formattedValue)
+                                        .font(.body.weight(.semibold))
+                                        .monospacedDigit()
+                                } else {
+                                    Text(connection.isDecodable(pid.number) ? "Not polling" : "Supported")
+                                        .font(.caption)
+                                        .foregroundStyle(.secondary)
+                                }
+                                if connection.isDecodable(pid.number) {
+                                    Text(connection.pollingRate(for: pid.number).rawValue)
+                                        .font(.caption2)
+                                        .foregroundStyle(.secondary)
+                                }
                             }
+
+                            Menu {
+                                ForEach(PIDPollingRate.allCases) { rate in
+                                    Button {
+                                        connection.setPollingRate(rate, for: pid.number)
+                                    } label: {
+                                        if connection.pollingRate(for: pid.number) == rate {
+                                            Label(rate.rawValue, systemImage: "checkmark")
+                                        } else {
+                                            Text(rate.rawValue)
+                                        }
+                                    }
+                                }
+                            } label: {
+                                Image(systemName: "ellipsis.circle")
+                            }
+                            .disabled(!connection.isDecodable(pid.number))
                         }
                     }
                 }

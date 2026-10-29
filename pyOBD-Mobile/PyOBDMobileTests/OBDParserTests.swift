@@ -59,4 +59,11 @@ final class OBDParserTests: XCTestCase {
         XCTAssertEqual(Mode01PIDCatalog.name(for: 0x0C), "Engine RPM")
         XCTAssertEqual(Mode01PIDCatalog.name(for: 0x42), "Control Module Voltage")
     }
+
+    func testPollingRates() {
+        XCTAssertNil(PIDPollingRate.off.interval)
+        XCTAssertEqual(PIDPollingRate.slow.interval, 2)
+        XCTAssertEqual(PIDPollingRate.normal.interval, 0.5)
+        XCTAssertEqual(PIDPollingRate.fast.interval, 0.15)
+    }
 }

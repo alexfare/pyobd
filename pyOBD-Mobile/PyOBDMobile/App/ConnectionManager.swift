@@ -167,6 +167,24 @@ enum Mode01PIDCatalog {
     }
 }
 
+enum PIDPollingRate: String, CaseIterable, Identifiable {
+    case off = "Off"
+    case slow = "Slow"
+    case normal = "Normal"
+    case fast = "Fast"
+
+    var id: Self { self }
+
+    var interval: TimeInterval? {
+        switch self {
+        case .off: nil
+        case .slow: 2
+        case .normal: 0.5
+        case .fast: 0.15
+        }
+    }
+}
+
 enum StandardPID: String, CaseIterable, Identifiable {
     case engineLoad = "0104"
     case coolantTemperature = "0105"
@@ -393,6 +411,8 @@ final class ConnectionManager: NSObject, ObservableObject {
     @Published private(set) var supportedPIDs: [SupportedPID] = []
     @Published private(set) var liveReadings: [PIDReading] = []
     @Published private(set) var liveHistory: [StandardPID: [PIDSample]] = [:]
+    @Published private(set) var pidPollingRates: [Int: PIDPollingRate] = [:]
+    @Published private(set) var favoritePIDNumbers = Set<Int>()
     @Published private(set) var diagnosticCodes: [DiagnosticCode] = []
     @Published private(set) var readinessResults: [ReadinessResult] = []
     @Published private(set) var freezeFrameReadings: [PIDReading] = []
@@ -429,11 +449,14 @@ final class ConnectionManager: NSObject, ObservableObject {
     private static let hostKey = "adapter.wifi.host"
     private static let portKey = "adapter.wifi.port"
     private static let peripheralKey = "adapter.bluetooth.peripheral"
+    private static let pollingRatesKey = "liveData.pollingRates"
+    private static let favoritesKey = "liveData.favorites"
 
     override init() {
         wifiHost = UserDefaults.standard.string(forKey: Self.hostKey) ?? "192.168.0.10"
         wifiPort = UserDefaults.standard.string(forKey: Self.portKey) ?? "35000"
         super.init()
+        loadPIDPreferences()
         let backgroundModes = Bundle.main.object(forInfoDictionaryKey: "UIBackgroundModes") as? [String]
         let options: [String: Any]? = backgroundModes?.contains("bluetooth-central") == true
             ? [CBCentralManagerOptionRestoreIdentifierKey: "com.farebros.pyobd.bluetooth"]
@@ -510,6 +533,48 @@ final class ConnectionManager: NSObject, ObservableObject {
             livePollingTask?.cancel()
             livePollingTask = nil
         }
+    }
+
+    var sortedSupportedPIDs: [SupportedPID] {
+        supportedPIDs.sorted { lhs, rhs in
+            let lhsFavorite = favoritePIDNumbers.contains(lhs.number)
+            let rhsFavorite = favoritePIDNumbers.contains(rhs.number)
+            if lhsFavorite != rhsFavorite { return lhsFavorite }
+            return lhs.number < rhs.number
+        }
+    }
+
+    func pollingRate(for number: Int) -> PIDPollingRate {
+        pidPollingRates[number] ?? .off
+    }
+
+    func isFavorite(_ number: Int) -> Bool {
+        favoritePIDNumbers.contains(number)
+    }
+
+    func isDecodable(_ number: Int) -> Bool {
+        StandardPID(rawValue: String(format: "01%02X", number)) != nil
+    }
+
+    func setPollingRate(_ rate: PIDPollingRate, for number: Int) {
+        guard isDecodable(number) else { return }
+        pidPollingRates[number] = rate
+        if rate == .off,
+           let pid = StandardPID(rawValue: String(format: "01%02X", number)) {
+            liveReadings.removeAll { $0.pid == pid }
+            liveHistory[pid] = nil
+        }
+        savePIDPreferences()
+    }
+
+    func toggleFavorite(_ number: Int) {
+        guard isDecodable(number) else { return }
+        if favoritePIDNumbers.contains(number) {
+            favoritePIDNumbers.remove(number)
+        } else {
+            favoritePIDNumbers.insert(number)
+        }
+        savePIDPreferences()
     }
 
     func refreshDiagnosticCodes() async {
@@ -939,22 +1004,34 @@ final class ConnectionManager: NSObject, ObservableObject {
               livePollingTask == nil else { return }
         livePollingTask = Task { [weak self] in
             guard let self else { return }
+            var lastPollDates: [StandardPID: Date] = [:]
             while !Task.isCancelled, self.state == .connected {
                 if self.transport == .demo {
-                    for reading in Self.demoReadings(at: Date()) {
+                    let now = Date()
+                    for reading in Self.demoReadings(at: now) {
+                        guard let interval = self.pollingRate(for: reading.pid.number).interval,
+                              now.timeIntervalSince(lastPollDates[reading.pid] ?? .distantPast) >= interval else {
+                            continue
+                        }
                         self.updateLiveReading(reading)
+                        lastPollDates[reading.pid] = now
                     }
-                    try? await Task.sleep(for: .milliseconds(250))
                 } else {
+                    let now = Date()
                     for pid in self.availablePIDs {
                         guard !Task.isCancelled else { break }
+                        guard let interval = self.pollingRate(for: pid.number).interval,
+                              now.timeIntervalSince(lastPollDates[pid] ?? .distantPast) >= interval else {
+                            continue
+                        }
                         if let response = try? await self.sendOBDCommand(pid.rawValue),
                            let reading = pid.reading(from: response) {
                             self.updateLiveReading(reading)
                         }
+                        lastPollDates[pid] = Date()
                     }
-                    try? await Task.sleep(for: .milliseconds(50))
                 }
+                try? await Task.sleep(for: .milliseconds(25))
             }
             self.livePollingTask = nil
         }
@@ -971,6 +1048,38 @@ final class ConnectionManager: NSObject, ObservableObject {
         samples.append(PIDSample(date: Date(), value: reading.value))
         if samples.count > 180 { samples.removeFirst(samples.count - 180) }
         liveHistory[reading.pid] = samples
+    }
+
+    private func loadPIDPreferences() {
+        let storedRates = defaults.dictionary(forKey: Self.pollingRatesKey) as? [String: String]
+        pidPollingRates = storedRates?.reduce(into: [:]) { result, entry in
+            guard let number = Int(entry.key),
+                  let rate = PIDPollingRate(rawValue: entry.value) else { return }
+            result[number] = rate
+        } ?? Dictionary(uniqueKeysWithValues: Self.demoPIDs.map { ($0.number, .normal) })
+
+        let hasStoredFavorites = defaults.object(forKey: Self.favoritesKey) != nil
+        let storedFavorites = defaults.array(forKey: Self.favoritesKey) ?? []
+        favoritePIDNumbers = Set(storedFavorites.compactMap {
+            ($0 as? NSNumber)?.intValue
+        })
+        if !hasStoredFavorites {
+            favoritePIDNumbers = Set([
+                StandardPID.engineRPM,
+                .vehicleSpeed,
+                .coolantTemperature,
+            ].map(\.number))
+        }
+    }
+
+    private func savePIDPreferences() {
+        defaults.set(
+            Dictionary(uniqueKeysWithValues: pidPollingRates.map {
+                (String($0.key), $0.value.rawValue)
+            }),
+            forKey: Self.pollingRatesKey
+        )
+        defaults.set(favoritePIDNumbers.sorted(), forKey: Self.favoritesKey)
     }
 
     private static func demoReadings(at date: Date) -> [PIDReading] {
