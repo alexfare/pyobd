@@ -413,6 +413,7 @@ final class ConnectionManager: NSObject, ObservableObject {
     @Published private(set) var liveHistory: [StandardPID: [PIDSample]] = [:]
     @Published private(set) var pidPollingRates: [Int: PIDPollingRate] = [:]
     @Published private(set) var favoritePIDNumbers = Set<Int>()
+    @Published private(set) var visiblePIDNumbers = Set<Int>()
     @Published private(set) var diagnosticCodes: [DiagnosticCode] = []
     @Published private(set) var readinessResults: [ReadinessResult] = []
     @Published private(set) var freezeFrameReadings: [PIDReading] = []
@@ -459,6 +460,7 @@ final class ConnectionManager: NSObject, ObservableObject {
     private static let peripheralKey = "adapter.bluetooth.peripheral"
     private static let pollingRatesKey = "liveData.pollingRates"
     private static let favoritesKey = "liveData.favorites"
+    private static let visiblePIDsKey = "liveData.visiblePIDs"
 
     override init() {
         wifiHost = UserDefaults.standard.string(forKey: Self.hostKey) ?? "192.168.0.10"
@@ -591,13 +593,52 @@ final class ConnectionManager: NSObject, ObservableObject {
         }
     }
 
-    var sortedSupportedPIDs: [SupportedPID] {
-        supportedPIDs.sorted { lhs, rhs in
+    func clearRecording() {
+        guard !isRecording else { return }
+        if let recordingFileURL {
+            try? FileManager.default.removeItem(at: recordingFileURL)
+        }
+        recordingFileURL = nil
+        recordingStartedAt = nil
+        recordedSampleCount = 0
+        recordingError = nil
+    }
+
+    var visibleSupportedPIDs: [SupportedPID] {
+        supportedPIDs.filter { visiblePIDNumbers.contains($0.number) }.sorted { lhs, rhs in
             let lhsFavorite = favoritePIDNumbers.contains(lhs.number)
             let rhsFavorite = favoritePIDNumbers.contains(rhs.number)
             if lhsFavorite != rhsFavorite { return lhsFavorite }
             return lhs.number < rhs.number
         }
+    }
+
+    func addableSupportedPIDs(matching query: String) -> [SupportedPID] {
+        let normalized = query.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
+        return supportedPIDs.filter { pid in
+            guard isDecodable(pid.number), !visiblePIDNumbers.contains(pid.number) else { return false }
+            return normalized.isEmpty
+                || pid.name.lowercased().contains(normalized)
+                || pid.command.lowercased().contains(normalized)
+                || String(format: "%02X", pid.number).lowercased().contains(normalized)
+        }
+        .sorted { $0.number < $1.number }
+    }
+
+    func addLivePID(_ number: Int) {
+        guard isDecodable(number), supportedPIDs.contains(where: { $0.number == number }) else { return }
+        visiblePIDNumbers.insert(number)
+        if pollingRate(for: number) == .off {
+            pidPollingRates[number] = .normal
+        }
+        savePIDPreferences()
+    }
+
+    func removeLivePID(_ number: Int) {
+        visiblePIDNumbers.remove(number)
+        favoritePIDNumbers.remove(number)
+        setPollingRate(.off, for: number)
+        savePIDPreferences()
     }
 
     func pollingRate(for number: Int) -> PIDPollingRate {
@@ -1157,7 +1198,7 @@ final class ConnectionManager: NSObject, ObservableObject {
             guard let number = Int(entry.key),
                   let rate = PIDPollingRate(rawValue: entry.value) else { return }
             result[number] = rate
-        } ?? Dictionary(uniqueKeysWithValues: Self.demoPIDs.map { ($0.number, .normal) })
+        } ?? Dictionary(uniqueKeysWithValues: Self.defaultLivePIDs.map { ($0.number, .normal) })
 
         let hasStoredFavorites = defaults.object(forKey: Self.favoritesKey) != nil
         let storedFavorites = defaults.array(forKey: Self.favoritesKey) ?? []
@@ -1171,6 +1212,15 @@ final class ConnectionManager: NSObject, ObservableObject {
                 .coolantTemperature,
             ].map(\.number))
         }
+
+        let hasStoredVisiblePIDs = defaults.object(forKey: Self.visiblePIDsKey) != nil
+        let storedVisiblePIDs = defaults.array(forKey: Self.visiblePIDsKey) ?? []
+        visiblePIDNumbers = Set(storedVisiblePIDs.compactMap {
+            ($0 as? NSNumber)?.intValue
+        })
+        if !hasStoredVisiblePIDs {
+            visiblePIDNumbers = Set(Self.defaultLivePIDs.map(\.number))
+        }
     }
 
     private func savePIDPreferences() {
@@ -1181,6 +1231,7 @@ final class ConnectionManager: NSObject, ObservableObject {
             forKey: Self.pollingRatesKey
         )
         defaults.set(favoritePIDNumbers.sorted(), forKey: Self.favoritesKey)
+        defaults.set(visiblePIDNumbers.sorted(), forKey: Self.visiblePIDsKey)
     }
 
     private static func demoReadings(at date: Date) -> [PIDReading] {
@@ -1188,15 +1239,34 @@ final class ConnectionManager: NSObject, ObservableObject {
         return [
             PIDReading(pid: .engineLoad, value: 31 + sin(phase * 0.8) * 8, unit: "%"),
             PIDReading(pid: .coolantTemperature, value: 91 + sin(phase * 0.08) * 2, unit: "°C"),
+            PIDReading(pid: .shortFuelTrimBank1, value: 1.5 + sin(phase * 0.5) * 2, unit: "%"),
+            PIDReading(pid: .longFuelTrimBank1, value: 2.2, unit: "%"),
+            PIDReading(pid: .shortFuelTrimBank2, value: 0.8 + sin(phase * 0.45) * 1.5, unit: "%"),
+            PIDReading(pid: .longFuelTrimBank2, value: 1.7, unit: "%"),
+            PIDReading(pid: .fuelPressure, value: 360 + sin(phase * 0.3) * 12, unit: "kPa"),
+            PIDReading(pid: .intakeManifoldPressure, value: 42 + sin(phase * 0.7) * 5, unit: "kPa"),
             PIDReading(pid: .engineRPM, value: 820 + sin(phase * 1.4) * 90, unit: "RPM"),
             PIDReading(pid: .vehicleSpeed, value: 42 + sin(phase * 0.35) * 12, unit: "km/h"),
+            PIDReading(pid: .timingAdvance, value: 12 + sin(phase * 0.5) * 3, unit: "°"),
             PIDReading(pid: .intakeTemperature, value: 28 + sin(phase * 0.1), unit: "°C"),
+            PIDReading(pid: .massAirFlow, value: 7.5 + sin(phase * 0.6) * 1.2, unit: "g/s"),
             PIDReading(pid: .throttlePosition, value: 18 + sin(phase * 0.7) * 5, unit: "%"),
+            PIDReading(pid: .engineRunTime, value: phase.truncatingRemainder(dividingBy: 7_200), unit: "s"),
+            PIDReading(pid: .distanceWithMIL, value: 0, unit: "km"),
+            PIDReading(pid: .fuelLevel, value: 64, unit: "%"),
+            PIDReading(pid: .warmupsSinceClear, value: 18, unit: ""),
+            PIDReading(pid: .distanceSinceClear, value: 486, unit: "km"),
+            PIDReading(pid: .barometricPressure, value: 99, unit: "kPa"),
+            PIDReading(pid: .catalystTemperature, value: 540 + sin(phase * 0.12) * 10, unit: "°C"),
             PIDReading(pid: .controlModuleVoltage, value: 13.8 + sin(phase * 0.2) * 0.1, unit: "V"),
+            PIDReading(pid: .ambientTemperature, value: 22, unit: "°C"),
+            PIDReading(pid: .engineOilTemperature, value: 96 + sin(phase * 0.08) * 2, unit: "°C"),
+            PIDReading(pid: .fuelInjectionTiming, value: 4 + sin(phase * 0.3), unit: "°"),
+            PIDReading(pid: .engineFuelRate, value: 2.1 + sin(phase * 0.5) * 0.3, unit: "L/h"),
         ]
     }
 
-    private static let demoPIDs: [StandardPID] = [
+    private static let defaultLivePIDs: [StandardPID] = [
         .engineLoad,
         .coolantTemperature,
         .engineRPM,
@@ -1205,6 +1275,8 @@ final class ConnectionManager: NSObject, ObservableObject {
         .throttlePosition,
         .controlModuleVoltage,
     ]
+
+    private static let demoPIDs = StandardPID.allCases
 
     private static let demoReadiness = [
         ReadinessResult(name: "Misfire", supported: true, complete: true),

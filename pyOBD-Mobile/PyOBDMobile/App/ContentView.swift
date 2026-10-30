@@ -172,6 +172,7 @@ private struct OverviewView: View {
 
 private struct LiveDataView: View {
     @EnvironmentObject private var connection: ConnectionManager
+    @State private var showingAddPIDs = false
 
     var body: some View {
         NavigationStack {
@@ -203,6 +204,9 @@ private struct LiveDataView: View {
                                     Label("Export CSV", systemImage: "square.and.arrow.up")
                                 }
                                 LabeledContent("Samples", value: connection.recordedSampleCount.formatted())
+                                Button("Clear recording", systemImage: "xmark.circle", role: .destructive) {
+                                    connection.clearRecording()
+                                }
                             }
                         }
 
@@ -210,7 +214,17 @@ private struct LiveDataView: View {
                             Section { Text(error).foregroundStyle(.red) }
                         }
 
-                        ForEach(connection.sortedSupportedPIDs) { pid in
+                        if connection.visibleSupportedPIDs.isEmpty {
+                            Section {
+                                ContentUnavailableView(
+                                    "No Live Data PIDs",
+                                    systemImage: "waveform.path.ecg",
+                                    description: Text("Use Add PIDs to choose the values shown here.")
+                                )
+                            }
+                        }
+
+                        ForEach(connection.visibleSupportedPIDs) { pid in
                             HStack(spacing: 12) {
                                 Button {
                                     connection.toggleFavorite(pid.number)
@@ -265,13 +279,18 @@ private struct LiveDataView: View {
                                 }
                                 .disabled(!connection.isDecodable(pid.number))
                             }
+                            .swipeActions {
+                                Button("Remove", systemImage: "trash", role: .destructive) {
+                                    connection.removeLivePID(pid.number)
+                                }
+                            }
                         }
                     }
                 }
             }
             .navigationTitle("Live Data")
             .toolbar {
-                ToolbarItem(placement: .topBarLeading) {
+                ToolbarItemGroup(placement: .topBarLeading) {
                     Button {
                         connection.isRecording
                             ? connection.stopRecording()
@@ -282,8 +301,59 @@ private struct LiveDataView: View {
                     }
                     .disabled(connection.state != .connected && !connection.isRecording)
                     .accessibilityLabel(connection.isRecording ? "Stop recording" : "Start recording")
+
+                    Button {
+                        showingAddPIDs = true
+                    } label: {
+                        Image(systemName: "plus.circle")
+                    }
+                    .disabled(connection.state != .connected)
+                    .accessibilityLabel("Add PIDs")
                 }
                 ConnectionStatusLabel()
+            }
+            .sheet(isPresented: $showingAddPIDs) {
+                AddLivePIDsView()
+            }
+        }
+    }
+}
+
+private struct AddLivePIDsView: View {
+    @Environment(\.dismiss) private var dismiss
+    @EnvironmentObject private var connection: ConnectionManager
+    @State private var searchText = ""
+
+    var body: some View {
+        NavigationStack {
+            List(connection.addableSupportedPIDs(matching: searchText)) { pid in
+                Button {
+                    connection.addLivePID(pid.number)
+                } label: {
+                    HStack {
+                        VStack(alignment: .leading, spacing: 3) {
+                            Text(pid.name).foregroundStyle(.primary)
+                            Text(pid.command)
+                                .font(.caption.monospaced())
+                                .foregroundStyle(.secondary)
+                        }
+                        Spacer()
+                        Image(systemName: "plus.circle.fill")
+                    }
+                }
+            }
+            .overlay {
+                if connection.addableSupportedPIDs(matching: searchText).isEmpty {
+                    ContentUnavailableView.search(text: searchText)
+                }
+            }
+            .searchable(text: $searchText, prompt: "PID or name")
+            .navigationTitle("Add PIDs")
+            .navigationBarTitleDisplayMode(.inline)
+            .toolbar {
+                ToolbarItem(placement: .confirmationAction) {
+                    Button("Done") { dismiss() }
+                }
             }
         }
     }

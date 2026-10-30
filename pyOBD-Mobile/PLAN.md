@@ -20,6 +20,7 @@ Native SwiftUI iPhone companion to the Python desktop application.
 
 - [x] Expand common Mode 01 PID decoders beyond the initial seven.
 - [x] Add selectable Live Data favorites and polling groups.
+- [x] Add searchable PID selection with persistent add/remove controls.
 - [x] Add CSV recording and export.
 - [ ] Add vehicle profiles and per-vehicle preferences.
 - [ ] Add adapter compatibility notes and connection diagnostics.
