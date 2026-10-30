@@ -31,6 +31,10 @@ struct ContentView: View {
                 .tag(MobileSection.freezeFrame)
                 .tabItem { Label("Freeze Frame", systemImage: "snowflake") }
 
+            VehicleProfilesView()
+                .tag(MobileSection.vehicles)
+                .tabItem { Label("Vehicles", systemImage: "car.2.fill") }
+
             ConnectionView()
                 .tag(MobileSection.connection)
                 .tabItem { Label("Connection", systemImage: "cable.connector") }
@@ -110,6 +114,9 @@ private struct OverviewView: View {
 
                     VStack(alignment: .leading, spacing: 12) {
                         Text("Vehicle").font(.headline)
+                        if let profile = connection.activeVehicleProfile {
+                            LabeledContent("Profile", value: profile.nickname)
+                        }
                         LabeledContent("VIN", value: connection.vehicleVIN)
                         LabeledContent("Protocol", value: connection.vehicleProtocol)
                         LabeledContent("Adapter voltage", value: connection.adapterVoltage)
@@ -166,6 +173,104 @@ private struct OverviewView: View {
         case .engineRunTime, .distanceWithMIL, .warmupsSinceClear,
              .distanceSinceClear: "clock"
         case .engineFuelRate: "fuelpump.fill"
+        }
+    }
+}
+
+private struct VehicleProfilesView: View {
+    @EnvironmentObject private var connection: ConnectionManager
+    @State private var showingNewProfile = false
+
+    var body: some View {
+        NavigationStack {
+            List {
+                if connection.vehicleProfiles.isEmpty {
+                    ContentUnavailableView(
+                        "No vehicle profiles",
+                        systemImage: "car.2",
+                        description: Text("Save a vehicle to keep its Live Data selections and polling speeds.")
+                    )
+                } else {
+                    Section("Vehicles") {
+                        ForEach(connection.vehicleProfiles) { profile in
+                            Button {
+                                connection.selectVehicleProfile(profile.id)
+                            } label: {
+                                HStack {
+                                    VStack(alignment: .leading, spacing: 3) {
+                                        Text(profile.nickname).foregroundStyle(.primary)
+                                        Text(profile.vin.isEmpty ? "No VIN saved" : profile.vin)
+                                            .font(.caption.monospaced())
+                                            .foregroundStyle(.secondary)
+                                    }
+                                    Spacer()
+                                    if connection.activeVehicleProfileID == profile.id {
+                                        Image(systemName: "checkmark.circle.fill").foregroundStyle(.green)
+                                    }
+                                }
+                            }
+                            .swipeActions {
+                                Button("Delete", systemImage: "trash", role: .destructive) {
+                                    connection.deleteVehicleProfile(profile.id)
+                                }
+                            }
+                        }
+                    }
+                }
+
+                Section {
+                    Text("When a saved VIN connects, its profile and PID preferences are selected automatically.")
+                        .font(.footnote)
+                        .foregroundStyle(.secondary)
+                }
+            }
+            .navigationTitle("Vehicles")
+            .toolbar {
+                ToolbarItem(placement: .primaryAction) {
+                    Button("Add vehicle", systemImage: "plus") {
+                        showingNewProfile = true
+                    }
+                }
+            }
+            .sheet(isPresented: $showingNewProfile) {
+                NewVehicleProfileView()
+            }
+        }
+    }
+}
+
+private struct NewVehicleProfileView: View {
+    @Environment(\.dismiss) private var dismiss
+    @EnvironmentObject private var connection: ConnectionManager
+    @State private var nickname = ""
+    @State private var vin = ""
+
+    var body: some View {
+        NavigationStack {
+            Form {
+                TextField("Vehicle nickname", text: $nickname)
+                TextField("VIN", text: $vin)
+                    .textInputAutocapitalization(.characters)
+                    .autocorrectionDisabled()
+                    .font(.body.monospaced())
+            }
+            .navigationTitle("New Vehicle")
+            .navigationBarTitleDisplayMode(.inline)
+            .onAppear {
+                if connection.vehicleVIN != "—" { vin = connection.vehicleVIN }
+            }
+            .toolbar {
+                ToolbarItem(placement: .cancellationAction) {
+                    Button("Cancel") { dismiss() }
+                }
+                ToolbarItem(placement: .confirmationAction) {
+                    Button("Save") {
+                        connection.createVehicleProfile(nickname: nickname, vin: vin)
+                        dismiss()
+                    }
+                    .disabled(nickname.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
+                }
+            }
         }
     }
 }
@@ -627,6 +732,24 @@ private struct ConnectionView: View {
                     }
                     .buttonStyle(.borderedProminent)
                     .frame(maxWidth: .infinity)
+                }
+
+                Section("Compatibility") {
+                    Text(connection.adapterCompatibilityNote)
+                        .font(.footnote)
+                        .foregroundStyle(.secondary)
+                }
+
+                Section("Connection diagnostics") {
+                    LabeledContent("Status", value: connection.state.title)
+                    LabeledContent("Target", value: connection.connectionTargetText)
+                    LabeledContent("Protocol", value: connection.vehicleProtocol)
+                    LabeledContent("Voltage", value: connection.adapterVoltage)
+                    if let error = connection.lastConnectionError {
+                        LabeledContent("Last error") {
+                            Text(error).foregroundStyle(.red)
+                        }
+                    }
                 }
             }
             .navigationTitle("Connection")

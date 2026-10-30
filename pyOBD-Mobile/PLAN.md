@@ -22,7 +22,7 @@ Native SwiftUI iPhone companion to the Python desktop application.
 - [x] Add selectable Live Data favorites and polling groups.
 - [x] Add searchable PID selection with persistent add/remove controls.
 - [x] Add CSV recording and export.
-- [ ] Add vehicle profiles and per-vehicle preferences.
-- [ ] Add adapter compatibility notes and connection diagnostics.
+- [x] Add vehicle profiles and per-vehicle preferences.
+- [x] Add adapter compatibility notes and connection diagnostics.
 
 The Python desktop application remains unchanged and continues supporting macOS, Windows, and Linux.

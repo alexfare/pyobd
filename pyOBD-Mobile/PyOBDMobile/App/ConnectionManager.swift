@@ -54,6 +54,7 @@ enum MobileSection: Hashable {
     case diagnostics
     case readiness
     case freezeFrame
+    case vehicles
     case connection
 }
 
@@ -337,6 +338,15 @@ struct ReadinessResult: Identifiable, Equatable {
     var id: String { name }
 }
 
+struct VehicleProfile: Codable, Identifiable, Equatable {
+    let id: UUID
+    var nickname: String
+    var vin: String
+    var visiblePIDNumbers: [Int]
+    var favoritePIDNumbers: [Int]
+    var pollingRates: [String: String]
+}
+
 enum OBDCommandError: LocalizedError {
     case notConnected
     case timedOut
@@ -427,6 +437,9 @@ final class ConnectionManager: NSObject, ObservableObject {
     @Published private(set) var recordedSampleCount = 0
     @Published private(set) var recordingFileURL: URL?
     @Published private(set) var recordingError: String?
+    @Published private(set) var vehicleProfiles: [VehicleProfile] = []
+    @Published private(set) var activeVehicleProfileID: UUID?
+    @Published private(set) var lastConnectionError: String?
 
     private struct QueuedCommand {
         let id: UUID
@@ -463,12 +476,15 @@ final class ConnectionManager: NSObject, ObservableObject {
     private static let pollingRatesKey = "liveData.pollingRates"
     private static let favoritesKey = "liveData.favorites"
     private static let visiblePIDsKey = "liveData.visiblePIDs"
+    private static let vehicleProfilesKey = "vehicle.profiles"
+    private static let activeVehicleProfileKey = "vehicle.activeProfile"
 
     override init() {
         wifiHost = UserDefaults.standard.string(forKey: Self.hostKey) ?? "192.168.0.10"
         wifiPort = UserDefaults.standard.string(forKey: Self.portKey) ?? "35000"
         super.init()
         loadPIDPreferences()
+        loadVehicleProfiles()
         let backgroundModes = Bundle.main.object(forInfoDictionaryKey: "UIBackgroundModes") as? [String]
         let options: [String: Any]? = backgroundModes?.contains("bluetooth-central") == true
             ? [CBCentralManagerOptionRestoreIdentifierKey: "com.farebros.pyobd.bluetooth"]
@@ -481,6 +497,7 @@ final class ConnectionManager: NSObject, ObservableObject {
     }
 
     func connect() {
+        lastConnectionError = nil
         shouldReconnect = true
         reconnectTask?.cancel()
 
@@ -604,6 +621,62 @@ final class ConnectionManager: NSObject, ObservableObject {
         recordingStartedAt = nil
         recordedSampleCount = 0
         recordingError = nil
+    }
+
+    var activeVehicleProfile: VehicleProfile? {
+        vehicleProfiles.first { $0.id == activeVehicleProfileID }
+    }
+
+    var connectionTargetText: String {
+        switch transport {
+        case .wifi: "\(wifiHost):\(wifiPort)"
+        case .bluetooth: bluetoothPeripheral?.name ?? "No BLE adapter selected"
+        case .demo: "Built-in simulator"
+        }
+    }
+
+    var adapterCompatibilityNote: String {
+        switch transport {
+        case .wifi:
+            "Works with ELM327-compatible Wi-Fi adapters that expose a TCP host and port. The iPhone must remain joined to the adapter's Wi-Fi network."
+        case .bluetooth:
+            "Supports Bluetooth Low Energy adapters with a writable data characteristic. Generic Bluetooth Classic serial adapters are not supported by iOS."
+        case .demo:
+            "Uses simulated vehicle data and does not require an adapter or vehicle."
+        }
+    }
+
+    func createVehicleProfile(nickname: String, vin: String) {
+        let cleanName = nickname.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !cleanName.isEmpty else { return }
+        let profile = VehicleProfile(
+            id: UUID(),
+            nickname: cleanName,
+            vin: Self.normalizedVIN(vin),
+            visiblePIDNumbers: visiblePIDNumbers.sorted(),
+            favoritePIDNumbers: favoritePIDNumbers.sorted(),
+            pollingRates: Self.encodedPollingRates(pidPollingRates)
+        )
+        vehicleProfiles.append(profile)
+        vehicleProfiles.sort { $0.nickname.localizedCaseInsensitiveCompare($1.nickname) == .orderedAscending }
+        activeVehicleProfileID = profile.id
+        saveVehicleProfiles()
+    }
+
+    func selectVehicleProfile(_ id: UUID) {
+        guard let profile = vehicleProfiles.first(where: { $0.id == id }) else { return }
+        activeVehicleProfileID = id
+        applyPIDPreferences(from: profile)
+        saveVehicleProfiles()
+    }
+
+    func deleteVehicleProfile(_ id: UUID) {
+        vehicleProfiles.removeAll { $0.id == id }
+        if activeVehicleProfileID == id {
+            activeVehicleProfileID = nil
+            loadPIDPreferences()
+        }
+        saveVehicleProfiles()
     }
 
     var visibleSupportedPIDs: [SupportedPID] {
@@ -818,6 +891,7 @@ final class ConnectionManager: NSObject, ObservableObject {
     func scanForBluetoothAdapters() {
         transport = .bluetooth
         guard centralManager.state == .poweredOn else {
+            lastConnectionError = "Bluetooth is unavailable or disabled"
             state = .failed("Bluetooth unavailable")
             return
         }
@@ -848,6 +922,7 @@ final class ConnectionManager: NSObject, ObservableObject {
         guard let rawPort = UInt16(wifiPort),
               let port = NWEndpoint.Port(rawValue: rawPort),
               !wifiHost.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
+            lastConnectionError = "The Wi-Fi adapter address or port is invalid"
             state = .failed("Check Wi-Fi address")
             return
         }
@@ -882,9 +957,11 @@ final class ConnectionManager: NSObject, ObservableObject {
         case .ready:
             receiveWiFiData()
             beginAdapterInitialization()
-        case .waiting:
+        case .waiting(let error):
+            lastConnectionError = error.localizedDescription
             state = .reconnecting
         case .failed(let error):
+            lastConnectionError = error.localizedDescription
             failPendingCommands(with: error)
             state = .failed(error.localizedDescription)
             scheduleReconnect()
@@ -916,6 +993,7 @@ final class ConnectionManager: NSObject, ObservableObject {
 
     private func reconnectBluetoothOrScan() {
         guard centralManager.state == .poweredOn else {
+            lastConnectionError = "Bluetooth is unavailable or disabled"
             state = .failed("Bluetooth unavailable")
             return
         }
@@ -968,8 +1046,10 @@ final class ConnectionManager: NSObject, ObservableObject {
 
     private func connectDemo() {
         shouldReconnect = false
+        lastConnectionError = nil
         state = .connected
         vehicleVIN = "DEMO0000000000001"
+        activateProfile(matchingVIN: vehicleVIN)
         vehicleProtocol = "Demo OBD-II"
         adapterVoltage = "13.8 V"
         availablePIDs = Self.demoPIDs
@@ -1010,6 +1090,7 @@ final class ConnectionManager: NSObject, ObservableObject {
                 return
             } catch {
                 guard self.shouldReconnect, !Task.isCancelled else { return }
+                self.lastConnectionError = error.localizedDescription
                 self.state = .failed(error.localizedDescription)
                 self.scheduleReconnect()
             }
@@ -1096,6 +1177,7 @@ final class ConnectionManager: NSObject, ObservableObject {
             let vinResponse = try await sendOBDCommand("0902")
             if let vin = Self.decodeVIN(vinResponse), !vin.isEmpty {
                 vehicleVIN = vin
+                activateProfile(matchingVIN: vin)
             }
         } catch {
             operationMessage = "Connected; some vehicle details are unavailable"
@@ -1262,6 +1344,14 @@ final class ConnectionManager: NSObject, ObservableObject {
     }
 
     private func savePIDPreferences() {
+        if let id = activeVehicleProfileID,
+           let index = vehicleProfiles.firstIndex(where: { $0.id == id }) {
+            vehicleProfiles[index].visiblePIDNumbers = visiblePIDNumbers.sorted()
+            vehicleProfiles[index].favoritePIDNumbers = favoritePIDNumbers.sorted()
+            vehicleProfiles[index].pollingRates = Self.encodedPollingRates(pidPollingRates)
+            saveVehicleProfiles()
+            return
+        }
         defaults.set(
             Dictionary(uniqueKeysWithValues: pidPollingRates.map {
                 (String($0.key), $0.value.rawValue)
@@ -1270,6 +1360,55 @@ final class ConnectionManager: NSObject, ObservableObject {
         )
         defaults.set(favoritePIDNumbers.sorted(), forKey: Self.favoritesKey)
         defaults.set(visiblePIDNumbers.sorted(), forKey: Self.visiblePIDsKey)
+    }
+
+    private func loadVehicleProfiles() {
+        if let data = defaults.data(forKey: Self.vehicleProfilesKey),
+           let profiles = try? JSONDecoder().decode([VehicleProfile].self, from: data) {
+            vehicleProfiles = profiles
+        }
+        if let rawID = defaults.string(forKey: Self.activeVehicleProfileKey),
+           let id = UUID(uuidString: rawID),
+           let profile = vehicleProfiles.first(where: { $0.id == id }) {
+            activeVehicleProfileID = id
+            applyPIDPreferences(from: profile)
+        }
+    }
+
+    private func saveVehicleProfiles() {
+        if let data = try? JSONEncoder().encode(vehicleProfiles) {
+            defaults.set(data, forKey: Self.vehicleProfilesKey)
+        }
+        defaults.set(activeVehicleProfileID?.uuidString, forKey: Self.activeVehicleProfileKey)
+    }
+
+    private func applyPIDPreferences(from profile: VehicleProfile) {
+        visiblePIDNumbers = Set(profile.visiblePIDNumbers)
+        favoritePIDNumbers = Set(profile.favoritePIDNumbers)
+        pidPollingRates = profile.pollingRates.reduce(into: [:]) { result, entry in
+            guard let number = Int(entry.key),
+                  let rate = PIDPollingRate(rawValue: entry.value) else { return }
+            result[number] = rate
+        }
+    }
+
+    private func activateProfile(matchingVIN vin: String) {
+        let normalized = Self.normalizedVIN(vin)
+        guard !normalized.isEmpty,
+              let profile = vehicleProfiles.first(where: { Self.normalizedVIN($0.vin) == normalized }) else {
+            return
+        }
+        activeVehicleProfileID = profile.id
+        applyPIDPreferences(from: profile)
+        saveVehicleProfiles()
+    }
+
+    private static func normalizedVIN(_ vin: String) -> String {
+        vin.trimmingCharacters(in: .whitespacesAndNewlines).uppercased()
+    }
+
+    private static func encodedPollingRates(_ rates: [Int: PIDPollingRate]) -> [String: String] {
+        Dictionary(uniqueKeysWithValues: rates.map { (String($0.key), $0.value.rawValue) })
     }
 
     private static func demoReadings(at date: Date) -> [PIDReading] {
@@ -1384,6 +1523,7 @@ extension ConnectionManager: @preconcurrency CBCentralManagerDelegate {
             reconnectBluetoothOrScan()
         } else if central.state != .poweredOn, transport == .bluetooth {
             stopRecording()
+            lastConnectionError = "Bluetooth is unavailable or disabled"
             state = .failed("Bluetooth unavailable")
         }
     }
@@ -1438,7 +1578,9 @@ extension ConnectionManager: @preconcurrency CBCentralManagerDelegate {
         didFailToConnect peripheral: CBPeripheral,
         error: Error?
     ) {
-        state = .failed(error?.localizedDescription ?? "Bluetooth connection failed")
+        let message = error?.localizedDescription ?? "Bluetooth connection failed"
+        lastConnectionError = message
+        state = .failed(message)
         scheduleReconnect()
     }
 
@@ -1450,6 +1592,7 @@ extension ConnectionManager: @preconcurrency CBCentralManagerDelegate {
         error: Error?
     ) {
         stopRecording()
+        if let error { lastConnectionError = error.localizedDescription }
         bluetoothWriteCharacteristic = nil
         failPendingCommands(with: error ?? OBDCommandError.notConnected)
         if shouldReconnect {
@@ -1466,6 +1609,7 @@ extension ConnectionManager: @preconcurrency CBCentralManagerDelegate {
 extension ConnectionManager: @preconcurrency CBPeripheralDelegate {
     func peripheral(_ peripheral: CBPeripheral, didDiscoverServices error: Error?) {
         if let error {
+            lastConnectionError = error.localizedDescription
             state = .failed(error.localizedDescription)
             scheduleReconnect()
             return
@@ -1496,6 +1640,7 @@ extension ConnectionManager: @preconcurrency CBPeripheralDelegate {
             Self.bluetoothWritePriority($0) < Self.bluetoothWritePriority($1)
         }
         guard bluetoothWriteCharacteristic != nil else {
+            lastConnectionError = "No compatible Bluetooth data channel found"
             state = .failed("No compatible Bluetooth data channel found")
             return
         }
