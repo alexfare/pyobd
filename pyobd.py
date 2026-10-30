@@ -26,9 +26,6 @@
 # Foundation, Inc., 59 Temple Place, Suite 330, Boston, MA  02111-1307  USA
 ############################################################################
 
-import numpy as np
-from wx.lib import plot as wxplot
-import gc
 import traceback
 import wx
 import obd_io  # OBD2 funcs
@@ -163,7 +160,7 @@ class MyApp(SessionUIMixin, VehicleProfilesMixin, DashboardUIMixin, GraphUIMixin
 
         toolbar_sizer = wx.BoxSizer(wx.HORIZONTAL)
         self.bottom_toolbar.SetSizer(toolbar_sizer)
-        self.bottom_toolbar.SetMinSize((-1, 64))
+        self.bottom_toolbar.SetMinSize((-1, 52))
 
         toolbar_fields = [
             ("link", "Link", "Disconnected"),
@@ -179,11 +176,11 @@ class MyApp(SessionUIMixin, VehicleProfilesMixin, DashboardUIMixin, GraphUIMixin
 
             title = wx.StaticText(self.bottom_toolbar, -1, label.upper())
             title.SetForegroundColour(self.theme.sidebar_muted)
-            title.SetFont(wx.Font(8, wx.FONTFAMILY_SWISS, wx.FONTSTYLE_NORMAL, wx.FONTWEIGHT_NORMAL))
+            title.SetFont(wx.Font(7, wx.FONTFAMILY_SWISS, wx.FONTSTYLE_NORMAL, wx.FONTWEIGHT_NORMAL))
 
             value_widget = wx.StaticText(self.bottom_toolbar, -1, value)
             value_widget.SetForegroundColour(self.theme.sidebar_text)
-            value_widget.SetFont(wx.Font(12, wx.FONTFAMILY_SWISS, wx.FONTSTYLE_NORMAL, wx.FONTWEIGHT_BOLD))
+            value_widget.SetFont(wx.Font(10, wx.FONTFAMILY_SWISS, wx.FONTSTYLE_NORMAL, wx.FONTWEIGHT_BOLD))
 
             self.bottom_toolbar_values[key] = value_widget
 
@@ -192,7 +189,7 @@ class MyApp(SessionUIMixin, VehicleProfilesMixin, DashboardUIMixin, GraphUIMixin
             toolbar_sizer.Add(field_sizer, 1, wx.ALIGN_CENTER_VERTICAL | wx.LEFT | wx.RIGHT, 10)
 
             if index < len(toolbar_fields) - 1:
-                toolbar_sizer.Add(wx.StaticLine(self.bottom_toolbar, style=wx.LI_VERTICAL), 0, wx.EXPAND | wx.TOP | wx.BOTTOM, 10)
+                toolbar_sizer.Add(wx.StaticLine(self.bottom_toolbar, style=wx.LI_VERTICAL), 0, wx.EXPAND | wx.TOP | wx.BOTTOM, 8)
 
     def _set_bottom_status_defaults(self):
         defaults = {
@@ -245,6 +242,7 @@ class MyApp(SessionUIMixin, VehicleProfilesMixin, DashboardUIMixin, GraphUIMixin
             if control is not None:
                 control.SetLabel(label)
                 control.SetForegroundColour(colour)
+                control.SetToolTip(state)
 
         if hasattr(self, "header_connect_button"):
             active = label in (
@@ -258,7 +256,9 @@ class MyApp(SessionUIMixin, VehicleProfilesMixin, DashboardUIMixin, GraphUIMixin
     def sensor_control_reconnecting(self):
         self._stop_sensor_recording()
         self._set_graph_streaming(False)
+        self._set_graph_connection_state(False)
         self._reset_dashboard_values()
+        self._clear_connected_vehicle_header()
         self.settingmenu.Enable(ID_CONFIG, False)
         self.settingmenu.Enable(ID_RESET, False)
         self.settingmenu.Enable(ID_DISCONNECT, True)
@@ -351,16 +351,22 @@ class MyApp(SessionUIMixin, VehicleProfilesMixin, DashboardUIMixin, GraphUIMixin
         sidebar_sizer.Add(brand, 0, wx.LEFT | wx.RIGHT | wx.TOP, 22)
         sidebar_sizer.Add(subtitle, 0, wx.LEFT | wx.RIGHT | wx.TOP | wx.BOTTOM, 22)
 
-        primary_items = [
-            ("Overview", self.home_panel),
-            ("Dashboard", self.dashboard_panel),
-            ("Live Data", self.sensors_panel),
-            ("Diagnostics", self.DTCpanel),
-            ("Readiness", self.tests_panel),
-            ("Freeze Frame", self.freezeframe),
-            ("Graphs", self.graph_panel),
-            ("Vehicles", self.vehicle_profiles_panel),
-            ("Sessions", self.sessions_panel),
+        primary_groups = [
+            ("MONITOR", [
+                ("Overview", self.home_panel),
+                ("Dashboard", self.dashboard_panel),
+                ("Live Data", self.sensors_panel),
+                ("Graphs", self.graph_panel),
+            ]),
+            ("DIAGNOSE", [
+                ("Diagnostics", self.DTCpanel),
+                ("Readiness", self.tests_panel),
+                ("Freeze Frame", self.freezeframe),
+            ]),
+            ("MANAGE", [
+                ("Vehicles", self.vehicle_profiles_panel),
+                ("Sessions", self.sessions_panel),
+            ]),
         ]
         self.sidebar_buttons = {}
 
@@ -375,11 +381,16 @@ class MyApp(SessionUIMixin, VehicleProfilesMixin, DashboardUIMixin, GraphUIMixin
             button.SetMinSize((-1, 44))
             button.SetFont(self.theme.font(11, bold=label == "Overview"))
             button.Bind(wx.EVT_BUTTON, lambda _event, target=page, title=label: self._go_to_page(target, title))
-            sidebar_sizer.Add(button, 0, wx.EXPAND | wx.LEFT | wx.RIGHT | wx.BOTTOM, 10)
+            sidebar_sizer.Add(button, 0, wx.EXPAND | wx.LEFT | wx.RIGHT | wx.BOTTOM, 6)
             self.sidebar_buttons[page] = button
 
-        for label, page in primary_items:
-            add_item(label, page)
+        for group_label, items in primary_groups:
+            group = wx.StaticText(self.sidebar_panel, label=group_label)
+            group.SetForegroundColour(self.theme.sidebar_muted)
+            group.SetFont(self.theme.font(8, bold=True))
+            sidebar_sizer.Add(group, 0, wx.LEFT | wx.RIGHT | wx.TOP, 22)
+            for label, page in items:
+                add_item(label, page)
         sidebar_sizer.AddStretchSpacer()
         add_item("Activity Log", self.trace)
         self.sidebar_update_button = ModernButton(
@@ -437,10 +448,6 @@ class MyApp(SessionUIMixin, VehicleProfilesMixin, DashboardUIMixin, GraphUIMixin
             self.trace,
             self.graph_list_ctrl,
         ]
-        if hasattr(self, "graphs_list_ctrl"):
-            controls.append(self.graphs_list_ctrl)
-        if hasattr(self, "graphs8_list_ctrl"):
-            controls.append(self.graphs8_list_ctrl)
         for control in controls:
             control.SetFont(self.touch_font)
             self.theme.style_list(control)
@@ -480,6 +487,18 @@ class MyApp(SessionUIMixin, VehicleProfilesMixin, DashboardUIMixin, GraphUIMixin
 
         if page_index != wx.NOT_FOUND:
             self.nb.SetSelection(page_index)
+            self.active_polling_page = {
+                self.status: "status",
+                self.tests_panel: "tests",
+                self.sensors_panel: "sensors",
+                self.DTCpanel: "dtc",
+                self.freezeframe: "freeze_frame",
+                self.graph_panel: "graph",
+                self.home_panel: "overview",
+                self.dashboard_panel: "dashboard",
+            }.get(page, "idle")
+            if self.senprod and self.senprod.is_alive():
+                self.senprod.wake()
             if title is None:
                 title = {
                     self.home_panel: "Overview",
@@ -499,7 +518,7 @@ class MyApp(SessionUIMixin, VehicleProfilesMixin, DashboardUIMixin, GraphUIMixin
                 self.page_title.SetLabel(title)
             self._refresh_sidebar_selection(page)
 
-    def _create_home_tile(self, parent, label, description, colour, hover_colour, handler):
+    def _create_home_tile(self, parent, label, description, colour, hover_colour, handler, icon):
         return ActionCard(
             parent,
             self.theme,
@@ -508,6 +527,7 @@ class MyApp(SessionUIMixin, VehicleProfilesMixin, DashboardUIMixin, GraphUIMixin
             colour,
             hover_colour,
             handler,
+            icon,
         )
 
     def build_home_page(self):
@@ -525,6 +545,7 @@ class MyApp(SessionUIMixin, VehicleProfilesMixin, DashboardUIMixin, GraphUIMixin
             self.theme.accent,
             self.theme.accent_hover,
             self.OnHomeDashboard,
+            "dashboard",
         )
         self.home_services_button = self._create_home_tile(
             self.home_panel,
@@ -533,6 +554,7 @@ class MyApp(SessionUIMixin, VehicleProfilesMixin, DashboardUIMixin, GraphUIMixin
             self.theme.success,
             self.theme.success_hover,
             self.OnHomeSensors,
+            "live",
         )
         self.home_graphs_button = self._create_home_tile(
             self.home_panel,
@@ -541,6 +563,7 @@ class MyApp(SessionUIMixin, VehicleProfilesMixin, DashboardUIMixin, GraphUIMixin
             self.theme.info,
             self.theme.info_hover,
             self.OnHomeGraphs,
+            "graphs",
         )
         self.home_readiness_button = self._create_home_tile(
             self.home_panel,
@@ -549,6 +572,7 @@ class MyApp(SessionUIMixin, VehicleProfilesMixin, DashboardUIMixin, GraphUIMixin
             self.theme.warning,
             self.theme.warning.ChangeLightness(85),
             self.OnHomeReadiness,
+            "readiness",
         )
         self.home_diagnostics_button = self._create_home_tile(
             self.home_panel,
@@ -557,6 +581,7 @@ class MyApp(SessionUIMixin, VehicleProfilesMixin, DashboardUIMixin, GraphUIMixin
             self.theme.danger,
             self.theme.danger.ChangeLightness(85),
             self.OnHomeDiagnostics,
+            "diagnostics",
         )
         vehicle_colour = wx.Colour(126, 34, 206)
         self.home_vehicle_button = self._create_home_tile(
@@ -566,6 +591,7 @@ class MyApp(SessionUIMixin, VehicleProfilesMixin, DashboardUIMixin, GraphUIMixin
             vehicle_colour,
             vehicle_colour.ChangeLightness(85),
             self.OnHomeVehicles,
+            "vehicles",
         )
         actions.Add(self.home_scan_button, pos=(0, 0), flag=wx.EXPAND)
         actions.Add(self.home_services_button, pos=(0, 1), flag=wx.EXPAND)
@@ -579,7 +605,7 @@ class MyApp(SessionUIMixin, VehicleProfilesMixin, DashboardUIMixin, GraphUIMixin
         actions.AddGrowableRow(0, 1)
         actions.AddGrowableRow(1, 1)
 
-        root_sizer.Add(actions, 1, wx.EXPAND | wx.ALL, 24)
+        root_sizer.Add(actions, 1, wx.EXPAND | wx.ALL, 28)
         self.home_panel.SetSizer(root_sizer)
 
         self.nb.AddPage(self.home_panel, "Home")
@@ -681,16 +707,31 @@ class MyApp(SessionUIMixin, VehicleProfilesMixin, DashboardUIMixin, GraphUIMixin
             if self.tests_active_section == "misfire"
             else "Reading monitor status…"
         )
+        self.tests_status_label.SetForegroundColour(self.theme.warning)
+        if self.tests_active_section == "readiness":
+            for count in self.tests_summary_labels.values():
+                count.SetLabel("…")
         self.RefreshTestsButton.Enable(False)
+        if self.senprod and self.senprod.is_alive():
+            self.senprod.wake()
 
     def OnTestsPageChanged(self, event):
         self.tests_active_section = "misfire" if event.GetSelection() == 1 else "readiness"
+        is_readiness = self.tests_active_section == "readiness"
+        self.tests_summary_panel.Show(is_readiness)
+        self.tests_help_label.SetLabel(
+            "Readiness shows which emissions monitors have completed. Clearing codes resets readiness."
+            if is_readiness
+            else "Mode 06 misfire results are shown only for cylinder monitors supported by the vehicle."
+        )
+        self.tests_panel.Layout()
         if self.senprod and self.senprod.is_alive():
             self.RefreshTests()
         event.Skip()
 
 
     def sensor_control_on(self):  # after connection enable few buttons
+        self._update_active_vehicle_header()
         self.settingmenu.Enable(ID_CONFIG, False)
         self.settingmenu.Enable(ID_RESET, False)
         self.settingmenu.Enable(ID_DISCONNECT, True)
@@ -701,12 +742,22 @@ class MyApp(SessionUIMixin, VehicleProfilesMixin, DashboardUIMixin, GraphUIMixin
         self.RefreshTestsButton.Enable(True)
         self.sensor_record_button.Enable(True)
         self.tests_status_label.SetLabel("Ready to check monitors")
+        self.tests_status_label.SetForegroundColour(self.theme.muted)
+        self._set_graph_connection_state(True)
         if self.dtc.GetItemCount() == 0:
             self.dtc_status_label.SetLabel("Ready to scan")
+            self.dtc_empty_label.SetLabel("No scan results yet.")
+            self.dtc_empty_label.Show()
+        else:
+            self.dtc_empty_label.Hide()
+        self._update_sensor_selection_ui(connected=True)
+        self.DTCpanel.Layout()
+        self.tests_panel.Layout()
 
     def sensor_control_off(self):  # after disconnect disable few buttons
         self._stop_sensor_recording()
         self._reset_dashboard_values()
+        self._clear_connected_vehicle_header()
         self.dtcmenu.Enable(ID_GETC, False)
         self.dtcmenu.Enable(ID_CLEAR, False)
         self.settingmenu.Enable(ID_DISCONNECT, False)
@@ -715,9 +766,20 @@ class MyApp(SessionUIMixin, VehicleProfilesMixin, DashboardUIMixin, GraphUIMixin
         self.GetDTCButton.Enable(False)
         self.ClearDTCButton.Enable(False)
         self.dtc_status_label.SetLabel("Connect to scan vehicle")
+        self.dtc_empty_label.SetLabel(
+            "Disconnected — displayed diagnostic results may be out of date."
+        )
+        self.dtc_empty_label.Show()
         self.RefreshTestsButton.Enable(False)
         self.sensor_record_button.Enable(False)
         self.tests_status_label.SetLabel("Connect to check monitors")
+        self.tests_status_label.SetForegroundColour(self.theme.muted)
+        for count in self.tests_summary_labels.values():
+            count.SetLabel("—")
+        self._set_graph_connection_state(False)
+        self._update_sensor_selection_ui(connected=False)
+        self.DTCpanel.Layout()
+        self.tests_panel.Layout()
         # http://pyserial.sourceforge.net/                                                    empty function
         # EVT_LIST_ITEM_ACTIVATED(self.sensors,self.sensor_id, lambda : None)
 
@@ -729,6 +791,7 @@ class MyApp(SessionUIMixin, VehicleProfilesMixin, DashboardUIMixin, GraphUIMixin
         self.sensor_id = tID
         self.sensor_rows = []
         self.sensor_visible_indices = []
+        self.sensor_view_by_source = {}
         self.sensor_selected_sources = set()
         self._rebuilding_sensor_list = False
         self.sensor_filter_timer = None
@@ -742,33 +805,62 @@ class MyApp(SessionUIMixin, VehicleProfilesMixin, DashboardUIMixin, GraphUIMixin
 
         self.sensors_panel = wx.Panel(self.nb)
         self.sensors_panel.SetBackgroundColour(self.theme.window)
+
+        toolbar_panel = wx.Panel(self.sensors_panel)
+        toolbar_panel.SetBackgroundColour(self.theme.surface)
+        toolbar_root = wx.BoxSizer(wx.VERTICAL)
+        status_row = wx.BoxSizer(wx.HORIZONTAL)
         toolbar = wx.BoxSizer(wx.HORIZONTAL)
-        self.sensor_search = wx.SearchCtrl(self.sensors_panel, style=wx.TE_PROCESS_ENTER)
-        self.sensor_search.SetDescriptiveText("Search PID or sensor")
-        self.sensor_search.ShowCancelButton(True)
-        self.sensor_search.SetMinSize((220, 36))
-        self.sensor_count_label = wx.StaticText(self.sensors_panel, label="Waiting for vehicle data")
+
+        guidance = wx.StaticText(
+            toolbar_panel,
+            label="Select one or more PIDs to record or add to a graph.",
+        )
+        guidance.SetForegroundColour(self.theme.muted)
+        self.sensor_count_label = wx.StaticText(toolbar_panel, label="Waiting for vehicle data")
         self.sensor_count_label.SetForegroundColour(self.theme.muted)
-        self.sensor_add_graph_button = ModernButton(
-            self.sensors_panel, "Graph", self.theme, variant="primary", size=(88, 36)
-        )
-        self.sensor_add_graph_button.SetToolTip("Add selected PIDs to Graphs")
-        self.sensor_record_status_label = wx.StaticText(
-            self.sensors_panel, label=""
-        )
+        self.sensor_selection_label = wx.StaticText(toolbar_panel, label="0 selected")
+        self.sensor_selection_label.SetForegroundColour(self.theme.accent)
+        self.sensor_selection_label.SetFont(self.theme.font(10, bold=True))
+        self.sensor_record_status_label = wx.StaticText(toolbar_panel, label="")
         self.sensor_record_status_label.SetForegroundColour(self.theme.muted)
         self.sensor_record_status_label.Hide()
+
+        status_row.Add(guidance, 1, wx.ALIGN_CENTER_VERTICAL)
+        status_row.Add(self.sensor_count_label, 0, wx.ALIGN_CENTER_VERTICAL | wx.RIGHT, 16)
+        status_row.Add(self.sensor_selection_label, 0, wx.ALIGN_CENTER_VERTICAL)
+
+        self.sensor_search = wx.SearchCtrl(toolbar_panel, style=wx.TE_PROCESS_ENTER)
+        self.sensor_search.SetDescriptiveText("Search PID or sensor")
+        self.sensor_search.ShowCancelButton(True)
+        self.sensor_search.SetMinSize((280, 36))
+        self.sensor_clear_button = ModernButton(
+            toolbar_panel, "Clear Selection", self.theme, variant="ghost", size=(120, 36)
+        )
+        self.sensor_add_graph_button = ModernButton(
+            toolbar_panel, "Add to Graph", self.theme, variant="primary", size=(118, 36)
+        )
+        self.sensor_add_graph_button.SetToolTip("Add selected PIDs to Graphs")
         self.sensor_record_button = ModernButton(
-            self.sensors_panel, "Record", self.theme, variant="success", size=(88, 36)
+            toolbar_panel, "Record Selected", self.theme, variant="success", size=(126, 36)
         )
         self.sensor_record_button.SetToolTip("Record selected PIDs to CSV")
 
-        toolbar.Add(self.sensor_search, 0, wx.RIGHT, 12)
-        toolbar.Add(self.sensor_count_label, 0, wx.ALIGN_CENTER_VERTICAL)
-        toolbar.AddStretchSpacer()
+        toolbar.Add(self.sensor_search, 1, wx.RIGHT, 12)
         toolbar.Add(self.sensor_record_status_label, 0, wx.ALIGN_CENTER_VERTICAL | wx.RIGHT, 12)
+        toolbar.Add(self.sensor_clear_button, 0, wx.RIGHT, 8)
         toolbar.Add(self.sensor_record_button, 0, wx.RIGHT, 8)
         toolbar.Add(self.sensor_add_graph_button, 0)
+        toolbar_root.Add(status_row, 0, wx.EXPAND | wx.LEFT | wx.RIGHT | wx.TOP, 10)
+        toolbar_root.Add(toolbar, 0, wx.EXPAND | wx.ALL, 10)
+        toolbar_panel.SetSizer(toolbar_root)
+
+        self.sensor_empty_label = wx.StaticText(
+            self.sensors_panel,
+            label="Connect to a vehicle to view supported live data.",
+        )
+        self.sensor_empty_label.SetForegroundColour(self.theme.muted)
+        self.sensor_empty_label.SetFont(self.theme.font(11))
 
         self.sensors = self.MyListCtrl(
             self.sensors_panel,
@@ -780,11 +872,14 @@ class MyApp(SessionUIMixin, VehicleProfilesMixin, DashboardUIMixin, GraphUIMixin
         self.sensors.InsertColumn(2, "Value", format=wx.LIST_FORMAT_RIGHT, width=220)
 
         root = wx.BoxSizer(wx.VERTICAL)
-        root.Add(toolbar, 0, wx.EXPAND | wx.ALL, 16)
-        root.Add(self.sensors, 1, wx.EXPAND | wx.LEFT | wx.RIGHT | wx.BOTTOM, 16)
+        root.AddSpacer(8)
+        root.Add(toolbar_panel, 0, wx.EXPAND | wx.LEFT | wx.RIGHT, 20)
+        root.Add(self.sensor_empty_label, 0, wx.LEFT | wx.RIGHT | wx.BOTTOM, 20)
+        root.Add(self.sensors, 1, wx.EXPAND | wx.LEFT | wx.RIGHT | wx.BOTTOM, 20)
         self.sensors_panel.SetSizer(root)
 
         self.sensor_search.Bind(wx.EVT_TEXT, self._schedule_sensor_filter)
+        self.sensor_clear_button.Bind(wx.EVT_BUTTON, self._clear_sensor_selection)
         self.sensor_add_graph_button.Bind(wx.EVT_BUTTON, self._add_selected_sensors_to_graph)
         self.sensor_record_button.Bind(wx.EVT_BUTTON, self._toggle_sensor_recording)
         self.sensors.Bind(wx.EVT_LIST_ITEM_SELECTED, self._on_sensor_selected)
@@ -793,6 +888,7 @@ class MyApp(SessionUIMixin, VehicleProfilesMixin, DashboardUIMixin, GraphUIMixin
         self.sensors_panel.Bind(
             wx.EVT_TIMER, self._update_sensor_recording_status, self.sensor_record_timer
         )
+        self._update_sensor_selection_ui()
         self.nb.AddPage(self.sensors_panel, "Sensors")
 
     def _toggle_sensor_recording(self, event=None):
@@ -853,7 +949,7 @@ class MyApp(SessionUIMixin, VehicleProfilesMixin, DashboardUIMixin, GraphUIMixin
         self.sensor_record_started_at = time.monotonic()
         self.sensor_record_sample_count = 0
         self.sensor_record_flush_count = 0
-        self.sensor_record_button.SetLabel("Stop")
+        self.sensor_record_button.SetLabel("Stop Recording")
         self.sensor_record_button.SetVariant("danger")
         self.sensor_record_button.SetToolTip("Stop and save recording")
         self.sensor_record_status_label.Show()
@@ -927,13 +1023,14 @@ class MyApp(SessionUIMixin, VehicleProfilesMixin, DashboardUIMixin, GraphUIMixin
         self.sensor_record_session = None
         self.sensor_record_started_at = None
         self.sensor_record_flush_count = 0
-        self.sensor_record_button.SetLabel("Record")
+        self.sensor_record_button.SetLabel("Record Selected")
         self.sensor_record_button.SetVariant("success")
         self.sensor_record_button.SetToolTip("Record selected PIDs to CSV")
         self.sensor_record_status_label.Show()
         self.sensor_record_status_label.SetLabel(
             status or f"Saved {sample_count} samples"
         )
+        self._update_sensor_selection_ui()
         self.sensors_panel.Layout()
 
     def _schedule_sensor_filter(self, event=None):
@@ -942,6 +1039,10 @@ class MyApp(SessionUIMixin, VehicleProfilesMixin, DashboardUIMixin, GraphUIMixin
         if self.sensor_filter_timer and self.sensor_filter_timer.IsRunning():
             self.sensor_filter_timer.Stop()
         self.sensor_filter_timer = wx.CallLater(150, self._apply_sensor_filter)
+
+    def _style_sensor_row(self, row_index):
+        colour = self.theme.surface_alt if row_index % 2 else self.theme.surface
+        self.sensors.SetItemBackgroundColour(row_index, colour)
 
     def _apply_sensor_filter(self):
         self.sensor_filter_timer = None
@@ -954,6 +1055,7 @@ class MyApp(SessionUIMixin, VehicleProfilesMixin, DashboardUIMixin, GraphUIMixin
         self.sensors.Freeze()
         self.sensors.DeleteAllItems()
         self.sensor_visible_indices = []
+        self.sensor_view_by_source = {}
         for source_index, row in enumerate(self.sensor_rows):
             searchable = f"{row[0]} {row[1]}".lower()
             if query and query not in searchable:
@@ -961,7 +1063,9 @@ class MyApp(SessionUIMixin, VehicleProfilesMixin, DashboardUIMixin, GraphUIMixin
             view_index = self.sensors.InsertItem(self.sensors.GetItemCount(), row[0])
             self.sensors.SetItem(view_index, 1, row[1])
             self.sensors.SetItem(view_index, 2, row[2])
+            self._style_sensor_row(view_index)
             self.sensor_visible_indices.append(source_index)
+            self.sensor_view_by_source[source_index] = view_index
         self.sensor_selected_sources.intersection_update(self.sensor_visible_indices)
         for view_index, source_index in enumerate(self.sensor_visible_indices):
             if source_index in self.sensor_selected_sources:
@@ -972,6 +1076,7 @@ class MyApp(SessionUIMixin, VehicleProfilesMixin, DashboardUIMixin, GraphUIMixin
         visible = len(self.sensor_visible_indices)
         total = len(self.sensor_rows)
         self.sensor_count_label.SetLabel(f"{visible} of {total} PIDs" if total else "Waiting for vehicle data")
+        self._update_sensor_selection_ui()
 
     def _selected_sensor_rows(self):
         selected = []
@@ -986,11 +1091,54 @@ class MyApp(SessionUIMixin, VehicleProfilesMixin, DashboardUIMixin, GraphUIMixin
             if 0 <= view_index < len(self.sensor_visible_indices):
                 self.sensor_selected_sources.add(self.sensor_visible_indices[view_index])
 
+    def _clear_sensor_selection(self, event=None):
+        self._rebuilding_sensor_list = True
+        try:
+            for view_index in self._selected_sensor_rows():
+                self.sensors.Select(view_index, False)
+            self.sensor_selected_sources.clear()
+        finally:
+            self._rebuilding_sensor_list = False
+        self._update_sensor_selection_ui()
+
+    def _update_sensor_selection_ui(self, connected=None):
+        selected = len(self.sensor_selected_sources)
+        if connected is None:
+            connected = bool(self.senprod and self.senprod.is_alive())
+        visible = len(self.sensor_visible_indices)
+        total = len(self.sensor_rows)
+
+        self.sensor_selection_label.SetLabel(
+            f"{selected} selected" if selected != 1 else "1 selected"
+        )
+        self.sensor_clear_button.Enable(selected > 0)
+        self.sensor_add_graph_button.Enable(selected > 0)
+        if not self.sensor_record_file:
+            self.sensor_record_button.Enable(connected and selected > 0)
+
+        if not connected:
+            self.sensor_empty_label.SetLabel("Disconnected — displayed values are not updating.")
+            self.sensor_empty_label.Show()
+        elif total and not visible:
+            self.sensor_empty_label.SetLabel("No PIDs match the current search.")
+            self.sensor_empty_label.Show()
+        elif not total:
+            self.sensor_empty_label.SetLabel(
+                "Waiting for supported PIDs…"
+                if connected
+                else "Connect to a vehicle to view supported live data."
+            )
+            self.sensor_empty_label.Show()
+        else:
+            self.sensor_empty_label.Hide()
+        self.sensors_panel.Layout()
+
     def _on_sensor_selected(self, event):
         if not self._rebuilding_sensor_list:
             view_index = event.GetIndex()
             if 0 <= view_index < len(self.sensor_visible_indices):
                 self.sensor_selected_sources.add(self.sensor_visible_indices[view_index])
+            self._update_sensor_selection_ui()
         event.Skip()
 
     def _on_sensor_deselected(self, event):
@@ -998,6 +1146,7 @@ class MyApp(SessionUIMixin, VehicleProfilesMixin, DashboardUIMixin, GraphUIMixin
             view_index = event.GetIndex()
             if 0 <= view_index < len(self.sensor_visible_indices):
                 self.sensor_selected_sources.discard(self.sensor_visible_indices[view_index])
+            self._update_sensor_selection_ui()
         event.Skip()
 
     def _add_selected_sensors_to_graph(self, event=None):
@@ -1085,73 +1234,6 @@ class MyApp(SessionUIMixin, VehicleProfilesMixin, DashboardUIMixin, GraphUIMixin
 
         self.nb.AddPage(self.sensors_panel, "Sensors")
         """
-    def build_graphs_page(self):
-        HOFFSET_LIST = 0
-        # tID = wx.NewId()
-        tID = wx.NewIdRef(count=1)
-        self.graphs_id = tID
-        self.graphs_panel = wx.Panel(self.nb, -1)
-        self.graphs_list_ctrl = self.MyListCtrl(self.graphs_panel, tID, pos=wx.Point(0, HOFFSET_LIST),
-                                     style=
-                                     wx.LC_REPORT |
-                                     wx.SUNKEN_BORDER |
-                                     wx.LC_HRULES |
-                                     wx.LC_SINGLE_SEL)
-
-        self.graphs_list_ctrl.InsertColumn(0, "PID", width=70)
-        self.graphs_list_ctrl.InsertColumn(1, "Sensor", format=wx.LIST_FORMAT_LEFT, width=320)
-        self.graphs_list_ctrl.InsertColumn(2, "Value")
-
-        self.graphs_list_ctrl.InsertItem(0, "")
-        self.graphs_list_ctrl.InsertItem(1, "")
-        self.graphs_list_ctrl.InsertItem(2, "")
-        self.graphs_list_ctrl.InsertItem(3, "")
-        self.nb.AddPage(self.graphs_panel, "4-Graphs")
-        self.graphs_list_ctrl.SetSize(0, 0, 800, 126)
-        """
-        ####################################################################
-        # This little bit of magic keeps the list the same size as the frame
-        def OnPSize(e, win=self.graphs_panel):
-            self.graphs_panel.SetSize(e.GetSize())
-            self.graphs_list_ctrl.SetSize(e.GetSize())
-
-            w, h = self.frame.GetSize()
-
-            self.graphs_list_ctrl.SetSize(0, HOFFSET_LIST, w - 10, h - 35)
-
-        self.graphs_panel.Bind(wx.EVT_SIZE, OnPSize)
-        ####################################################################
-        """
-
-    def build_graphs8_page(self):
-        HOFFSET_LIST = 0
-        # tID = wx.NewId()
-        tID = wx.NewIdRef(count=1)
-        self.graphs8_id = tID
-        self.graphs8_panel = wx.Panel(self.nb, -1)
-        self.graphs8_list_ctrl = self.MyListCtrl(self.graphs8_panel, tID, pos=wx.Point(0, HOFFSET_LIST),
-                                                style=
-                                                wx.LC_REPORT |
-                                                wx.SUNKEN_BORDER |
-                                                wx.LC_HRULES |
-                                                wx.LC_SINGLE_SEL)
-
-        self.graphs8_list_ctrl.InsertColumn(0, "PID", width=70)
-        self.graphs8_list_ctrl.InsertColumn(1, "Sensor", format=wx.LIST_FORMAT_LEFT, width=320)
-        self.graphs8_list_ctrl.InsertColumn(2, "Value")
-
-        self.graphs8_list_ctrl.InsertItem(0, "")
-        self.graphs8_list_ctrl.InsertItem(1, "")
-        self.graphs8_list_ctrl.InsertItem(2, "")
-        self.graphs8_list_ctrl.InsertItem(3, "")
-        self.graphs8_list_ctrl.InsertItem(4, "")
-        self.graphs8_list_ctrl.InsertItem(5, "")
-        self.graphs8_list_ctrl.InsertItem(6, "")
-        self.graphs8_list_ctrl.InsertItem(7, "")
-        self.nb.AddPage(self.graphs8_panel, "8-Graphs")
-        #self.graphs8_list_ctrl.SetSize(0, 0, 800, 126)
-        self.graphs8_list_ctrl.SetSize(0, 0, 800, 226)
-
     def build_freezeframe_page(self):
         tID = wx.NewIdRef(count=1)
         self.freezeframe_id = tID
@@ -1229,17 +1311,33 @@ class MyApp(SessionUIMixin, VehicleProfilesMixin, DashboardUIMixin, GraphUIMixin
         tID = wx.NewIdRef(count=1)
         self.DTCpanel = wx.Panel(self.nb, -1)
         self.DTCpanel.SetBackgroundColour(self.theme.window)
+        toolbar_panel = wx.Panel(self.DTCpanel)
+        toolbar_panel.SetBackgroundColour(self.theme.surface)
         self.GetDTCButton = ModernButton(
-            self.DTCpanel, "Scan codes", self.theme, variant="primary"
+            toolbar_panel, "Scan codes", self.theme, variant="primary"
         )
         self.ClearDTCButton = ModernButton(
-            self.DTCpanel, "Clear codes", self.theme, variant="danger"
+            toolbar_panel, "Clear codes", self.theme, variant="danger"
         )
         self.LookupDTCButton = ModernButton(
-            self.DTCpanel, "Code lookup", self.theme, variant="secondary"
+            toolbar_panel, "Code lookup", self.theme, variant="ghost"
         )
-        self.dtc_status_label = wx.StaticText(self.DTCpanel, label="Connect to scan vehicle")
+        self.dtc_status_label = wx.StaticText(
+            toolbar_panel, label="Connect to scan vehicle"
+        )
         self.dtc_status_label.SetForegroundColour(self.theme.muted)
+
+        toolbar_root = wx.BoxSizer(wx.VERTICAL)
+        status_row = wx.BoxSizer(wx.HORIZONTAL)
+        toolbar = wx.BoxSizer(wx.HORIZONTAL)
+
+        guidance = wx.StaticText(
+            toolbar_panel,
+            label="Scan the vehicle for emissions-related diagnostic trouble codes.",
+        )
+        guidance.SetForegroundColour(self.theme.muted)
+        status_row.Add(guidance, 1, wx.ALIGN_CENTER_VERTICAL)
+        status_row.Add(self.dtc_status_label, 0, wx.ALIGN_CENTER_VERTICAL)
 
         self.GetDTCButton.Bind(wx.EVT_BUTTON, self.GetDTC)
         self.ClearDTCButton.Bind(wx.EVT_BUTTON, self.QueryClear)
@@ -1255,15 +1353,52 @@ class MyApp(SessionUIMixin, VehicleProfilesMixin, DashboardUIMixin, GraphUIMixin
         self.dtc.InsertColumn(1, "Category", width=140)
         self.dtc.InsertColumn(2, "Description", width=520)
 
-        toolbar = wx.BoxSizer(wx.HORIZONTAL)
         toolbar.Add(self.GetDTCButton, 0, wx.RIGHT, 8)
-        toolbar.Add(self.ClearDTCButton, 0, wx.RIGHT, 8)
-        toolbar.Add(self.LookupDTCButton, 0, wx.RIGHT, 16)
-        toolbar.Add(self.dtc_status_label, 0, wx.ALIGN_CENTER_VERTICAL)
+        toolbar.Add(self.LookupDTCButton, 0, wx.RIGHT, 8)
+        toolbar.AddStretchSpacer()
+        toolbar.Add(self.ClearDTCButton, 0)
+        toolbar_root.Add(status_row, 0, wx.EXPAND | wx.LEFT | wx.RIGHT | wx.TOP, 10)
+        toolbar_root.Add(toolbar, 0, wx.EXPAND | wx.ALL, 10)
+        toolbar_panel.SetSizer(toolbar_root)
+
+        summary = wx.BoxSizer(wx.HORIZONTAL)
+        self.dtc_summary_labels = {}
+        for category, colour in (
+            ("Stored", self.theme.danger),
+            ("Pending", self.theme.warning),
+            ("Permanent", self.theme.accent),
+        ):
+            card = wx.Panel(self.DTCpanel, style=wx.BORDER_SIMPLE)
+            card.SetBackgroundColour(self.theme.surface)
+            card.SetMinSize((-1, 54))
+            card_sizer = wx.BoxSizer(wx.HORIZONTAL)
+            name = wx.StaticText(card, label=category)
+            name.SetForegroundColour(self.theme.muted)
+            count = wx.StaticText(card, label="0")
+            count.SetForegroundColour(colour)
+            count.SetFont(self.theme.font(16, bold=True))
+            card_sizer.Add(name, 0, wx.ALIGN_CENTER_VERTICAL)
+            card_sizer.AddStretchSpacer()
+            card_sizer.Add(count, 0, wx.ALIGN_CENTER_VERTICAL)
+            card.SetSizer(card_sizer)
+            summary.Add(card, 1, wx.EXPAND | wx.RIGHT, 10 if category != "Permanent" else 0)
+            card_sizer.AddSpacer(14)
+            card_sizer.PrependSpacer(14)
+            self.dtc_summary_labels[category] = count
+
+        self.dtc_empty_label = wx.StaticText(
+            self.DTCpanel,
+            label="Connect to a vehicle to scan diagnostic trouble codes.",
+        )
+        self.dtc_empty_label.SetForegroundColour(self.theme.muted)
+        self.dtc_empty_label.SetFont(self.theme.font(11))
 
         root = wx.BoxSizer(wx.VERTICAL)
-        root.Add(toolbar, 0, wx.EXPAND | wx.ALL, 16)
-        root.Add(self.dtc, 1, wx.EXPAND | wx.LEFT | wx.RIGHT | wx.BOTTOM, 16)
+        root.AddSpacer(8)
+        root.Add(toolbar_panel, 0, wx.EXPAND | wx.LEFT | wx.RIGHT, 20)
+        root.Add(summary, 0, wx.EXPAND | wx.LEFT | wx.RIGHT | wx.TOP, 20)
+        root.Add(self.dtc_empty_label, 0, wx.LEFT | wx.RIGHT | wx.TOP, 20)
+        root.Add(self.dtc, 1, wx.EXPAND | wx.ALL, 20)
         self.DTCpanel.SetSizer(root)
 
         self.nb.AddPage(self.DTCpanel, "DTC")
@@ -1274,6 +1409,7 @@ class MyApp(SessionUIMixin, VehicleProfilesMixin, DashboardUIMixin, GraphUIMixin
 
     def OnInit(self):
         self.ThreadControl = 0  # say thread what to do
+        self.active_polling_page = "idle"
         self._shutdown_started = False
         self._sidebar_open = False
         self.COMPORT = 0
@@ -1331,7 +1467,7 @@ class MyApp(SessionUIMixin, VehicleProfilesMixin, DashboardUIMixin, GraphUIMixin
 
         self.theme = AppTheme()
         self.frame = wx.Frame(None, -1, f"pyOBD v{APP_VERSION} - Modified by FareBrothers,LLC")
-        ico = wx.Icon(resource_path('pyobd.png'), wx.BITMAP_TYPE_PNG)
+        ico = wx.Icon(resource_path('assets/pyobd.png'), wx.BITMAP_TYPE_PNG)
         self.frame.SetIcon(ico)
 
         EVT_RESULT(self, self.OnResult, EVT_RESULT_ID)
@@ -1340,23 +1476,8 @@ class MyApp(SessionUIMixin, VehicleProfilesMixin, DashboardUIMixin, GraphUIMixin
         EVT_RESULT(self, self.OnStatus, EVT_STATUS_ID)
         EVT_RESULT(self, self.OnTests, EVT_TESTS_ID)
         EVT_RESULT(self, self.OnGraphValue, EVT_GRAPH_VALUE_ID)
-        EVT_RESULT(self, self.OnGraphsValue, EVT_GRAPHS_VALUE_ID)
-        EVT_RESULT(self, self.OnGraphs8Value, EVT_GRAPHS8_VALUE_ID)
         EVT_RESULT(self, self.OnGraph, EVT_GRAPH_ID)
-        EVT_RESULT(self, self.OnGraphs, EVT_GRAPHS_ID)
-        EVT_RESULT(self, self.OnGraphs8, EVT_GRAPHS8_ID)
         EVT_RESULT(self, self.OnClose, EVT_CLOSE_ID)
-        EVT_RESULT(self, self.BuildComboBoxGraph, EVT_BUILD_COMBOBOXGRAPH_ID)
-        EVT_RESULT(self, self.BuildComboBoxGraphs, EVT_BUILD_COMBOBOXGRAPHS_ID)
-        EVT_RESULT(self, self.BuildComboBoxGraphs8, EVT_BUILD_COMBOBOXGRAPHS8_ID)
-        EVT_RESULT(self, self.DestroyComboBox, EVT_DESTROY_COMBOBOX_ID)
-        EVT_RESULT(self, self.GetSelectionGraphComboBox, EVT_COMBOBOXGRAPH_GETSELECTION_ID)
-        EVT_RESULT(self, self.GetSelectionGraphsComboBox, EVT_COMBOBOXGRAPHS_GETSELECTION_ID)
-        EVT_RESULT(self, self.GetSelectionGraphs8ComboBox, EVT_COMBOBOXGRAPHS8_GETSELECTION_ID)
-        EVT_RESULT(self, self.SetSelectionGraphComboBox, EVT_COMBOBOXGRAPH_SETSELECTION_ID)
-        EVT_RESULT(self, self.SetSelectionGraphsComboBox, EVT_COMBOBOXGRAPHS_SETSELECTION_ID)
-        EVT_RESULT(self, self.SetSelectionGraphs8ComboBox, EVT_COMBOBOXGRAPHS8_SETSELECTION_ID)
-        EVT_RESULT(self, self.InsertSensorRow, EVT_INSERT_SENSOR_ROW_ID)
         EVT_RESULT(self, self.InsertFreezeframeRow, EVT_INSERT_FREEZEFRAME_ROW_ID)
         EVT_RESULT(self, self.OnFreezeframeResult, EVT_FREEZEFRAME_RESULT_ID)
         EVT_RESULT(self, self.OnDashboardValues, EVT_DASHBOARD_VALUES_ID)
@@ -1386,20 +1507,58 @@ class MyApp(SessionUIMixin, VehicleProfilesMixin, DashboardUIMixin, GraphUIMixin
         self.tests_panel = wx.Panel(self.nb)
         self.tests_panel.SetBackgroundColour(self.theme.window)
         tests_root = wx.BoxSizer(wx.VERTICAL)
+        toolbar_panel = wx.Panel(self.tests_panel)
+        toolbar_panel.SetBackgroundColour(self.theme.surface)
+        toolbar_root = wx.BoxSizer(wx.VERTICAL)
         tests_toolbar = wx.BoxSizer(wx.HORIZONTAL)
         self.tests_status_label = wx.StaticText(
-            self.tests_panel, label="Connect to check monitors"
+            toolbar_panel, label="Connect to check monitors"
         )
         self.tests_status_label.SetForegroundColour(self.theme.muted)
         self.RefreshTestsButton = ModernButton(
-            self.tests_panel, "Refresh", self.theme, variant="primary"
+            toolbar_panel, "Refresh", self.theme, variant="primary"
         )
         self.RefreshTestsButton.Enable(False)
         self.RefreshTestsButton.Bind(wx.EVT_BUTTON, self.RefreshTests)
         tests_toolbar.Add(self.tests_status_label, 1, wx.ALIGN_CENTER_VERTICAL)
         tests_toolbar.Add(self.RefreshTestsButton, 0)
+        toolbar_root.Add(tests_toolbar, 0, wx.EXPAND | wx.ALL, 10)
+        toolbar_panel.SetSizer(toolbar_root)
 
-        tests_help = wx.StaticText(
+        self.tests_summary_panel = wx.Panel(self.tests_panel)
+        self.tests_summary_panel.SetBackgroundColour(self.theme.window)
+        tests_summary = wx.BoxSizer(wx.HORIZONTAL)
+        self.tests_summary_labels = {}
+        for category, colour in (
+            ("Ready", self.theme.success),
+            ("Not Ready", self.theme.warning),
+            ("Unsupported", self.theme.muted),
+        ):
+            card = wx.Panel(self.tests_summary_panel, style=wx.BORDER_SIMPLE)
+            card.SetBackgroundColour(self.theme.surface)
+            card.SetMinSize((-1, 54))
+            card_sizer = wx.BoxSizer(wx.HORIZONTAL)
+            name = wx.StaticText(card, label=category)
+            name.SetForegroundColour(self.theme.muted)
+            count = wx.StaticText(card, label="—")
+            count.SetForegroundColour(colour)
+            count.SetFont(self.theme.font(16, bold=True))
+            card_sizer.AddSpacer(14)
+            card_sizer.Add(name, 0, wx.ALIGN_CENTER_VERTICAL)
+            card_sizer.AddStretchSpacer()
+            card_sizer.Add(count, 0, wx.ALIGN_CENTER_VERTICAL)
+            card_sizer.AddSpacer(14)
+            card.SetSizer(card_sizer)
+            tests_summary.Add(
+                card,
+                1,
+                wx.EXPAND | wx.RIGHT,
+                10 if category != "Unsupported" else 0,
+            )
+            self.tests_summary_labels[category] = count
+        self.tests_summary_panel.SetSizer(tests_summary)
+
+        self.tests_help_label = wx.StaticText(
             self.tests_panel,
             label=(
                 "Readiness shows which emissions monitors have completed. "
@@ -1407,7 +1566,7 @@ class MyApp(SessionUIMixin, VehicleProfilesMixin, DashboardUIMixin, GraphUIMixin
                 "Clearing diagnostic codes resets readiness."
             ),
         )
-        tests_help.SetForegroundColour(self.theme.muted)
+        self.tests_help_label.SetForegroundColour(self.theme.muted)
 
         self.tests_notebook = wx.Notebook(self.tests_panel)
         self.OBDTests = self.MyListCtrl(
@@ -1424,14 +1583,15 @@ class MyApp(SessionUIMixin, VehicleProfilesMixin, DashboardUIMixin, GraphUIMixin
         )
         self.misfire_tests.InsertColumn(0, "Monitor", width=330)
         self.misfire_tests.InsertColumn(1, "Mode 06 result", width=180)
-        for cylinder in range(1, 13):
-            self.misfire_tests.Append([f"Cylinder {cylinder}", "—"])
+        self.misfire_tests.Append(["Refresh to detect supported cylinder monitors", "—"])
 
         self.tests_notebook.AddPage(self.OBDTests, "Readiness")
         self.tests_notebook.AddPage(self.misfire_tests, "Misfire Results")
         self.tests_notebook.Bind(wx.EVT_NOTEBOOK_PAGE_CHANGED, self.OnTestsPageChanged)
-        tests_root.Add(tests_toolbar, 0, wx.EXPAND | wx.ALL, 20)
-        tests_root.Add(tests_help, 0, wx.LEFT | wx.RIGHT | wx.BOTTOM, 20)
+        tests_root.AddSpacer(8)
+        tests_root.Add(toolbar_panel, 0, wx.EXPAND | wx.LEFT | wx.RIGHT, 20)
+        tests_root.Add(self.tests_summary_panel, 0, wx.EXPAND | wx.LEFT | wx.RIGHT | wx.TOP, 20)
+        tests_root.Add(self.tests_help_label, 0, wx.LEFT | wx.RIGHT | wx.TOP | wx.BOTTOM, 20)
         tests_root.Add(self.tests_notebook, 1, wx.EXPAND | wx.LEFT | wx.RIGHT | wx.BOTTOM, 20)
         self.tests_panel.SetSizer(tests_root)
         self.nb.AddPage(self.tests_panel, "Readiness")
@@ -1446,7 +1606,6 @@ class MyApp(SessionUIMixin, VehicleProfilesMixin, DashboardUIMixin, GraphUIMixin
 
 
         self.build_graph_page()
-        # Legacy 4-Graphs and 8-Graphs pages removed.
         self.trace = self.MyListCtrl(self.nb, tID, style=wx.LC_REPORT | wx.BORDER_NONE)
         self.trace.InsertColumn(0, "Level", width=40)
         self.trace.InsertColumn(1, "Message")
@@ -1465,7 +1624,7 @@ class MyApp(SessionUIMixin, VehicleProfilesMixin, DashboardUIMixin, GraphUIMixin
 
         content_sizer = wx.BoxSizer(wx.VERTICAL)
         content_sizer.Add(self.content_header, 0, wx.EXPAND | wx.LEFT | wx.RIGHT | wx.TOP, 20)
-        content_sizer.Add(self.nb, 1, wx.EXPAND | wx.ALL, 20)
+        content_sizer.Add(self.nb, 1, wx.EXPAND | wx.LEFT | wx.RIGHT | wx.BOTTOM, 20)
         content_sizer.Add(self.bottom_toolbar, 0, wx.EXPAND)
         self.content_panel.SetSizer(content_sizer)
 
@@ -1564,23 +1723,45 @@ class MyApp(SessionUIMixin, VehicleProfilesMixin, DashboardUIMixin, GraphUIMixin
         self.HelpAboutDlg.Destroy()
 
     def OnResult(self, event):
-        source_index, column, value = event.data
-        while len(self.sensor_rows) <= source_index:
-            self.sensor_rows.append(["", "", ""])
-        if isinstance(value, bytes):
-            value = value.decode(errors="ignore")
-        value = str(value)
-        changed = self.sensor_rows[source_index][column] != value
-        self.sensor_rows[source_index][column] = value
-        if column == 2:
-            self._record_sensor_value(source_index)
-
+        data = event.data
+        updates = data if data and isinstance(data[0], (list, tuple)) else [data]
         query_active = bool(self.sensor_search.GetValue().strip())
-        if query_active and column in (0, 1) and changed:
+        filter_changed = False
+
+        self.sensors.Freeze()
+        try:
+            for source_index, column, value in updates:
+                while len(self.sensor_rows) <= source_index:
+                    self.sensor_rows.append(["", "", ""])
+                if source_index not in self.sensor_view_by_source and not query_active:
+                    view_index = self.sensors.InsertItem(self.sensors.GetItemCount(), "")
+                    self._style_sensor_row(view_index)
+                    self.sensor_visible_indices.append(source_index)
+                    self.sensor_view_by_source[source_index] = view_index
+
+                if isinstance(value, bytes):
+                    value = value.decode(errors="ignore")
+                value = str(value)
+                changed = self.sensor_rows[source_index][column] != value
+                self.sensor_rows[source_index][column] = value
+                if column == 2:
+                    self._record_sensor_value(source_index)
+                if query_active and column in (0, 1) and changed:
+                    filter_changed = True
+                elif changed and source_index in self.sensor_view_by_source:
+                    self.sensors.SetItem(
+                        self.sensor_view_by_source[source_index], column, value
+                    )
+        finally:
+            self.sensors.Thaw()
+
+        if filter_changed:
             self._schedule_sensor_filter()
-        elif source_index in self.sensor_visible_indices:
-            view_index = self.sensor_visible_indices.index(source_index)
-            self.sensors.SetItem(view_index, column, value)
+        self.sensor_count_label.SetLabel(
+            f"{len(self.sensor_visible_indices)} of {len(self.sensor_rows)} PIDs"
+        )
+        if not query_active and self.sensor_empty_label.IsShown() and self.sensor_rows:
+            self._update_sensor_selection_ui()
 
     def OnFreezeframeResult(self, event):
         self.freezeframe.SetItem(event.data[0], event.data[1], event.data[2])
@@ -1603,7 +1784,7 @@ class MyApp(SessionUIMixin, VehicleProfilesMixin, DashboardUIMixin, GraphUIMixin
                     self.sensor_control_on()
                 elif "reconnecting" in normalized_state or "connection lost" in normalized_state:
                     self.sensor_control_reconnecting()
-                elif state_text in ("Disconnected", "Connection failed"):
+                elif normalized_state == "disconnected" or normalized_state.startswith("connection failed"):
                     self.sensor_control_off()
                     self._set_graph_streaming(False)
 
@@ -1623,6 +1804,15 @@ class MyApp(SessionUIMixin, VehicleProfilesMixin, DashboardUIMixin, GraphUIMixin
             self.OBDTests.SetItemTextColour(data["index"], colour)
         elif data["kind"] == "misfire":
             self.misfire_tests.SetItem(data["index"], 1, data["result"])
+            result = data["result"]
+            colour = (
+                self.theme.muted
+                if result == "Unsupported"
+                else self.theme.success
+                if result.startswith("0 ")
+                else self.theme.warning
+            )
+            self.misfire_tests.SetItemTextColour(data["index"], colour)
         elif data["kind"] == "misfire_reset":
             self.misfire_tests.DeleteAllItems()
             cylinders = data["cylinders"]
@@ -1632,9 +1822,15 @@ class MyApp(SessionUIMixin, VehicleProfilesMixin, DashboardUIMixin, GraphUIMixin
             else:
                 self.misfire_tests.Append(["No supported cylinder monitors", "—"])
         elif data["kind"] == "complete":
+            self.tests_summary_labels["Ready"].SetLabel(str(data["ready"]))
+            self.tests_summary_labels["Not Ready"].SetLabel(str(data["not_ready"]))
+            self.tests_summary_labels["Unsupported"].SetLabel(str(data["unsupported"]))
             self.tests_status_label.SetLabel(
                 f"{data['ready']} ready  •  {data['not_ready']} not ready  •  "
                 f"{data['unsupported']} unsupported"
+            )
+            self.tests_status_label.SetForegroundColour(
+                self.theme.warning if data["not_ready"] else self.theme.success
             )
             self.RefreshTestsButton.Enable(True)
         elif data["kind"] == "misfire_complete":
@@ -1644,10 +1840,15 @@ class MyApp(SessionUIMixin, VehicleProfilesMixin, DashboardUIMixin, GraphUIMixin
                 if count
                 else "No supported per-cylinder misfire monitors"
             )
+            self.tests_status_label.SetForegroundColour(
+                self.theme.success if count else self.theme.muted
+            )
             self.RefreshTestsButton.Enable(True)
         elif data["kind"] == "error":
             self.tests_status_label.SetLabel("Unable to read monitor status")
+            self.tests_status_label.SetForegroundColour(self.theme.danger)
             self.RefreshTestsButton.Enable(True)
+        self.tests_panel.Layout()
 
     """
     def OnCombo(self, event):
@@ -1656,149 +1857,10 @@ class MyApp(SessionUIMixin, VehicleProfilesMixin, DashboardUIMixin, GraphUIMixin
         self.curr_selection3 = self.combobox3.GetSelection()
         self.curr_selection4 = self.combobox4.GetSelection()
     """
-    def InsertSensorRow(self, event):
-        counter = event.data
-        while len(self.sensor_rows) <= counter:
-            self.sensor_rows.append(["", "", ""])
-        if self.sensor_search.GetValue().strip():
-            self._schedule_sensor_filter()
-            return
-        if counter not in self.sensor_visible_indices:
-            view_index = self.sensors.InsertItem(self.sensors.GetItemCount(), "")
-            self.sensor_visible_indices.append(counter)
-            self.sensors.SetItem(view_index, 1, "")
-            self.sensors.SetItem(view_index, 2, "")
-        self.sensor_count_label.SetLabel(f"{len(self.sensor_visible_indices)} of {len(self.sensor_rows)} PIDs")
-
     def InsertFreezeframeRow(self, event):
         counter = event.data
         self.freezeframe.InsertItem(counter, "")
 
-    def BuildComboBoxGraph(self, event):
-        self.combobox = wx.ComboBox(self.graph_panel, choices=event.data, pos=(0, 65), size=(360, 42))
-        self.combobox.SetFont(self.touch_font)
-        self.build_combobox_graph_event_finished=True
-
-    def BuildComboBoxGraphs(self, event):
-        self.combobox1 = wx.ComboBox(self.graphs_panel, choices=event.data, pos=(0, 140), size=(310, 42))
-        self.combobox2 = wx.ComboBox(self.graphs_panel, choices=event.data, pos=(0, 190), size=(310, 42))
-        self.combobox3 = wx.ComboBox(self.graphs_panel, choices=event.data, pos=(330, 140), size=(310, 42))
-        self.combobox4 = wx.ComboBox(self.graphs_panel, choices=event.data, pos=(330, 190), size=(310, 42))
-        self.combobox1.SetFont(self.touch_font)
-        self.combobox2.SetFont(self.touch_font)
-        self.combobox3.SetFont(self.touch_font)
-        self.combobox4.SetFont(self.touch_font)
-        self.build_combobox_graphs_event_finished=True
-
-    def BuildComboBoxGraphs8(self, event):
-        self.combobox8_1 = wx.ComboBox(self.graphs8_panel, choices=event.data, pos=(0, 240), size=(300, 42))
-        self.combobox8_2 = wx.ComboBox(self.graphs8_panel, choices=event.data, pos=(0, 290), size=(300, 42))
-        self.combobox8_3 = wx.ComboBox(self.graphs8_panel, choices=event.data, pos=(330, 240), size=(300, 42))
-        self.combobox8_4 = wx.ComboBox(self.graphs8_panel, choices=event.data, pos=(330, 290), size=(300, 42))
-        self.combobox8_5 = wx.ComboBox(self.graphs8_panel, choices=event.data, pos=(660, 240), size=(300, 42))
-        self.combobox8_6 = wx.ComboBox(self.graphs8_panel, choices=event.data, pos=(660, 290), size=(300, 42))
-        self.combobox8_7 = wx.ComboBox(self.graphs8_panel, choices=event.data, pos=(990, 240), size=(300, 42))
-        self.combobox8_8 = wx.ComboBox(self.graphs8_panel, choices=event.data, pos=(990, 290), size=(300, 42))
-        self.combobox8_1.SetFont(self.touch_font)
-        self.combobox8_2.SetFont(self.touch_font)
-        self.combobox8_3.SetFont(self.touch_font)
-        self.combobox8_4.SetFont(self.touch_font)
-        self.combobox8_5.SetFont(self.touch_font)
-        self.combobox8_6.SetFont(self.touch_font)
-        self.combobox8_7.SetFont(self.touch_font)
-        self.combobox8_8.SetFont(self.touch_font)
-        self.build_combobox_graphs8_event_finished=True
-
-    def DestroyComboBox(self, event):
-        try:
-            self.combobox
-            self.combobox.Destroy()
-        except Exception as e:
-            print(e)
-        try:
-            self.combobox1
-            self.combobox1.Destroy()
-            self.combobox2
-            self.combobox2.Destroy()
-            self.combobox3
-            self.combobox3.Destroy()
-            self.combobox4
-            self.combobox4.Destroy()
-        except Exception as e:
-            print(e)
-        try:
-            self.combobox8_1
-            self.combobox8_1.Destroy()
-            self.combobox8_2
-            self.combobox8_2.Destroy()
-            self.combobox8_3
-            self.combobox8_3.Destroy()
-            self.combobox8_4
-            self.combobox8_4.Destroy()
-            self.combobox8_5
-            self.combobox8_5.Destroy()
-            self.combobox8_6
-            self.combobox8_6.Destroy()
-            self.combobox8_7
-            self.combobox8_7.Destroy()
-            self.combobox8_8
-            self.combobox8_8.Destroy()
-
-        except Exception as e:
-            print(e)
-
-    def GetSelectionGraphComboBox(self, event):
-        try:
-            self.combobox_selection = self.combobox.GetSelection()
-            self.combobox_graph_get_sel_finished = True
-        except:
-            pass
-
-    def GetSelectionGraphsComboBox(self, event):
-        try:
-            self.combobox1_selection = self.combobox1.GetSelection()
-            self.combobox2_selection = self.combobox2.GetSelection()
-            self.combobox3_selection = self.combobox3.GetSelection()
-            self.combobox4_selection = self.combobox4.GetSelection()
-            self.combobox_graphs_get_sel_finished = True
-        except:
-            pass
-
-    def GetSelectionGraphs8ComboBox(self, event):
-        try:
-            self.combobox8_1_selection = self.combobox8_1.GetSelection()
-            self.combobox8_2_selection = self.combobox8_2.GetSelection()
-            self.combobox8_3_selection = self.combobox8_3.GetSelection()
-            self.combobox8_4_selection = self.combobox8_4.GetSelection()
-            self.combobox8_5_selection = self.combobox8_5.GetSelection()
-            self.combobox8_6_selection = self.combobox8_6.GetSelection()
-            self.combobox8_7_selection = self.combobox8_7.GetSelection()
-            self.combobox8_8_selection = self.combobox8_8.GetSelection()
-            self.combobox_graphs8_get_sel_finished = True
-        except:
-            pass
-
-    def SetSelectionGraphComboBox(self, event):
-        self.combobox_selection = self.combobox.SetSelection(0)
-        self.combobox_graph_set_sel_finished = True
-
-    def SetSelectionGraphsComboBox(self, event):
-        self.combobox1_selection = self.combobox1.SetSelection(0)
-        self.combobox2_selection = self.combobox2.SetSelection(1)
-        self.combobox3_selection = self.combobox3.SetSelection(2)
-        self.combobox4_selection = self.combobox4.SetSelection(3)
-        self.combobox_graphs_set_sel_finished = True
-
-    def SetSelectionGraphs8ComboBox(self, event):
-        self.combobox8_1_selection = self.combobox8_1.SetSelection(0)
-        self.combobox8_2_selection = self.combobox8_2.SetSelection(1)
-        self.combobox8_3_selection = self.combobox8_3.SetSelection(2)
-        self.combobox8_4_selection = self.combobox8_4.SetSelection(3)
-        self.combobox8_5_selection = self.combobox8_5.SetSelection(5)
-        self.combobox8_6_selection = self.combobox8_6.SetSelection(6)
-        self.combobox8_7_selection = self.combobox8_7.SetSelection(7)
-        self.combobox8_8_selection = self.combobox8_8.SetSelection(8)
-        self.combobox_graphs8_set_sel_finished = True
     def OnClose(self, event):
 
         if self._shutdown_started:
@@ -1808,30 +1870,10 @@ class MyApp(SessionUIMixin, VehicleProfilesMixin, DashboardUIMixin, GraphUIMixin
         #    time.sleep(0.1)
         print("on close!")
 
-        def reset_list_if_present(name, row_count):
-            list_ctrl = getattr(self, name, None)
-            if list_ctrl is None:
-                return
-            try:
-                list_ctrl.DeleteAllItems()
-                for idx in range(row_count):
-                    list_ctrl.InsertItem(idx, "")
-            except Exception:
-                pass
-
-        def destroy_if_present(*names):
-            for name in names:
-                control = getattr(self, name, None)
-                if control is None:
-                    continue
-                try:
-                    control.Destroy()
-                except Exception:
-                    pass
-
         self.sensors.DeleteAllItems()
         self.sensor_rows.clear()
         self.sensor_visible_indices.clear()
+        self.sensor_view_by_source.clear()
         self.sensor_selected_sources.clear()
         self.sensor_count_label.SetLabel("Waiting for vehicle data")
         self.freezeframe.DeleteAllItems()
@@ -1842,23 +1884,8 @@ class MyApp(SessionUIMixin, VehicleProfilesMixin, DashboardUIMixin, GraphUIMixin
             self.misfire_tests.SetItem(row, 1, "—")
         self.dtc.DeleteAllItems()
 
-        reset_list_if_present("graphs_list_ctrl", 4)
-        reset_list_if_present("graphs8_list_ctrl", 8)
         self._set_graph_streaming(False)
         self._refresh_graph_selection_ui()
-
-        destroy_if_present("combobox")
-        destroy_if_present("combobox1", "combobox2", "combobox3", "combobox4")
-        destroy_if_present(
-            "combobox8_1", "combobox8_2", "combobox8_3", "combobox8_4",
-            "combobox8_5", "combobox8_6", "combobox8_7", "combobox8_8"
-        )
-
-        destroy_if_present("panel1", "panel2", "panel3", "panel4")
-        destroy_if_present(
-            "panel8_1", "panel8_2", "panel8_3", "panel8_4",
-            "panel8_5", "panel8_6", "panel8_7", "panel8_8"
-        )
         try:
             self.ThreadControl = 666
 
@@ -1868,285 +1895,22 @@ class MyApp(SessionUIMixin, VehicleProfilesMixin, DashboardUIMixin, GraphUIMixin
         except:
             traceback.print_exc()
 
-    def OnGraphs(self, event):
-        xy_data1 = list(zip(event.data[0][0],event.data[0][1]))
-        unit1 = event.data[0][2]
-        command_desc1 = event.data[0][3]
-        graph_counter1 = event.data[0][4]
-        xy_data2 = list(zip(event.data[1][0],event.data[1][1]))
-        unit2 = event.data[1][2]
-        command_desc2 = event.data[1][3]
-        graph_counter2 = event.data[1][4]
-        xy_data3 = list(zip(event.data[2][0],event.data[2][1]))
-        unit3 = event.data[2][2]
-        command_desc3 = event.data[2][3]
-        graph_counter3 = event.data[2][4]
-        xy_data4 = list(zip(event.data[3][0],event.data[3][1]))
-        unit4 = event.data[3][2]
-        command_desc4 = event.data[3][3]
-        graph_counter4 = event.data[3][4]
-        first_time_graphs_plot = event.data[4]
-
-        def animate():
-            if not first_time_graphs_plot:
-
-                self.line1 = wxplot.PolySpline(xy_data1, colour = 'blue', width = 1, style=wx.PENSTYLE_SOLID)
-                self.graphics1 = wxplot.PlotGraphics([self.line1], command_desc1, 'frame', unit1)
-                if sys.platform.startswith("linux"):
-                    if os.environ.get("DESKTOP_SESSION") == "gnome" or os.environ.get("DESKTOP_SESSION") == "ubuntu":
-                        self.panel1.Destroy()
-                        self.panel1 = wxplot.PlotCanvas(self.graphs_panel, pos=(0, 250))
-                        self.panel1.SetInitialSize(size=wx.Size(400, 220))
-                self.panel1.Draw(self.graphics1, xAxis=(graph_counter1 - 200, graph_counter1))
-
-                self.line2 = wxplot.PolySpline(xy_data2, colour = 'blue', width = 1, style=wx.PENSTYLE_SOLID)
-                self.graphics2 = wxplot.PlotGraphics([self.line2], command_desc2, 'frame', unit2)
-                if sys.platform.startswith("linux"):
-                    if os.environ.get("DESKTOP_SESSION") == "gnome" or os.environ.get("DESKTOP_SESSION") == "ubuntu":
-                        self.panel2.Destroy()
-                        self.panel2 = wxplot.PlotCanvas(self.graphs_panel, pos=(0, 480))
-                        self.panel2.SetInitialSize(size=wx.Size(400, 220))
-                self.panel2.Draw(self.graphics2, xAxis=(graph_counter2 -200, graph_counter2))
-
-                self.line3 = wxplot.PolySpline(xy_data3, colour = 'blue', width = 1, style=wx.PENSTYLE_SOLID)
-                self.graphics3 = wxplot.PlotGraphics([self.line3], command_desc3, 'frame', unit3)
-                if sys.platform.startswith("linux"):
-                    if os.environ.get("DESKTOP_SESSION") == "gnome" or os.environ.get("DESKTOP_SESSION") == "ubuntu":
-                        self.panel3.Destroy()
-                        self.panel3 = wxplot.PlotCanvas(self.graphs_panel, pos=(410, 250))
-                        self.panel3.SetInitialSize(size=wx.Size(400, 220))
-                self.panel3.Draw(self.graphics3, xAxis=(graph_counter3 - 200, graph_counter3))
-
-                self.line4 = wxplot.PolySpline(xy_data4, colour = 'blue', width = 1, style=wx.PENSTYLE_SOLID)
-                self.graphics4 = wxplot.PlotGraphics([self.line4], command_desc4, 'frame', unit4)
-                if sys.platform.startswith("linux"):
-                    if os.environ.get("DESKTOP_SESSION") == "gnome" or os.environ.get("DESKTOP_SESSION") == "ubuntu":
-                        self.panel4.Destroy()
-                        self.panel4 = wxplot.PlotCanvas(self.graphs_panel, pos=(410, 480))
-                        self.panel4.SetInitialSize(size=wx.Size(400, 220))
-                self.panel4.Draw(self.graphics4, xAxis=(graph_counter4 - 200, graph_counter4))
-
-
-        if first_time_graphs_plot:
-            try:
-                self.panel1.Destroy()
-            except:
-                pass
-            try:
-                self.panel2.Destroy()
-            except:
-                pass
-            try:
-                self.panel3.Destroy()
-            except:
-                pass
-            try:
-                self.panel4.Destroy()
-            except:
-                pass
-            self.panel1 = wxplot.PlotCanvas(self.graphs_panel, pos=(0, 250))
-            self.panel1.SetInitialSize(size=wx.Size(400, 220))
-
-            self.panel2 = wxplot.PlotCanvas(self.graphs_panel, pos=(0, 480))
-            self.panel2.SetInitialSize(size=wx.Size(400, 220))
-
-            self.panel3 = wxplot.PlotCanvas(self.graphs_panel, pos=(410, 250))
-            self.panel3.SetInitialSize(size=wx.Size(400, 220))
-
-            self.panel4 = wxplot.PlotCanvas(self.graphs_panel, pos=(410, 480))
-            self.panel4.SetInitialSize(size=wx.Size(400, 220))
-
-        else:
-            animate()
-
-    def OnGraphs8(self, event):
-        xy_data8_1 = list(zip(event.data[0][0],event.data[0][1]))
-        unit8_1 = event.data[0][2]
-        command_desc8_1 = event.data[0][3]
-        graph_counter8_1 = event.data[0][4]
-        xy_data8_2 = list(zip(event.data[1][0],event.data[1][1]))
-        unit8_2 = event.data[1][2]
-        command_desc8_2 = event.data[1][3]
-        graph_counter8_2 = event.data[1][4]
-        xy_data8_3 = list(zip(event.data[2][0],event.data[2][1]))
-        unit8_3 = event.data[2][2]
-        command_desc8_3 = event.data[2][3]
-        graph_counter8_3 = event.data[2][4]
-        xy_data8_4 = list(zip(event.data[3][0],event.data[3][1]))
-        unit8_4 = event.data[3][2]
-        command_desc8_4 = event.data[3][3]
-        graph_counter8_4 = event.data[3][4]
-        xy_data8_5 = list(zip(event.data[4][0], event.data[4][1]))
-        unit8_5 = event.data[4][2]
-        command_desc8_5 = event.data[4][3]
-        graph_counter8_5 = event.data[4][4]
-        xy_data8_6 = list(zip(event.data[5][0], event.data[5][1]))
-        unit8_6 = event.data[5][2]
-        command_desc8_6 = event.data[5][3]
-        graph_counter8_6 = event.data[5][4]
-        xy_data8_7 = list(zip(event.data[6][0], event.data[6][1]))
-        unit8_7 = event.data[6][2]
-        command_desc8_7 = event.data[6][3]
-        graph_counter8_7 = event.data[6][4]
-        xy_data8_8 = list(zip(event.data[7][0], event.data[7][1]))
-        unit8_8 = event.data[7][2]
-        command_desc8_8 = event.data[7][3]
-        graph_counter8_8 = event.data[7][4]
-        first_time_graphs8_plot = event.data[8]
-
-
-        def animate():
-            if not first_time_graphs8_plot:
-
-                self.line8_1 = wxplot.PolySpline(xy_data8_1, colour = 'blue', width = 1, style=wx.PENSTYLE_SOLID)
-                self.graphics8_1 = wxplot.PlotGraphics([self.line8_1], command_desc8_1, 'frame', unit8_1)
-                if sys.platform.startswith("linux"):
-                    if os.environ.get("DESKTOP_SESSION") == "gnome" or os.environ.get("DESKTOP_SESSION") == "ubuntu":
-                        self.panel8_1.Destroy()
-                        self.panel8_1 = wxplot.PlotCanvas(self.graphs8_panel, pos=(0, 350))
-                        self.panel8_1.SetInitialSize(size=wx.Size(400, 220))
-                self.panel8_1.Draw(self.graphics8_1, xAxis=(graph_counter8_1 - 200, graph_counter8_1))
-
-                self.line8_2 = wxplot.PolySpline(xy_data8_2, colour = 'blue', width = 1, style=wx.PENSTYLE_SOLID)
-                self.graphics8_2 = wxplot.PlotGraphics([self.line8_2], command_desc8_2, 'frame', unit8_2)
-                if sys.platform.startswith("linux"):
-                    if os.environ.get("DESKTOP_SESSION") == "gnome" or os.environ.get("DESKTOP_SESSION") == "ubuntu":
-                        self.panel8_2.Destroy()
-                        self.panel8_2 = wxplot.PlotCanvas(self.graphs8_panel, pos=(0, 580))
-                        self.panel8_2.SetInitialSize(size=wx.Size(400, 220))
-                self.panel8_2.Draw(self.graphics8_2, xAxis=(graph_counter8_2 -200, graph_counter8_2))
-
-                self.line8_3 = wxplot.PolySpline(xy_data8_3, colour = 'blue', width = 1, style=wx.PENSTYLE_SOLID)
-                self.graphics8_3 = wxplot.PlotGraphics([self.line8_3], command_desc8_3, 'frame', unit8_3)
-                if sys.platform.startswith("linux"):
-                    if os.environ.get("DESKTOP_SESSION") == "gnome" or os.environ.get("DESKTOP_SESSION") == "ubuntu":
-                        self.panel8_3.Destroy()
-                        self.panel8_3 = wxplot.PlotCanvas(self.graphs8_panel, pos=(410, 350))
-                        self.panel8_3.SetInitialSize(size=wx.Size(400, 220))
-                self.panel8_3.Draw(self.graphics8_3, xAxis=(graph_counter8_3 - 200, graph_counter8_3))
-
-                self.line8_4 = wxplot.PolySpline(xy_data8_4, colour = 'blue', width = 1, style=wx.PENSTYLE_SOLID)
-                self.graphics8_4 = wxplot.PlotGraphics([self.line8_4], command_desc8_4, 'frame', unit8_4)
-                if sys.platform.startswith("linux"):
-                    if os.environ.get("DESKTOP_SESSION") == "gnome" or os.environ.get("DESKTOP_SESSION") == "ubuntu":
-                        self.panel8_4.Destroy()
-                        self.panel8_4 = wxplot.PlotCanvas(self.graphs8_panel, pos=(410, 580))
-                        self.panel8_4.SetInitialSize(size=wx.Size(400, 220))
-                self.panel8_4.Draw(self.graphics8_4, xAxis=(graph_counter8_4 - 200, graph_counter8_4))
-
-                self.line8_5 = wxplot.PolySpline(xy_data8_5, colour='blue', width=1, style=wx.PENSTYLE_SOLID)
-                self.graphics8_5 = wxplot.PlotGraphics([self.line8_5], command_desc8_5, 'frame', unit8_5)
-                if sys.platform.startswith("linux"):
-                    if os.environ.get("DESKTOP_SESSION") == "gnome" or os.environ.get("DESKTOP_SESSION") == "ubuntu":
-                        self.panel8_5.Destroy()
-                        self.panel8_5 = wxplot.PlotCanvas(self.graphs8_panel, pos=(820, 350))
-                        self.panel8_5.SetInitialSize(size=wx.Size(400, 220))
-                self.panel8_5.Draw(self.graphics8_5, xAxis=(graph_counter8_5 - 200, graph_counter8_5))
-
-                self.line8_6 = wxplot.PolySpline(xy_data8_6, colour='blue', width=1, style=wx.PENSTYLE_SOLID)
-                self.graphics8_6 = wxplot.PlotGraphics([self.line8_6], command_desc8_6, 'frame', unit8_6)
-                if sys.platform.startswith("linux"):
-                    if os.environ.get("DESKTOP_SESSION") == "gnome" or os.environ.get("DESKTOP_SESSION") == "ubuntu":
-                        self.panel8_6.Destroy()
-                        self.panel8_6 = wxplot.PlotCanvas(self.graphs8_panel, pos=(820, 580))
-                        self.panel8_6.SetInitialSize(size=wx.Size(400, 220))
-                self.panel8_6.Draw(self.graphics8_6, xAxis=(graph_counter8_6 - 200, graph_counter8_6))
-
-                self.line8_7 = wxplot.PolySpline(xy_data8_7, colour='blue', width=1, style=wx.PENSTYLE_SOLID)
-                self.graphics8_7 = wxplot.PlotGraphics([self.line8_7], command_desc8_7, 'frame', unit8_7)
-                if sys.platform.startswith("linux"):
-                    if os.environ.get("DESKTOP_SESSION") == "gnome" or os.environ.get("DESKTOP_SESSION") == "ubuntu":
-                        self.panel8_7.Destroy()
-                        self.panel8_7 = wxplot.PlotCanvas(self.graphs8_panel, pos=(1240, 350))
-                        self.panel8_7.SetInitialSize(size=wx.Size(400, 220))
-                self.panel8_7.Draw(self.graphics8_7, xAxis=(graph_counter8_7 - 200, graph_counter8_7))
-
-                self.line8_8 = wxplot.PolySpline(xy_data8_8, colour='blue', width=1, style=wx.PENSTYLE_SOLID)
-                self.graphics8_8 = wxplot.PlotGraphics([self.line8_8], command_desc8_8, 'frame', unit8_8)
-                if sys.platform.startswith("linux"):
-                    if os.environ.get("DESKTOP_SESSION") == "gnome" or os.environ.get("DESKTOP_SESSION") == "ubuntu":
-                        self.panel8_8.Destroy()
-                        self.panel8_8 = wxplot.PlotCanvas(self.graphs8_panel, pos=(1240, 580))
-                        self.panel8_8.SetInitialSize(size=wx.Size(400, 220))
-                self.panel8_8.Draw(self.graphics8_8, xAxis=(graph_counter8_8 - 200, graph_counter8_8))
-
-
-        if first_time_graphs8_plot:
-            try:
-                self.panel8_1.Destroy()
-            except:
-                pass
-            try:
-                self.panel8_2.Destroy()
-            except:
-                pass
-            try:
-                self.panel8_3.Destroy()
-            except:
-                pass
-            try:
-                self.panel8_4.Destroy()
-            except:
-                pass
-            try:
-                self.panel8_5.Destroy()
-            except:
-                pass
-            try:
-                self.panel8_6.Destroy()
-            except:
-                pass
-            try:
-                self.panel8_7.Destroy()
-            except:
-                pass
-            try:
-                self.panel8_8.Destroy()
-            except:
-                pass
-            self.panel8_1 = wxplot.PlotCanvas(self.graphs8_panel, pos=(0, 350))
-            self.panel8_1.SetInitialSize(size=wx.Size(400, 220))
-
-            self.panel8_2 = wxplot.PlotCanvas(self.graphs8_panel, pos=(0, 580))
-            self.panel8_2.SetInitialSize(size=wx.Size(400, 220))
-
-            self.panel8_3 = wxplot.PlotCanvas(self.graphs8_panel, pos=(410, 350))
-            self.panel8_3.SetInitialSize(size=wx.Size(400, 220))
-
-            self.panel8_4 = wxplot.PlotCanvas(self.graphs8_panel, pos=(410, 580))
-            self.panel8_4.SetInitialSize(size=wx.Size(400, 220))
-
-            self.panel8_5 = wxplot.PlotCanvas(self.graphs8_panel, pos=(820, 350))
-            self.panel8_5.SetInitialSize(size=wx.Size(400, 220))
-
-            self.panel8_6 = wxplot.PlotCanvas(self.graphs8_panel, pos=(820, 580))
-            self.panel8_6.SetInitialSize(size=wx.Size(400, 220))
-
-            self.panel8_7 = wxplot.PlotCanvas(self.graphs8_panel, pos=(1240, 350))
-            self.panel8_7.SetInitialSize(size=wx.Size(400, 220))
-
-            self.panel8_8 = wxplot.PlotCanvas(self.graphs8_panel, pos=(1240, 580))
-            self.panel8_8.SetInitialSize(size=wx.Size(400, 220))
-
-        else:
-            animate()
-
-    def OnGraphsValue(self, event):
-        self.graphs_list_ctrl.SetItem(event.data[0], event.data[1], event.data[2])
-
-    def OnGraphs8Value(self, event):
-        self.graphs8_list_ctrl.SetItem(event.data[0], event.data[1], event.data[2])
-
     def OnDebug(self, event):
         self.TraceDebug(event.data[0], event.data[1])
 
     def OnDtc(self, event):
         if event.data == 0:  # signal, that DTC was cleared
             self.dtc.DeleteAllItems()
+            for count in self.dtc_summary_labels.values():
+                count.SetLabel("0")
             self.dtc_status_label.SetLabel("Scanning diagnostic trouble codes…")
+            self.dtc_empty_label.SetLabel("Scanning diagnostic trouble codes…")
+            self.dtc_empty_label.Show()
             self.GetDTCButton.Enable(False)
         elif isinstance(event.data, dict):
             counts = event.data.get("counts", {})
+            for category, count in self.dtc_summary_labels.items():
+                count.SetLabel(str(counts.get(category, 0)))
             total = sum(counts.values())
             if total:
                 self.dtc_status_label.SetLabel(
@@ -2154,11 +1918,25 @@ class MyApp(SessionUIMixin, VehicleProfilesMixin, DashboardUIMixin, GraphUIMixin
                     f"{counts.get('Pending', 0)} pending  •  "
                     f"{counts.get('Permanent', 0)} permanent"
                 )
+                self.dtc_empty_label.Hide()
             else:
                 self.dtc_status_label.SetLabel("No diagnostic trouble codes reported")
+                self.dtc_empty_label.SetLabel("No diagnostic trouble codes were reported.")
+                self.dtc_empty_label.Show()
             self.GetDTCButton.Enable(True)
         else:
-            self.dtc.Append(event.data)
+            row = tuple(event.data)
+            row_index = self.dtc.Append(row)
+            category_colours = {
+                "Stored": self.theme.danger,
+                "Pending": self.theme.warning,
+                "Permanent": self.theme.accent,
+            }
+            self.dtc.SetItemTextColour(
+                row_index, category_colours.get(row[1], self.theme.text)
+            )
+            self.dtc_empty_label.Hide()
+        self.DTCpanel.Layout()
 
     def OnDisconnect(self, event):  # disconnect connection to ECU
         self._stop_sensor_recording()
@@ -2190,14 +1968,19 @@ class MyApp(SessionUIMixin, VehicleProfilesMixin, DashboardUIMixin, GraphUIMixin
         self.settingmenu.Enable(ID_RESET, False)
         self.settingmenu.Enable(ID_DISCONNECT, False)
 
-        self.senprod = SensorProducer(self, self.COMPORT, self.SERTIMEOUT, self.RECONNATTEMPTS, self.BAUDRATE, self.FAST, self.nb)
+        self.senprod = SensorProducer(
+            self, self.COMPORT, self.SERTIMEOUT, self.RECONNATTEMPTS,
+            self.BAUDRATE, self.FAST,
+        )
         self.senprod.start()
 
     def GetDTC(self, e):
-        self._go_to_page(self.DTCpanel)
         self.dtc_status_label.SetLabel("Scanning diagnostic trouble codes…")
+        self.dtc_empty_label.SetLabel("Scanning diagnostic trouble codes…")
+        self.dtc_empty_label.Show()
         self.GetDTCButton.Enable(False)
         self.ThreadControl = 2
+        self._go_to_page(self.DTCpanel)
 
     def AddDTC(self, code):
         self.dtc.InsertStringItem(0, "")
@@ -2205,25 +1988,76 @@ class MyApp(SessionUIMixin, VehicleProfilesMixin, DashboardUIMixin, GraphUIMixin
         self.dtc.SetItem(0, 1, code[1])
 
     def CodeLookup(self, e=None):
-        id = 0
-        diag = wx.Frame(None, id, title="Diagnostic Trouble Codes")
-        ico = wx.Icon(resource_path('pyobd.png'), wx.BITMAP_TYPE_PNG)
+        diag = wx.Frame(
+            self.frame,
+            title="Diagnostic Trouble Code Lookup",
+            size=(760, 620),
+        )
+        ico = wx.Icon(resource_path('assets/pyobd.png'), wx.BITMAP_TYPE_PNG)
         diag.SetIcon(ico)
-        tree = wx.TreeCtrl(diag, id, style=wx.TR_HAS_BUTTONS)
+        diag.SetBackgroundColour(self.theme.window)
 
-        root = tree.AddRoot("Code Reference")
-        proot = root;  # tree.AppendItem(root,"Powertrain (P) Codes")
-        codes = pcodes.keys()
-        codes = sorted(codes)
-        group = ""
-        for c in codes:
-            if c[:3] != group:
-                group_root = tree.AppendItem(proot, c[:3] + "XX")
-                group = c[:3]
-            leaf = tree.AppendItem(group_root, c)
-            tree.AppendItem(leaf, pcodes[c])
+        panel = wx.Panel(diag)
+        panel.SetBackgroundColour(self.theme.window)
+        search = wx.SearchCtrl(panel, style=wx.TE_PROCESS_ENTER)
+        search.SetDescriptiveText("Search code or description")
+        search.ShowCancelButton(True)
+        search.SetMinSize((-1, 38))
+        result_label = wx.StaticText(panel, label="")
+        result_label.SetForegroundColour(self.theme.muted)
 
-        diag.SetSize((400, 500))
+        results = self.MyListCtrl(
+            panel,
+            wx.NewIdRef(),
+            style=wx.LC_REPORT | wx.BORDER_NONE | wx.LC_HRULES | wx.LC_SINGLE_SEL,
+        )
+        results.InsertColumn(0, "Code", width=120)
+        results.InsertColumn(1, "Description", width=560)
+        self.theme.style_list(results)
+
+        rows = sorted(pcodes.items())
+        pending_filter = {"timer": None}
+
+        def populate():
+            pending_filter["timer"] = None
+            query = search.GetValue().strip().lower()
+            filtered = [
+                (code, description)
+                for code, description in rows
+                if not query or query in code.lower() or query in description.lower()
+            ]
+            results.Freeze()
+            try:
+                results.DeleteAllItems()
+                for code, description in filtered:
+                    results.Append([code, description])
+            finally:
+                results.Thaw()
+            result_label.SetLabel(f"{len(filtered)} codes")
+            panel.Layout()
+
+        def schedule_filter(event):
+            timer = pending_filter["timer"]
+            if timer and timer.IsRunning():
+                timer.Stop()
+            pending_filter["timer"] = wx.CallLater(120, populate)
+            event.Skip()
+
+        def close_lookup(event):
+            timer = pending_filter["timer"]
+            if timer and timer.IsRunning():
+                timer.Stop()
+            event.Skip()
+
+        root = wx.BoxSizer(wx.VERTICAL)
+        root.Add(search, 0, wx.EXPAND | wx.ALL, 16)
+        root.Add(result_label, 0, wx.LEFT | wx.RIGHT | wx.BOTTOM, 16)
+        root.Add(results, 1, wx.EXPAND | wx.LEFT | wx.RIGHT | wx.BOTTOM, 16)
+        panel.SetSizer(root)
+        search.Bind(wx.EVT_TEXT, schedule_filter)
+        diag.Bind(wx.EVT_CLOSE, close_lookup)
+        populate()
+        diag.CentreOnParent()
         diag.Show(True)
 
     def QueryClear(self, e):
@@ -2238,8 +2072,10 @@ class MyApp(SessionUIMixin, VehicleProfilesMixin, DashboardUIMixin, GraphUIMixin
             self.ClearDTC()
 
     def ClearDTC(self):
+        self.dtc_status_label.SetLabel("Clearing diagnostic trouble codes…")
         self.ThreadControl = 1
         self._go_to_page(self.DTCpanel)
+        self.senprod.wake()
 
     def try_port(self, portStr):
         """returns boolean for port availability"""
@@ -2798,6 +2634,7 @@ class MyApp(SessionUIMixin, VehicleProfilesMixin, DashboardUIMixin, GraphUIMixin
 
             # write configuration to cfg file
             self.config.write(open(self.configfilepath, 'w'))
+            self._update_active_vehicle_header()
 
     def OnExitMenu(self, event=None):
         self.frame.Close()

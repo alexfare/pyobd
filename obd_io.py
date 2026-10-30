@@ -44,6 +44,7 @@ import obd
 import decimal
 import math
 
+from app_events import StatusEvent
 from diagnostic_transport import ReadOnlyDiagnosticTransport
 
 
@@ -303,6 +304,7 @@ class OBDConnection:
         self._notify_window = _notify_window
         self.query_lock = threading.RLock()
         self.transport = ReadOnlyDiagnosticTransport(self, self.query_lock)
+        self.failure_reason = None
         if baud == 'AUTO':
             baud = None
         original_baud = baud
@@ -340,6 +342,7 @@ class OBDConnection:
             candidate_ports = [p.device for p in list_ports.comports() if p.device]
             candidate_ports = sorted(candidate_ports)
             if not candidate_ports:
+                self.failure_reason = "No connected serial ports detected"
                 wx.PostEvent(self._notify_window, DebugEvent([1, "No connected serial ports detected."]))
                 self.connection = _DisconnectedConnection("Not Connected")
                 return
@@ -372,14 +375,23 @@ class OBDConnection:
                     start_low_power=False,
                 )
             except Exception as ex:
-                wx.PostEvent(self._notify_window, DebugEvent([1, "Open failed on " + str(candidate_port) + ": " + str(ex)]))
+                self.failure_reason = str(ex)
+                wx.PostEvent(self._notify_window, DebugEvent([1, "Open failed on " + str(candidate_port) + ": " + self.failure_reason]))
                 self.connection = _DisconnectedConnection("Not Connected")
                 continue
 
             if self.connection.status() == "Car Connected":
+                self.failure_reason = None
                 wx.PostEvent(self._notify_window, DebugEvent([2, "Connected to: " + str(self.connection.port_name())]))
                 break
 
+            self.failure_reason = (
+                getattr(self.connection, "last_error", None)
+                or "Adapter opened, but no vehicle connection was established"
+            )
+            wx.PostEvent(self._notify_window, DebugEvent([
+                1, "Connection failed on " + str(candidate_port) + ": " + self.failure_reason
+            ]))
             self.connection.close()
             self.connection = _DisconnectedConnection("Not Connected")
             if cancel_check and cancel_check():

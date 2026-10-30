@@ -94,6 +94,13 @@ class ELM327:
         "A",  # SAE_J1939
     ]
 
+    _CONNECTION_ERRORS = (
+        "UNABLE TO CONNECT",
+        "NO DATA",
+        "BUS INIT: ...ERROR",
+        "CAN ERROR",
+    )
+
     # 38400, 9600 are the possible boot bauds (unless reprogrammed via
     # PP 0C).  19200, 38400, 57600, 115200, 230400, 500000 are listed on
     # p.46 of the ELM327 datasheet.
@@ -126,6 +133,7 @@ class ELM327:
         self.__port = None
         self.__protocol = UnknownProtocol([])
         self.__low_power = False
+        self.__last_error = None
         self.timeout = timeout
 
 
@@ -239,9 +247,11 @@ class ELM327:
                         ))
         else:
             if self.__status == OBDStatus.OBD_CONNECTED:
+                self.__last_error = "Adapter connected, but the ignition is off"
                 logger.error("Adapter connected, but the ignition is off")
                 print("Adapter connected, but the ignition is off")
             else:
+                self.__last_error = "Connected to the adapter, but failed to connect to the vehicle"
                 logger.error("Connected to the adapter, "
                              "but failed to connect to the vehicle")
                 print("Connected to the adapter, "
@@ -265,9 +275,13 @@ class ELM327:
 
     def manual_protocol(self, protocol_):
         r = self.__send(b"ATTP" + protocol_.encode())
+        if not self.__isok(r):
+            logger.error("Failed to select protocol %s", protocol_)
+            return False
+
         r0100 = self.__send(b"0100")
 
-        if not self.__has_message(r0100, "UNABLE TO CONNECT"):
+        if r0100 and not self.__has_connection_error(r0100):
             # success, found the protocol
             self.__protocol = self._SUPPORTED_PROTOCOLS[protocol_](r0100)
             print('Protocol set.')
@@ -291,7 +305,7 @@ class ELM327:
         print('Trying to set auto protocol.')
         # -------------- 0100 (first command, SEARCH protocols) --------------
         r0100 = self.__send(b"0100", delay=1)
-        if self.__has_message(r0100, "UNABLE TO CONNECT"):
+        if self.__has_connection_error(r0100):
             logger.error("Failed to query protocol 0100: unable to connect")
             print("Failed to query protocol 0100: unable to connect")
             # return False  -- Try one by one !!
@@ -303,12 +317,12 @@ class ELM327:
             print("Failed to retrieve current protocol")
             # return False  -- Try one by one !!
 
-        p = r[0]  # grab the first (and only) line returned
+        p = r[0] if r else ""
         # suppress any "automatic" prefix
         p = p[1:] if (len(p) > 1 and p.startswith("A")) else p
 
         # check if the protocol is something we know
-        if p in self._SUPPORTED_PROTOCOLS:
+        if p in self._SUPPORTED_PROTOCOLS and r0100 and not self.__has_connection_error(r0100):
             # jackpot, instantiate the corresponding protocol handler
             self.__protocol = self._SUPPORTED_PROTOCOLS[p](r0100)
             return True
@@ -321,10 +335,7 @@ class ELM327:
             for p in self._TRY_PROTOCOL_ORDER:
                 r = self.__send(b"ATTP" + p.encode())
                 r0100 = self.__send(b"0100")
-                if not self.__has_message(r0100, "UNABLE TO CONNECT") and \
-                    not self.__has_message(r0100, "NO DATA") and \
-                    not self.__has_message(r0100, "BUS INIT: ...ERROR") and \
-                    not self.__has_message(r0100, "CAN ERROR"):
+                if r0100 and not self.__has_connection_error(r0100):
                     # success, found the protocol
                     print('success, found the protocol')
                     self.__protocol = self._SUPPORTED_PROTOCOLS[p](r0100)
@@ -441,11 +452,22 @@ class ELM327:
                 return True
         return False
 
+    def __has_connection_error(self, lines):
+        return any(
+            self.__has_message(lines, message)
+            for message in self._CONNECTION_ERRORS
+        )
+
     def __error(self, msg):
         """ handles fatal failures, print logger.info info and closes serial """
+        self.__last_error = str(msg)
         self.close()
         logger.error(str(msg))
         print(str(msg))
+
+    def last_error(self):
+        return self.__last_error
+
     def port_name(self):
         if self.__port is not None:
             return self.__port.portstr

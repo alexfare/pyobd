@@ -55,6 +55,7 @@ class OBD(object):
         self.supported_commands = set(commands.base_commands())
         self.fast = fast  # global switch for disabling optimizations
         self.timeout = timeout
+        self.last_error = None
         self.__last_command = b""  # used for running the previous command with a CR
         self.__last_header = ECU_HEADER.ENGINE  # for comparing with the previously used header
         self.__frame_counts = {}  # keeps track of the number of return frames for each command
@@ -101,6 +102,7 @@ class OBD(object):
         # if the connection failed, close it
         if self.interface.status() != OBDStatus.CAR_CONNECTED:
             # the ELM327 class will report its own errors
+            self.last_error = self.interface.last_error()
             self.close()
 
     def __load_commands(self):

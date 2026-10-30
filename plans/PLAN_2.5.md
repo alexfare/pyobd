@@ -1,5 +1,12 @@
 # pyOBD v2.5 Plan
 
+## Performance
+
+- [x] Replace worker-side page inspection and hard-coded page indexes with page-driven polling modes.
+- [x] Throttle connection checks while static pages are open.
+- [x] Batch Live Data updates and poll PIDs in bounded round-robin batches.
+- [x] Remove the legacy 4/8-graph implementation and NumPy dependency.
+
 ## Advanced read-only diagnostics
 
 - [ ] Add UDS sessions, timing, tester-present messages, and negative-response decoding.
