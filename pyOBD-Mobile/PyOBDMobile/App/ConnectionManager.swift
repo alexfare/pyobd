@@ -454,6 +454,8 @@ final class ConnectionManager: NSObject, ObservableObject {
     private var recordingHandle: FileHandle?
     private var recordingBuffer = ""
     private let recordingTimestampFormatter = ISO8601DateFormatter()
+    private var pendingPIDRemovals: [Int] = []
+    private var pidRemovalTask: Task<Void, Never>?
 
     private static let hostKey = "adapter.wifi.host"
     private static let portKey = "adapter.wifi.port"
@@ -625,6 +627,16 @@ final class ConnectionManager: NSObject, ObservableObject {
         .sorted { $0.number < $1.number }
     }
 
+    func selectedSupportedPIDs(matching query: String) -> [SupportedPID] {
+        let normalized = query.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
+        return visibleSupportedPIDs.filter { pid in
+            normalized.isEmpty
+                || pid.name.lowercased().contains(normalized)
+                || pid.command.lowercased().contains(normalized)
+                || String(format: "%02X", pid.number).lowercased().contains(normalized)
+        }
+    }
+
     func addLivePID(_ number: Int) {
         guard isDecodable(number), supportedPIDs.contains(where: { $0.number == number }) else { return }
         visiblePIDNumbers.insert(number)
@@ -635,10 +647,9 @@ final class ConnectionManager: NSObject, ObservableObject {
     }
 
     func removeLivePID(_ number: Int) {
-        visiblePIDNumbers.remove(number)
-        favoritePIDNumbers.remove(number)
-        setPollingRate(.off, for: number)
-        savePIDPreferences()
+        guard visiblePIDNumbers.contains(number), !pendingPIDRemovals.contains(number) else { return }
+        pendingPIDRemovals.append(number)
+        processPIDRemovalQueue()
     }
 
     func pollingRate(for number: Int) -> PIDPollingRate {
@@ -671,6 +682,33 @@ final class ConnectionManager: NSObject, ObservableObject {
         } else {
             favoritePIDNumbers.insert(number)
         }
+        savePIDPreferences()
+    }
+
+    private func processPIDRemovalQueue() {
+        guard pidRemovalTask == nil else { return }
+        pidRemovalTask = Task { [weak self] in
+            guard let self else { return }
+            while !Task.isCancelled, let number = self.pendingPIDRemovals.first {
+                try? await Task.sleep(for: .milliseconds(180))
+                guard !Task.isCancelled else { break }
+                self.pendingPIDRemovals.removeFirst()
+                self.performLivePIDRemoval(number)
+                await Task.yield()
+            }
+            self.pidRemovalTask = nil
+        }
+    }
+
+    private func performLivePIDRemoval(_ number: Int) {
+        guard visiblePIDNumbers.contains(number) else { return }
+        pidPollingRates[number] = .off
+        if let pid = StandardPID(rawValue: String(format: "01%02X", number)) {
+            liveReadings.removeAll { $0.pid == pid }
+            liveHistory[pid] = nil
+        }
+        favoritePIDNumbers.remove(number)
+        visiblePIDNumbers.remove(number)
         savePIDPreferences()
     }
 

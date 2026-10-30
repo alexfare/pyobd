@@ -320,35 +320,71 @@ private struct LiveDataView: View {
 }
 
 private struct AddLivePIDsView: View {
+    private enum ListMode: String, CaseIterable, Identifiable {
+        case available = "Available"
+        case selected = "Selected"
+
+        var id: Self { self }
+    }
+
     @Environment(\.dismiss) private var dismiss
     @EnvironmentObject private var connection: ConnectionManager
     @State private var searchText = ""
+    @State private var listMode = ListMode.available
+
+    private var displayedPIDs: [SupportedPID] {
+        switch listMode {
+        case .available: connection.addableSupportedPIDs(matching: searchText)
+        case .selected: connection.selectedSupportedPIDs(matching: searchText)
+        }
+    }
 
     var body: some View {
         NavigationStack {
-            List(connection.addableSupportedPIDs(matching: searchText)) { pid in
-                Button {
-                    connection.addLivePID(pid.number)
-                } label: {
-                    HStack {
-                        VStack(alignment: .leading, spacing: 3) {
-                            Text(pid.name).foregroundStyle(.primary)
-                            Text(pid.command)
-                                .font(.caption.monospaced())
-                                .foregroundStyle(.secondary)
+            VStack(spacing: 0) {
+                Picker("PID list", selection: $listMode) {
+                    Text("Available").tag(ListMode.available)
+                    Text("Selected (\(connection.visibleSupportedPIDs.count))").tag(ListMode.selected)
+                }
+                .pickerStyle(.segmented)
+                .padding()
+
+                List(displayedPIDs) { pid in
+                    Button {
+                        if listMode == .available {
+                            connection.addLivePID(pid.number)
+                        } else {
+                            connection.removeLivePID(pid.number)
                         }
-                        Spacer()
-                        Image(systemName: "plus.circle.fill")
+                    } label: {
+                        HStack {
+                            VStack(alignment: .leading, spacing: 3) {
+                                Text(pid.name).foregroundStyle(.primary)
+                                Text(pid.command)
+                                    .font(.caption.monospaced())
+                                    .foregroundStyle(.secondary)
+                            }
+                            Spacer()
+                            Image(systemName: listMode == .available ? "plus.circle.fill" : "minus.circle.fill")
+                                .foregroundStyle(listMode == .available ? Color.accentColor : Color.red)
+                        }
+                    }
+                }
+                .overlay {
+                    if displayedPIDs.isEmpty {
+                        if searchText.isEmpty {
+                            ContentUnavailableView(
+                                listMode == .available ? "All PIDs selected" : "No PIDs selected",
+                                systemImage: listMode == .available ? "checkmark.circle" : "waveform.path.ecg"
+                            )
+                        } else {
+                            ContentUnavailableView.search(text: searchText)
+                        }
                     }
                 }
             }
-            .overlay {
-                if connection.addableSupportedPIDs(matching: searchText).isEmpty {
-                    ContentUnavailableView.search(text: searchText)
-                }
-            }
             .searchable(text: $searchText, prompt: "PID or name")
-            .navigationTitle("Add PIDs")
+            .navigationTitle("Manage PIDs")
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
                 ToolbarItem(placement: .confirmationAction) {
