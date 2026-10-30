@@ -421,6 +421,11 @@ final class ConnectionManager: NSObject, ObservableObject {
     @Published private(set) var adapterVoltage = "—"
     @Published private(set) var operationMessage: String?
     @Published private(set) var isBusy = false
+    @Published private(set) var isRecording = false
+    @Published private(set) var recordingStartedAt: Date?
+    @Published private(set) var recordedSampleCount = 0
+    @Published private(set) var recordingFileURL: URL?
+    @Published private(set) var recordingError: String?
 
     private struct QueuedCommand {
         let id: UUID
@@ -445,6 +450,9 @@ final class ConnectionManager: NSObject, ObservableObject {
     private var responseBuffer = ""
     private var availablePIDs = StandardPID.allCases
     private var activeSection: MobileSection = .connection
+    private var recordingHandle: FileHandle?
+    private var recordingBuffer = ""
+    private let recordingTimestampFormatter = ISO8601DateFormatter()
 
     private static let hostKey = "adapter.wifi.host"
     private static let portKey = "adapter.wifi.port"
@@ -492,6 +500,7 @@ final class ConnectionManager: NSObject, ObservableObject {
     }
 
     func disconnect() {
+        stopRecording()
         shouldReconnect = false
         reconnectTask?.cancel()
         reconnectTask = nil
@@ -527,9 +536,56 @@ final class ConnectionManager: NSObject, ObservableObject {
 
     func setActiveSection(_ section: MobileSection) {
         activeSection = section
-        if section == .overview || section == .liveData || section == .graphs {
+        if shouldPollLiveData {
             startLivePollingIfNeeded()
         } else {
+            livePollingTask?.cancel()
+            livePollingTask = nil
+        }
+    }
+
+    func startRecording() {
+        guard state == .connected, !isRecording else { return }
+        do {
+            let directory = try FileManager.default.url(
+                for: .documentDirectory,
+                in: .userDomainMask,
+                appropriateFor: nil,
+                create: true
+            )
+            let formatter = DateFormatter()
+            formatter.locale = Locale(identifier: "en_US_POSIX")
+            formatter.dateFormat = "yyyyMMdd-HHmmss-SSS"
+            let url = directory.appendingPathComponent(
+                "pyOBD-LiveData-\(formatter.string(from: Date())).csv"
+            )
+            guard FileManager.default.createFile(atPath: url.path, contents: nil) else {
+                throw CocoaError(.fileWriteUnknown)
+            }
+            let handle = try FileHandle(forWritingTo: url)
+            try handle.write(contentsOf: Data("timestamp,pid,command,name,value,unit\n".utf8))
+            recordingHandle = handle
+            recordingBuffer = ""
+            recordingFileURL = url
+            recordingStartedAt = Date()
+            recordedSampleCount = 0
+            recordingError = nil
+            isRecording = true
+            startLivePollingIfNeeded()
+        } catch {
+            recordingError = error.localizedDescription
+            recordingHandle = nil
+            isRecording = false
+        }
+    }
+
+    func stopRecording() {
+        guard isRecording || recordingHandle != nil else { return }
+        flushRecordingBuffer()
+        try? recordingHandle?.close()
+        recordingHandle = nil
+        isRecording = false
+        if !shouldPollLiveData {
             livePollingTask?.cancel()
             livePollingTask = nil
         }
@@ -808,6 +864,7 @@ final class ConnectionManager: NSObject, ObservableObject {
 
     private func scheduleReconnect() {
         guard shouldReconnect else { return }
+        stopRecording()
         reconnectTask?.cancel()
         initializationTask?.cancel()
         livePollingTask?.cancel()
@@ -1000,7 +1057,7 @@ final class ConnectionManager: NSObject, ObservableObject {
 
     private func startLivePollingIfNeeded() {
         guard state == .connected,
-              activeSection == .overview || activeSection == .liveData,
+              shouldPollLiveData,
               livePollingTask == nil else { return }
         livePollingTask = Task { [weak self] in
             guard let self else { return }
@@ -1048,6 +1105,50 @@ final class ConnectionManager: NSObject, ObservableObject {
         samples.append(PIDSample(date: Date(), value: reading.value))
         if samples.count > 180 { samples.removeFirst(samples.count - 180) }
         liveHistory[reading.pid] = samples
+        appendRecording(reading)
+    }
+
+    private var shouldPollLiveData: Bool {
+        isRecording || activeSection == .overview || activeSection == .liveData || activeSection == .graphs
+    }
+
+    private func appendRecording(_ reading: PIDReading) {
+        guard isRecording else { return }
+        let fields = [
+            recordingTimestampFormatter.string(from: Date()),
+            String(format: "%02X", reading.pid.number),
+            reading.pid.rawValue,
+            reading.pid.name,
+            String(
+                format: "%.6f",
+                locale: Locale(identifier: "en_US_POSIX"),
+                arguments: [reading.value]
+            ),
+            reading.unit,
+        ]
+        recordingBuffer += fields.map(Self.csvField).joined(separator: ",") + "\n"
+        recordedSampleCount += 1
+        if recordedSampleCount.isMultiple(of: 25) {
+            flushRecordingBuffer()
+        }
+    }
+
+    private func flushRecordingBuffer() {
+        guard !recordingBuffer.isEmpty, let recordingHandle else { return }
+        do {
+            try recordingHandle.write(contentsOf: Data(recordingBuffer.utf8))
+            recordingBuffer = ""
+        } catch {
+            recordingError = error.localizedDescription
+            recordingBuffer = ""
+            try? recordingHandle.close()
+            self.recordingHandle = nil
+            isRecording = false
+        }
+    }
+
+    private static func csvField(_ value: String) -> String {
+        "\"\(value.replacingOccurrences(of: "\"", with: "\"\""))\""
     }
 
     private func loadPIDPreferences() {
@@ -1172,6 +1273,7 @@ extension ConnectionManager: @preconcurrency CBCentralManagerDelegate {
         if central.state == .poweredOn, shouldReconnect, transport == .bluetooth {
             reconnectBluetoothOrScan()
         } else if central.state != .poweredOn, transport == .bluetooth {
+            stopRecording()
             state = .failed("Bluetooth unavailable")
         }
     }
@@ -1237,6 +1339,7 @@ extension ConnectionManager: @preconcurrency CBCentralManagerDelegate {
         isReconnecting: Bool,
         error: Error?
     ) {
+        stopRecording()
         bluetoothWriteCharacteristic = nil
         failPendingCommands(with: error ?? OBDCommandError.notConnected)
         if shouldReconnect {

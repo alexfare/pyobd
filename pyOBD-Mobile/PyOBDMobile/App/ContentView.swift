@@ -183,66 +183,108 @@ private struct LiveDataView: View {
                         description: Text("Live Data displays standard PIDs supported by the vehicle.")
                     )
                 } else {
-                    List(connection.sortedSupportedPIDs) { pid in
-                        HStack(spacing: 12) {
-                            Button {
-                                connection.toggleFavorite(pid.number)
-                            } label: {
-                                Image(systemName: connection.isFavorite(pid.number) ? "star.fill" : "star")
-                                    .foregroundStyle(connection.isFavorite(pid.number) ? .yellow : .secondary)
-                            }
-                            .buttonStyle(.plain)
-                            .disabled(!connection.isDecodable(pid.number))
-
-                            VStack(alignment: .leading, spacing: 3) {
-                                Text(pid.name)
-                                Text(pid.command)
-                                    .font(.caption.monospaced())
-                                    .foregroundStyle(.secondary)
-                            }
-                            Spacer()
-
-                            VStack(alignment: .trailing, spacing: 3) {
-                                if let reading = connection.liveReadings.first(where: {
-                                    $0.pid.number == pid.number
-                                }) {
-                                    Text(reading.formattedValue)
-                                        .font(.body.weight(.semibold))
-                                        .monospacedDigit()
-                                } else {
-                                    Text(connection.isDecodable(pid.number) ? "Not polling" : "Supported")
-                                        .font(.caption)
-                                        .foregroundStyle(.secondary)
-                                }
-                                if connection.isDecodable(pid.number) {
-                                    Text(connection.pollingRate(for: pid.number).rawValue)
-                                        .font(.caption2)
-                                        .foregroundStyle(.secondary)
-                                }
-                            }
-
-                            Menu {
-                                ForEach(PIDPollingRate.allCases) { rate in
-                                    Button {
-                                        connection.setPollingRate(rate, for: pid.number)
-                                    } label: {
-                                        if connection.pollingRate(for: pid.number) == rate {
-                                            Label(rate.rawValue, systemImage: "checkmark")
-                                        } else {
-                                            Text(rate.rawValue)
-                                        }
+                    List {
+                        if connection.isRecording {
+                            Section("Recording") {
+                                HStack {
+                                    Label("Recording live data", systemImage: "record.circle.fill")
+                                        .foregroundStyle(.red)
+                                    Spacer()
+                                    if let startedAt = connection.recordingStartedAt {
+                                        Text(startedAt, style: .timer)
+                                            .monospacedDigit()
                                     }
                                 }
-                            } label: {
-                                Image(systemName: "ellipsis.circle")
+                                LabeledContent("Samples", value: connection.recordedSampleCount.formatted())
                             }
-                            .disabled(!connection.isDecodable(pid.number))
+                        } else if let fileURL = connection.recordingFileURL {
+                            Section("Last recording") {
+                                ShareLink(item: fileURL) {
+                                    Label("Export CSV", systemImage: "square.and.arrow.up")
+                                }
+                                LabeledContent("Samples", value: connection.recordedSampleCount.formatted())
+                            }
+                        }
+
+                        if let error = connection.recordingError {
+                            Section { Text(error).foregroundStyle(.red) }
+                        }
+
+                        ForEach(connection.sortedSupportedPIDs) { pid in
+                            HStack(spacing: 12) {
+                                Button {
+                                    connection.toggleFavorite(pid.number)
+                                } label: {
+                                    Image(systemName: connection.isFavorite(pid.number) ? "star.fill" : "star")
+                                        .foregroundStyle(connection.isFavorite(pid.number) ? .yellow : .secondary)
+                                }
+                                .buttonStyle(.plain)
+                                .disabled(!connection.isDecodable(pid.number))
+
+                                VStack(alignment: .leading, spacing: 3) {
+                                    Text(pid.name)
+                                    Text(pid.command)
+                                        .font(.caption.monospaced())
+                                        .foregroundStyle(.secondary)
+                                }
+                                Spacer()
+
+                                VStack(alignment: .trailing, spacing: 3) {
+                                    if let reading = connection.liveReadings.first(where: {
+                                        $0.pid.number == pid.number
+                                    }) {
+                                        Text(reading.formattedValue)
+                                            .font(.body.weight(.semibold))
+                                            .monospacedDigit()
+                                    } else {
+                                        Text(connection.isDecodable(pid.number) ? "Not polling" : "Supported")
+                                            .font(.caption)
+                                            .foregroundStyle(.secondary)
+                                    }
+                                    if connection.isDecodable(pid.number) {
+                                        Text(connection.pollingRate(for: pid.number).rawValue)
+                                            .font(.caption2)
+                                            .foregroundStyle(.secondary)
+                                    }
+                                }
+
+                                Menu {
+                                    ForEach(PIDPollingRate.allCases) { rate in
+                                        Button {
+                                            connection.setPollingRate(rate, for: pid.number)
+                                        } label: {
+                                            if connection.pollingRate(for: pid.number) == rate {
+                                                Label(rate.rawValue, systemImage: "checkmark")
+                                            } else {
+                                                Text(rate.rawValue)
+                                            }
+                                        }
+                                    }
+                                } label: {
+                                    Image(systemName: "ellipsis.circle")
+                                }
+                                .disabled(!connection.isDecodable(pid.number))
+                            }
                         }
                     }
                 }
             }
             .navigationTitle("Live Data")
-            .toolbar { ConnectionStatusLabel() }
+            .toolbar {
+                ToolbarItem(placement: .topBarLeading) {
+                    Button {
+                        connection.isRecording
+                            ? connection.stopRecording()
+                            : connection.startRecording()
+                    } label: {
+                        Image(systemName: connection.isRecording ? "stop.circle.fill" : "record.circle")
+                            .foregroundStyle(connection.isRecording ? .red : .primary)
+                    }
+                    .disabled(connection.state != .connected && !connection.isRecording)
+                    .accessibilityLabel(connection.isRecording ? "Stop recording" : "Start recording")
+                }
+                ConnectionStatusLabel()
+            }
         }
     }
 }
