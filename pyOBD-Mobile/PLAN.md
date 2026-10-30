@@ -16,4 +16,13 @@ Native SwiftUI iPhone companion to the Python desktop application.
 - [x] Add safe clear-code confirmation and connection cleanup.
 - [x] Add recorded-response tests before real-vehicle testing.
 
+## Next sequence
+
+- [x] Expand common Mode 01 PID decoders beyond the initial seven.
+- [x] Add selectable Live Data favorites and polling groups.
+- [x] Add searchable PID selection with persistent add/remove controls.
+- [x] Add CSV recording and export.
+- [x] Add vehicle profiles and per-vehicle preferences.
+- [x] Add adapter compatibility notes and connection diagnostics.
+
 The Python desktop application remains unchanged and continues supporting macOS, Windows, and Linux.
