@@ -6,6 +6,7 @@ import json
 from pathlib import Path
 import re
 import time
+import shutil
 
 
 class RecordingService:
@@ -95,4 +96,47 @@ class RecordingService:
         path = self._metadata["metadata_path"]
         data = {key: value for key, value in self._metadata.items() if key != "metadata_path"}
         path.write_text(json.dumps(data, indent=2), encoding="utf-8")
+
+    def sessions(self):
+        self.directory.mkdir(parents=True, exist_ok=True)
+        sessions = []
+        for metadata_path in self.directory.glob("*.json"):
+            try:
+                data = json.loads(metadata_path.read_text(encoding="utf-8"))
+            except (OSError, ValueError):
+                continue
+            csv_path = self.directory / Path(str(data.get("file", ""))).name
+            if not csv_path.is_file():
+                continue
+            data.update({
+                "metadata_path": str(metadata_path),
+                "csv_path": str(csv_path),
+            })
+            sessions.append(data)
+        return sorted(
+            sessions, key=lambda item: item.get("started_at", ""), reverse=True
+        )
+
+    def rename_session(self, csv_path, name):
+        session = next(
+            (item for item in self.sessions() if item["csv_path"] == csv_path), None
+        )
+        if session is None:
+            return
+        session["name"] = name
+        metadata_path = Path(session.pop("metadata_path"))
+        session.pop("csv_path", None)
+        metadata_path.write_text(json.dumps(session, indent=2), encoding="utf-8")
+
+    def delete_session(self, csv_path):
+        path = Path(csv_path)
+        for target in (path, path.with_suffix(".json")):
+            try:
+                target.unlink()
+            except OSError:
+                pass
+
+    @staticmethod
+    def export_session(csv_path, destination):
+        shutil.copy2(csv_path, destination)
 

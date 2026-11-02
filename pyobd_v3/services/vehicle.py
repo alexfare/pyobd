@@ -14,6 +14,7 @@ from pyobd_v3.models import (
     ConnectionStatus,
     DiagnosticCode,
     FreezeFrameReading,
+    MisfireResult,
     ReadinessMonitor,
     SupportedPID,
     TelemetryReading,
@@ -87,6 +88,7 @@ class VehicleService:
         self._event_sink.publish(AppEvent(EventChannel.TELEMETRY, ()))
         self._event_sink.publish(AppEvent(EventChannel.DIAGNOSTIC_CODES, ()))
         self._event_sink.publish(AppEvent(EventChannel.READINESS, ()))
+        self._event_sink.publish(AppEvent(EventChannel.MISFIRE, ()))
         self._event_sink.publish(AppEvent(EventChannel.FREEZE_FRAME, ()))
 
     def request_diagnostics(self):
@@ -100,6 +102,9 @@ class VehicleService:
 
     def request_freeze_frame(self):
         self._operations.put("freeze_frame")
+
+    def request_misfire(self):
+        self._operations.put("misfire")
 
     def _run(self):
         target = self._config.adapter_target()
@@ -119,7 +124,7 @@ class VehicleService:
                     self._config.baudrate,
                     self._config.timeout,
                     self._config.retries,
-                    "FAST",
+                    self._config.send_mode,
                     attempt_status="Reconnecting" if connected_once else None,
                     event_sink=self._event_sink,
                     cancel_check=self._stop_event.is_set,
@@ -268,6 +273,8 @@ class VehicleService:
                 self._publish_readiness()
             elif operation == "freeze_frame":
                 self._publish_freeze_frame()
+            elif operation == "misfire":
+                self._publish_misfire()
         except Exception as error:
             self._event_sink.publish(AppEvent(EventChannel.OPERATION_ERROR, str(error)))
 
@@ -315,14 +322,31 @@ class VehicleService:
             return
         self._event_sink.publish(AppEvent(EventChannel.FREEZE_FRAME, tuple(rows)))
 
+    def _publish_misfire(self):
+        rows = []
+        for cylinder in range(1, 13):
+            command = getattr(
+                obd.commands, "MONITOR_MISFIRE_CYLINDER_{}".format(cylinder), None
+            )
+            if command is None or not self._connection.supports(command):
+                continue
+            response = self._connection.query(command)
+            value = getattr(response, "value", None)
+            count = int(getattr(value, "MISFIRE_COUNT", 0)) if value is not None else 0
+            rows.append(MisfireResult(
+                cylinder, "{} misfires".format(count), count
+            ))
+        if not self._stop_event.is_set():
+            self._event_sink.publish(AppEvent(EventChannel.MISFIRE, tuple(rows)))
+
     def _voltage(self):
         try:
             return str(self._connection.query(obd.commands.ELM_VOLTAGE).value)
         except Exception:
             return "----"
 
-    @staticmethod
-    def _format_value(value):
+    def _format_value(self, value):
+        value = self._convert_measurement(value)
         magnitude = getattr(value, "magnitude", None)
         unit = str(getattr(value, "unit", ""))
         if magnitude is not None:
@@ -334,6 +358,55 @@ class VehicleService:
         if isinstance(value, bytes):
             value = value.decode(errors="ignore")
         return 0.0, unit, str(value)
+
+    def _convert_measurement(self, value):
+        magnitude = getattr(value, "magnitude", None)
+        unit = str(getattr(value, "unit", ""))
+        if magnitude is None or not unit:
+            return value
+        metric = self._config.measurement_system == "METRIC"
+        normalized = unit.lower().replace("°", "").replace(" ", "")
+        targets = {
+            True: {
+                "mph": ("kilometer/hour", 1.609344, "km/h"),
+                "psi": ("kilopascal", 6.894757, "kPa"),
+                "f": ("degree_Celsius", None, "C"),
+                "degree_fahrenheit": ("degree_Celsius", None, "C"),
+            },
+            False: {
+                "km/h": ("mile/hour", 0.621371, "mph"),
+                "kph": ("mile/hour", 0.621371, "mph"),
+                "kilometer/hour": ("mile/hour", 0.621371, "mph"),
+                "kpa": ("psi", 0.145038, "psi"),
+                "c": ("degree_Fahrenheit", None, "F"),
+                "degree_celsius": ("degree_Fahrenheit", None, "F"),
+            },
+        }
+        match = next(
+            (entry for key, entry in targets[metric].items() if normalized == key),
+            None,
+        )
+        if match is None:
+            return value
+        target, factor, label = match
+        try:
+            return value.to(target)
+        except (AttributeError, TypeError, ValueError):
+            numeric = float(magnitude)
+            if factor is not None:
+                numeric *= factor
+            elif metric:
+                numeric = (numeric - 32.0) * 5.0 / 9.0
+            else:
+                numeric = numeric * 9.0 / 5.0 + 32.0
+
+            class ConvertedValue:
+                pass
+
+            converted = ConvertedValue()
+            converted.magnitude = numeric
+            converted.unit = label
+            return converted
 
     @staticmethod
     def _progress(name, value):

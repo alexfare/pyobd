@@ -87,10 +87,42 @@ class SettingsStore:
         self._data["preferences"] = dict(values)
         self._save()
 
+    def graph_pids(self):
+        values = self._data.get("graph_pids", ["010C"])
+        return [str(value) for value in values] if isinstance(values, list) else ["010C"]
+
+    def save_graph_pids(self, values):
+        self._data["graph_pids"] = list(values)
+        self._save()
+
     def dashboard_widgets(self):
         widgets = self._data.get("dashboard_widgets", DEFAULT_DASHBOARD_WIDGETS)
         return [dict(widget) for widget in widgets]
 
     def save_dashboard_widgets(self, widgets):
         self._data["dashboard_widgets"] = list(widgets)
+        self._save()
+
+    def dashboard_layouts(self):
+        layouts = self._data.get("dashboard_layouts")
+        if not isinstance(layouts, dict) or not layouts:
+            layouts = {
+                "Daily Driving": {
+                    "widgets": self._data.get(
+                        "dashboard_widgets", DEFAULT_DASHBOARD_WIDGETS
+                    )
+                }
+            }
+        return {
+            str(name): {"widgets": [dict(widget) for widget in layout.get("widgets", [])]}
+            for name, layout in layouts.items()
+            if isinstance(layout, dict)
+        }
+
+    def current_dashboard(self):
+        return str(self._data.get("current_dashboard", "Daily Driving"))
+
+    def save_dashboard_layouts(self, layouts, current):
+        self._data["dashboard_layouts"] = layouts
+        self._data["current_dashboard"] = current
         self._save()

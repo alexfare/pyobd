@@ -24,6 +24,7 @@ class EventChannel(str, Enum):
     SUPPORTED_PIDS = "supported_pids"
     DIAGNOSTIC_CODES = "diagnostic_codes"
     READINESS = "readiness"
+    MISFIRE = "misfire"
     FREEZE_FRAME = "freeze_frame"
     OPERATION_ERROR = "operation_error"
     UPDATE_STATUS = "update_status"

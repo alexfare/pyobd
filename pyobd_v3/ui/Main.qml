@@ -48,7 +48,7 @@ ApplicationWindow {
                     Layout.fillHeight: true
                     clip: true
                     spacing: 8
-                    model: ["Overview", "Dashboard", "Live Data", "Graphs", "Diagnostics", "Readiness", "Freeze Frame", "Vehicles", "Connection", "Settings", "About"]
+                    model: ["Overview", "Dashboard", "Live Data", "Graphs", "Diagnostics", "Readiness", "Freeze Frame", "Vehicles", "Sessions", "Connection", "Trace", "Settings", "About"]
                     delegate: Button {
                         required property string modelData
                         width: navigationList.width
@@ -103,6 +103,14 @@ ApplicationWindow {
                         Label { text: "Vehicle diagnostics and live data"; color: window.textMuted; font.pixelSize: 14 }
                     }
                     Item { Layout.fillWidth: true }
+                    Label {
+                        visible: appModel.activeVehicleName.length > 0
+                        text: appModel.activeVehicleName
+                        color: appModel.connectionTransport === "Demo" ? "#c2410c" : window.textMuted
+                        font.bold: appModel.connectionTransport === "Demo"
+                        elide: Text.ElideRight
+                        Layout.maximumWidth: 180
+                    }
                     Rectangle {
                         width: 132
                         height: 40
@@ -133,6 +141,8 @@ ApplicationWindow {
                     if (appModel.page === "Readiness") return readinessPage
                     if (appModel.page === "Freeze Frame") return freezeFramePage
                     if (appModel.page === "Vehicles") return vehiclesPage
+                    if (appModel.page === "Sessions") return sessionsPage
+                    if (appModel.page === "Trace") return tracePage
                     if (appModel.page === "Settings") return settingsPage
                     if (appModel.page === "About") return aboutPage
                     return placeholderPage
@@ -170,6 +180,8 @@ ApplicationWindow {
     Component { id: readinessPage; ReadinessPage {} }
     Component { id: freezeFramePage; FreezeFramePage {} }
     Component { id: vehiclesPage; VehiclesPage {} }
+    Component { id: sessionsPage; SessionsPage {} }
+    Component { id: tracePage; TracePage {} }
     Component { id: settingsPage; SettingsPage {} }
     Component { id: aboutPage; AboutPage {} }
     Component {

@@ -4,22 +4,17 @@ import QtQuick.Layouts
 
 ColumnLayout {
     id: root
-    property var graphPids: ["010C"]
+    readonly property var graphPids: appModel.graphPids
     property int graphRevision: 0
     readonly property var graphColours: ["#2878f0", "#16a34a", "#d97706", "#7e22ce", "#0891b2", "#dc2626"]
     spacing: 0
 
     function addGraph(pid) {
-        if (!pid || graphPids.indexOf(pid) >= 0) return
-        const next = graphPids.slice()
-        next.push(pid)
-        graphPids = next
+        appModel.add_graph_pid(pid)
     }
 
     function removeGraph(index) {
-        const next = graphPids.slice()
-        next.splice(index, 1)
-        graphPids = next
+        appModel.remove_graph_pid(index)
     }
 
     function pidName(pid) {
@@ -136,7 +131,6 @@ ColumnLayout {
                                     }
                                     ctx.stroke()
                                     ctx.fillStyle = "#64748b"
-                                    ctx.font = "12px \"" + appModel.systemFontFamily + "\""
                                     ctx.fillText(high.toFixed(1), 8, 16)
                                     ctx.fillText(low.toFixed(1), 8, height - 8)
                                 }

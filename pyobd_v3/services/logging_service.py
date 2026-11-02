@@ -31,3 +31,10 @@ class AppLog:
     def error(self, message):
         self._logger.error(str(message))
 
+    def tail(self, limit=500):
+        try:
+            lines = self.path.read_text(encoding="utf-8", errors="replace").splitlines()
+        except OSError:
+            return []
+        return lines[-limit:]
+

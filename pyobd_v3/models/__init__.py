@@ -6,6 +6,7 @@ from .state import (
     ConnectionStatus,
     DiagnosticCode,
     FreezeFrameReading,
+    MisfireResult,
     ReadinessMonitor,
     SupportedPID,
     TelemetryReading,
@@ -15,6 +16,6 @@ from .state import (
 
 __all__ = [
     "ConnectionConfig", "ConnectionState", "ConnectionStatus", "DiagnosticCode",
-    "FreezeFrameReading", "ReadinessMonitor", "SupportedPID", "TelemetryReading",
+    "FreezeFrameReading", "MisfireResult", "ReadinessMonitor", "SupportedPID", "TelemetryReading",
     "VehicleProfile", "VehicleState",
 ]

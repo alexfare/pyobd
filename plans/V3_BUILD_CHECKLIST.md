@@ -19,10 +19,13 @@
 - [x] Live Data completed.
 - [x] Diagnostics and DTC lookup completed.
 - [x] Readiness completed.
+- [x] Mode 06 misfire results completed.
 - [x] Freeze Frame completed.
 - [x] Graphs completed.
 - [x] Dashboard completed.
 - [x] Vehicle profiles completed.
+- [x] Recorded sessions and replay completed.
+- [x] Trace/log viewer completed.
 - [x] Settings, updates, About, and support completed.
 
 ## Behavior parity

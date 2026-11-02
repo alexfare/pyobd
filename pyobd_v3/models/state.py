@@ -21,8 +21,12 @@ class ConnectionConfig:
     baudrate: str = "AUTO"
     timeout: float = 2.0
     retries: int = 3
+    send_mode: str = "FAST"
+    measurement_system: str = "IMPERIAL"
 
     def adapter_target(self) -> str:
+        if self.transport == "Auto detect":
+            return "AUTO"
         if self.transport == "Demo":
             return "DEMO"
         if self.transport == "Wi-Fi":
@@ -101,6 +105,16 @@ class ReadinessMonitor:
     name: str
     status: str
     supported: bool
+
+    def as_mapping(self) -> Dict[str, Any]:
+        return asdict(self)
+
+
+@dataclass(frozen=True)
+class MisfireResult:
+    cylinder: int
+    result: str
+    count: int
 
     def as_mapping(self) -> Dict[str, Any]:
         return asdict(self)

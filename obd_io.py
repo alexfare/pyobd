@@ -279,6 +279,15 @@ class _DemoConnection:
 
         return _FakeResponse(None)
 
+    def supports(self, command):
+        name = str(getattr(command, "name", ""))
+        if name.startswith("MONITOR_MISFIRE_CYLINDER_"):
+            try:
+                return int(name.rsplit("_", 1)[-1]) <= 4
+            except ValueError:
+                return False
+        return self.query(command).value is not None
+
 
 def truncate(num, n):
     integer = int(num * (10**n))/(10**n)
@@ -457,7 +466,7 @@ class OBDConnection:
 
     def supports(self, command):
         if isinstance(self.connection, _DemoConnection):
-            return True
+            return self.connection.supports(command)
         try:
             return self.connection.supports(command)
         except AttributeError:

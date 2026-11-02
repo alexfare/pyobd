@@ -50,6 +50,15 @@ ColumnLayout {
             anchors.fill: parent
             anchors.leftMargin: 18
             anchors.rightMargin: 18
+            ComboBox {
+                Layout.preferredWidth: 210
+                model: appModel.dashboardNames
+                currentIndex: Math.max(0, appModel.dashboardNames.indexOf(appModel.currentDashboard))
+                onActivated: appModel.select_dashboard(currentText)
+            }
+            Button { text: "New"; onClicked: newDashboardDialog.open() }
+            Button { text: "Rename"; onClicked: { renameDashboardName.text = appModel.currentDashboard; renameDashboardDialog.open() } }
+            Button { text: "Delete"; enabled: appModel.dashboardNames.length > 1; onClicked: deleteDashboardDialog.open() }
             Button { text: root.editing ? "Done" : "Edit Dashboard"; onClicked: root.editing = !root.editing }
             Button { text: "Add gauge"; visible: root.editing; onClicked: addDialog.open() }
             Button { text: "Import"; visible: root.editing; onClicked: importDialog.open() }
@@ -259,6 +268,36 @@ ColumnLayout {
                 }
             }
         }
+    }
+
+    Dialog {
+        id: newDashboardDialog
+        anchors.centerIn: Overlay.overlay
+        title: "New dashboard"
+        modal: true
+        standardButtons: Dialog.Save | Dialog.Cancel
+        onAccepted: appModel.create_dashboard(newDashboardName.text)
+        TextField { id: newDashboardName; width: 360; placeholderText: "Dashboard name" }
+    }
+
+    Dialog {
+        id: renameDashboardDialog
+        anchors.centerIn: Overlay.overlay
+        title: "Rename dashboard"
+        modal: true
+        standardButtons: Dialog.Save | Dialog.Cancel
+        onAccepted: appModel.rename_dashboard(renameDashboardName.text)
+        TextField { id: renameDashboardName; width: 360 }
+    }
+
+    Dialog {
+        id: deleteDashboardDialog
+        anchors.centerIn: Overlay.overlay
+        title: "Delete dashboard?"
+        modal: true
+        standardButtons: Dialog.Yes | Dialog.No
+        onAccepted: appModel.delete_dashboard()
+        Label { text: "Delete “" + appModel.currentDashboard + "”?" }
     }
 
     Dialog {

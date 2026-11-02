@@ -36,6 +36,7 @@ ColumnLayout {
                 onClicked: appModel.recordingActive ? appModel.stop_recording() : recordingDialog.open()
             }
             Button { text: "Open recordings"; onClicked: appModel.open_app_link("recordings") }
+            Button { text: "Add to graphs"; enabled: appModel.selectedLiveCount > 0; onClicked: appModel.add_selected_to_graphs() }
         }
     }
 
