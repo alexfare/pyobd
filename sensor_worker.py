@@ -8,10 +8,9 @@ import traceback
 import wx
 
 import obd
-import obd_io
 from app_events import *
+from connection_service import ConnectionService, ConnectionState
 from debugEvent import DebugEvent
-from obd.utils import OBDStatus
 
 READINESS_MONITORS = (
     "MISFIRE_MONITORING", "FUEL_SYSTEM_MONITORING", "COMPONENT_MONITORING",
@@ -104,72 +103,61 @@ class SensorProducer(threading.Thread):
         self.disconnect_status = "Disconnected"
         self._stop_notified = False
         self._wake_event = threading.Event()
+        self.connection = ConnectionService(
+            portName,
+            _notify_window,
+            BAUDRATE,
+            SERTIMEOUT,
+            RECONNATTEMPTS,
+            FAST,
+            attempt_callback=self._on_connection_attempt,
+        )
 
     def wake(self):
         self._wake_event.set()
 
-    @staticmethod
-    def _is_connected_status(status):
-        return status in ("Car Connected", OBDStatus.CAR_CONNECTED)
+    def _on_connection_attempt(self, state, attempt, total):
+        label = "Reconnecting" if state == ConnectionState.RECONNECTING else "Connecting"
+        wx.PostEvent(
+            self._notify_window,
+            StatusEvent([0, 1, f"{label} ({attempt}/{total})..."]),
+        )
 
     def initCommunication(self, reconnecting=False):
-        try:
-            self.connection.close()
-        except:
-            pass
-        status_text = "Reconnecting..." if reconnecting else "Connecting..."
-        wx.PostEvent(self._notify_window, StatusEvent([0, 1, status_text]))
-        self.connection = obd_io.OBDConnection(
-            self.portName,
-            self._notify_window,
-            self.baudrate,
-            self.SERTIMEOUT,
-            self.RECONNATTEMPTS,
-            self.FAST,
-            attempt_status="Reconnecting" if reconnecting else None,
-            cancel_check=lambda: self._notify_window.ThreadControl == 666,
-        )
-        if self._notify_window.ThreadControl == 666:
-            try:
-                self.connection.close()
-            except Exception:
-                pass
-            return None
-        current_status = self.connection.connection.status()
-        if not self._is_connected_status(current_status):  # Cant open serial port
-            print(current_status)
-            reason = getattr(self.connection, "failure_reason", None)
+        if not self.connection.connect(reconnecting=reconnecting):
+            if self._notify_window.ThreadControl == 666:
+                return None
+            reason = self.connection.failure_reason
             self.disconnect_status = (
                 f"Connection failed: {reason}" if reason else "Connection failed"
             )
-            #wx.PostEvent(self._notify_window, StatusEvent([666]))  # signal apl, that communication was disconnected
-            #wx.PostEvent(self._notify_window, StatusEvent([0, 1, "Error cant connect..."]))
-            #self.state="finished"
             return None
-        elif self._is_connected_status(current_status):
-            wx.PostEvent(self._notify_window, DebugEvent([1, "Communication initialized..."]))
-            wx.PostEvent(self._notify_window, StatusEvent([0, 1, "Car connected!"]))
 
-            r = self.connection.query(obd.commands.ELM_VERSION)
-            self.ELMver = str(r.value)
-            r = self.connection.query(obd.commands.ELM_VOLTAGE)
-            self.ELMvoltage = str(r.value)
-            wx.PostEvent(self._notify_window, StatusEvent([5, 1, str(self.ELMvoltage)]))
-            self.protocol = self.connection.connection.protocol_name()
+        wx.PostEvent(self._notify_window, DebugEvent([1, "Communication initialized..."]))
+        wx.PostEvent(self._notify_window, StatusEvent([0, 1, "Car connected!"]))
 
-            wx.PostEvent(self._notify_window, StatusEvent([2, 1, str(self.ELMver)]))
-            wx.PostEvent(self._notify_window, StatusEvent([1, 1, str(self.protocol)]))
-            wx.PostEvent(self._notify_window, StatusEvent([3, 1, str(self.connection.connection.port_name())]))
-            try:
-                r = self.connection.query(obd.commands.VIN)
-                if r.value != None:
-                    self.VIN = r.value.decode()
-                    wx.PostEvent(self._notify_window, StatusEvent([4, 1, str(self.VIN)]))
-            except:
-                pass
-                #traceback.print_exc()
+        r = self.connection.query(obd.commands.ELM_VERSION)
+        self.ELMver = str(r.value)
+        r = self.connection.query(obd.commands.ELM_VOLTAGE)
+        self.ELMvoltage = str(r.value)
+        self.protocol = self.connection.protocol_name()
+        if not self.connection.is_connected():
+            self.disconnect_status = "Connection lost during initialization"
+            return None
 
-            return "OK"
+        wx.PostEvent(self._notify_window, StatusEvent([5, 1, self.ELMvoltage]))
+        wx.PostEvent(self._notify_window, StatusEvent([2, 1, self.ELMver]))
+        wx.PostEvent(self._notify_window, StatusEvent([1, 1, self.protocol]))
+        wx.PostEvent(self._notify_window, StatusEvent([3, 1, self.connection.port_name()]))
+        try:
+            r = self.connection.query(obd.commands.VIN)
+            if r.value is not None:
+                self.VIN = r.value.decode()
+                wx.PostEvent(self._notify_window, StatusEvent([4, 1, str(self.VIN)]))
+        except Exception:
+            pass
+
+        return "OK"
 
 
     @staticmethod
@@ -198,8 +186,8 @@ class SensorProducer(threading.Thread):
             self.stop(self.disconnect_status)
             return
 
-        self.baudrate = self.connection.connection.interface.baudrate()
-        self.portName = self.connection.connection.port_name()
+        self.baudrate = self.connection.baudrate()
+        self.portName = self.connection.port_name()
         sensor_commands = None
         sensor_index = 0
         freeze_commands = None
@@ -211,33 +199,19 @@ class SensorProducer(threading.Thread):
         graph_last_value_at = 0.0
         graph_was_streaming = False
         dashboard_last_emit_at = 0.0
-        next_health_at = time.monotonic() + 1.0
-        health_failures = 0
+        next_status_at = time.monotonic() + 1.0
 
         def reconnect():
-            nonlocal health_failures
             self.disconnect_status = "Connection lost"
             wx.PostEvent(self._notify_window, StatusEvent([0, 1, "Connection lost"]))
             if self.initCommunication(reconnecting=True) != "OK":
                 self._notify_window.ThreadControl = 666
                 return False
-            health_failures = 0
             self.disconnect_status = "Disconnected"
             return True
 
-        def health_check(now):
-            nonlocal next_health_at, health_failures
-            if now < next_health_at:
-                return True
-            next_health_at = now + 1.0
-            if self.connection.query(obd.commands.RPM).value is None:
-                health_failures += 1
-                return health_failures < 3
-            health_failures = 0
-            return True
-
         while self._notify_window.ThreadControl != 666:
-            if not self._is_connected_status(self.connection.connection.status()):
+            if not self.connection.is_connected():
                 if not reconnect():
                     break
                 sensor_commands = None
@@ -247,8 +221,6 @@ class SensorProducer(threading.Thread):
             page = getattr(self._notify_window, "active_polling_page", "idle")
             page_changed = page != previous_page
             now = time.monotonic()
-            if page_changed:
-                health_failures = 0
 
             if page != "graph" and graph_was_streaming:
                 graph_series.clear()
@@ -257,12 +229,8 @@ class SensorProducer(threading.Thread):
                 self._post_graph_event([[], 0, True])
 
             if page == "status":
-                if now >= next_health_at:
-                    if not health_check(now):
-                        if not reconnect():
-                            break
-                        previous_page = None
-                        continue
+                if now >= next_status_at:
+                    next_status_at = now + 1.0
                     voltage = self.connection.query(obd.commands.ELM_VOLTAGE)
                     wx.PostEvent(self._notify_window, StatusEvent([5, 1, str(voltage.value)]))
 
@@ -402,7 +370,6 @@ class SensorProducer(threading.Thread):
                             del graph_series[key]
                     plot_series = []
                     emit_values = now - graph_last_value_at >= 0.2
-                    successful_query = False
                     for command in commands:
                         response = self.connection.query(command)
                         if response.value is None:
@@ -411,7 +378,6 @@ class SensorProducer(threading.Thread):
                                     command.command, 2, "No data"
                                 ]))
                             continue
-                        successful_query = True
                         magnitude, unit, text = self._notify_window.get_measurement_components(
                             response.value
                         )
@@ -435,11 +401,6 @@ class SensorProducer(threading.Thread):
                         ))
                     if emit_values:
                         graph_last_value_at = now
-                    if commands and not successful_query and not health_check(now):
-                        if not reconnect():
-                            break
-                        previous_page = None
-                        continue
                     if now - graph_last_draw_at >= 0.25:
                         snapshot = [
                             (tuple(item[0]), tuple(item[1]), item[2], item[3], item[4])
@@ -470,14 +431,6 @@ class SensorProducer(threading.Thread):
                     wx.PostEvent(self._notify_window, DashboardValuesEvent(values))
                     dashboard_last_emit_at = now
 
-            elif not health_check(now):
-                if not reconnect():
-                    break
-                sensor_commands = None
-                freeze_commands = None
-                previous_page = None
-                continue
-
             previous_page = page
             wait_interval = self._target_loop_interval(self.demo_mode)
             if page == "sensors" and not self.demo_mode:
@@ -492,9 +445,9 @@ class SensorProducer(threading.Thread):
         self.disconnect_status = status_text
         self._notify_window.ThreadControl = 666
 
-        try: # if stop is called before any connection port is not defined (and not connected )
-            self.connection.connection.close()
-        except Exception as e:\
+        try:
+            self.connection.close()
+        except Exception as e:
             print(e)
 
         #if self.port != None: #if stop is called before any connection port is not defined (and not connected )

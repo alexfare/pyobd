@@ -286,6 +286,10 @@ class OBD(object):
         cmd_string = self.__build_command_string(cmd)
         messages = self.interface.send_and_parse(cmd_string)
 
+        if not messages:
+            logger.info("No valid OBD Messages returned")
+            return OBDResponse()
+
         # if we're sending a new command, note it
         # first check that the current command WASN'T sent as an empty CR
         # (CR is added by the ELM327 class)
@@ -296,10 +300,6 @@ class OBD(object):
         # log it, so we can specify it next time
         if cmd not in self.__frame_counts:
             self.__frame_counts[cmd] = sum([len(m.frames) for m in messages])
-
-        if not messages:
-            logger.info("No valid OBD Messages returned")
-            return OBDResponse()
 
         return cmd(messages)  # compute a response object
 
