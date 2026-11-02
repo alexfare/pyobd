@@ -196,74 +196,93 @@ class ModernButton(wx.Control):
 
 
 class ActionCard(wx.Panel):
-    def __init__(self, parent, theme, title, description, colour, hover_colour, handler):
+    def __init__(self, parent, theme, title, description, colour, hover_colour, handler, icon=""):
         super().__init__(parent, style=wx.WANTS_CHARS | wx.BORDER_NONE)
         self.theme = theme
         self.handler = handler
-        self.colour = colour
-        self.hover_colour = hover_colour
+        self.accent = colour
+        self.icon = icon
+        self.title_text = title
+        self.description_text = description
         self.hovered = False
-        self.SetMinSize((220, 92))
+        self.SetMinSize((220, 150))
         self.SetName(title)
-        self.SetBackgroundColour(colour)
+        self.SetFont(theme.font(15, bold=True))
+        self.SetBackgroundColour(theme.window)
         self.SetBackgroundStyle(wx.BG_STYLE_PAINT)
-
-        self.title = wx.StaticText(self, label=title)
-        self.title.SetFont(theme.font(15, bold=True))
-        self.title.SetForegroundColour(wx.WHITE)
-        self.title.SetBackgroundColour(colour)
-        self.description = None
-        if description:
-            self.description = wx.StaticText(self, label=description)
-            self.description.SetFont(theme.font(10))
-            self.description.SetForegroundColour(wx.Colour(226, 232, 240))
-            self.description.SetBackgroundColour(colour)
-
-        content = wx.BoxSizer(wx.VERTICAL)
-        content.AddStretchSpacer()
-        content.Add(self.title, 0, wx.ALIGN_CENTER_HORIZONTAL | wx.LEFT | wx.RIGHT, 24)
-        if self.description:
-            content.Add(
-                self.description,
-                0,
-                wx.ALIGN_CENTER_HORIZONTAL | wx.LEFT | wx.RIGHT | wx.TOP,
-                24,
-            )
-        content.AddStretchSpacer()
-        self.SetSizer(content)
-
-        for control in (self, self.title, self.description):
-            if control is None:
-                continue
-            control.SetCursor(wx.Cursor(wx.CURSOR_HAND))
-            control.Bind(wx.EVT_ENTER_WINDOW, self._on_enter)
-            control.Bind(wx.EVT_LEAVE_WINDOW, self._on_leave)
-            control.Bind(wx.EVT_LEFT_UP, self._on_activate)
+        self.SetCursor(wx.Cursor(wx.CURSOR_HAND))
 
         self.Bind(wx.EVT_PAINT, self._on_paint)
+        self.Bind(wx.EVT_ENTER_WINDOW, self._on_enter)
+        self.Bind(wx.EVT_LEAVE_WINDOW, self._on_leave)
+        self.Bind(wx.EVT_LEFT_UP, self._on_activate)
         self.Bind(wx.EVT_SET_FOCUS, self._on_focus)
         self.Bind(wx.EVT_KILL_FOCUS, self._on_focus)
         self.Bind(wx.EVT_KEY_DOWN, self._on_key_down)
 
-    def _on_paint(self, event):
+    def _on_paint(self, _event):
         dc = wx.AutoBufferedPaintDC(self)
         dc.SetBackground(wx.Brush(self.GetParent().GetBackgroundColour()))
         dc.Clear()
-        background = self.hover_colour if self.hovered else self.colour
-        border = wx.WHITE if self.HasFocus() else background
+
+        background = self.theme.surface_alt if self.hovered else self.theme.surface
+        border = self.theme.accent if self.HasFocus() else self.theme.border
         dc.SetBrush(wx.Brush(background))
         dc.SetPen(wx.Pen(border, 2 if self.HasFocus() else 1))
         width, height = self.GetClientSize()
-        dc.DrawRoundedRectangle(1, 1, max(0, width - 2), max(0, height - 2), 10)
+        dc.DrawRoundedRectangle(1, 1, max(0, width - 2), max(0, height - 2), 12)
+
+        dc.SetPen(wx.Pen(self.accent, 5))
+        dc.DrawLine(4, 15, 4, max(15, height - 15))
+
+        icon_y = max(34, height // 2 - 30)
+        self._draw_icon(dc, width // 2, icon_y)
+
+        dc.SetFont(self.GetFont())
+        dc.SetTextForeground(self.theme.text)
+        text_width, text_height = dc.GetTextExtent(self.title_text)
+        dc.DrawText(self.title_text, max(16, (width - text_width) // 2), icon_y + 30)
+
+        if self.description_text:
+            dc.SetFont(self.theme.font(10))
+            dc.SetTextForeground(self.theme.muted)
+            desc_width, _ = dc.GetTextExtent(self.description_text)
+            dc.DrawText(self.description_text, max(16, (width - desc_width) // 2), icon_y + 54)
+
+    def _draw_icon(self, dc, x, y):
+        dc.SetPen(wx.Pen(self.accent, 3))
+        dc.SetBrush(wx.TRANSPARENT_BRUSH)
+        if self.icon == "dashboard":
+            dc.DrawArc(x - 16, y + 8, x + 16, y + 8, x, y + 8)
+            dc.DrawLine(x, y + 8, x + 10, y - 2)
+            dc.DrawCircle(x, y + 8, 2)
+        elif self.icon == "live":
+            points = [(x - 18, y + 3), (x - 10, y + 3), (x - 5, y - 8),
+                      (x + 2, y + 13), (x + 8, y - 2), (x + 13, y + 3), (x + 18, y + 3)]
+            dc.DrawLines(points)
+        elif self.icon == "graphs":
+            dc.DrawLine(x - 17, y + 14, x - 17, y - 13)
+            dc.DrawLine(x - 17, y + 14, x + 18, y + 14)
+            dc.DrawLines([(x - 13, y + 8), (x - 4, y), (x + 3, y + 5),
+                          (x + 15, y - 10)])
+        elif self.icon == "readiness":
+            dc.DrawCircle(x, y, 16)
+            dc.DrawLines([(x - 8, y), (x - 2, y + 7), (x + 10, y - 8)])
+        elif self.icon == "diagnostics":
+            dc.DrawCircle(x - 4, y - 3, 11)
+            dc.DrawLine(x + 4, y + 5, x + 15, y + 16)
+        elif self.icon == "vehicles":
+            dc.DrawRoundedRectangle(x - 18, y - 7, 36, 17, 5)
+            dc.DrawLine(x - 12, y - 7, x - 6, y - 14)
+            dc.DrawLine(x - 6, y - 14, x + 8, y - 14)
+            dc.DrawLine(x + 8, y - 14, x + 14, y - 7)
+            dc.DrawCircle(x - 10, y + 11, 4)
+            dc.DrawCircle(x + 10, y + 11, 4)
 
     def _set_hovered(self, hovered):
         if self.hovered == hovered:
             return
         self.hovered = hovered
-        background = self.hover_colour if hovered else self.colour
-        self.title.SetBackgroundColour(background)
-        if self.description:
-            self.description.SetBackgroundColour(background)
         self.Refresh()
 
     def _on_enter(self, event):

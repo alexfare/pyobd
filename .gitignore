@@ -7,3 +7,7 @@ __pycache__/
 /third-party-licenses/
 *.spec
 /.Notes
+
+# Xcode user-specific workspace state
+xcuserdata/
+*.xcuserstate

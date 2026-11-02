@@ -160,7 +160,7 @@ class MyApp(SessionUIMixin, VehicleProfilesMixin, DashboardUIMixin, GraphUIMixin
 
         toolbar_sizer = wx.BoxSizer(wx.HORIZONTAL)
         self.bottom_toolbar.SetSizer(toolbar_sizer)
-        self.bottom_toolbar.SetMinSize((-1, 64))
+        self.bottom_toolbar.SetMinSize((-1, 52))
 
         toolbar_fields = [
             ("link", "Link", "Disconnected"),
@@ -176,11 +176,11 @@ class MyApp(SessionUIMixin, VehicleProfilesMixin, DashboardUIMixin, GraphUIMixin
 
             title = wx.StaticText(self.bottom_toolbar, -1, label.upper())
             title.SetForegroundColour(self.theme.sidebar_muted)
-            title.SetFont(wx.Font(8, wx.FONTFAMILY_SWISS, wx.FONTSTYLE_NORMAL, wx.FONTWEIGHT_NORMAL))
+            title.SetFont(wx.Font(7, wx.FONTFAMILY_SWISS, wx.FONTSTYLE_NORMAL, wx.FONTWEIGHT_NORMAL))
 
             value_widget = wx.StaticText(self.bottom_toolbar, -1, value)
             value_widget.SetForegroundColour(self.theme.sidebar_text)
-            value_widget.SetFont(wx.Font(12, wx.FONTFAMILY_SWISS, wx.FONTSTYLE_NORMAL, wx.FONTWEIGHT_BOLD))
+            value_widget.SetFont(wx.Font(10, wx.FONTFAMILY_SWISS, wx.FONTSTYLE_NORMAL, wx.FONTWEIGHT_BOLD))
 
             self.bottom_toolbar_values[key] = value_widget
 
@@ -189,7 +189,7 @@ class MyApp(SessionUIMixin, VehicleProfilesMixin, DashboardUIMixin, GraphUIMixin
             toolbar_sizer.Add(field_sizer, 1, wx.ALIGN_CENTER_VERTICAL | wx.LEFT | wx.RIGHT, 10)
 
             if index < len(toolbar_fields) - 1:
-                toolbar_sizer.Add(wx.StaticLine(self.bottom_toolbar, style=wx.LI_VERTICAL), 0, wx.EXPAND | wx.TOP | wx.BOTTOM, 10)
+                toolbar_sizer.Add(wx.StaticLine(self.bottom_toolbar, style=wx.LI_VERTICAL), 0, wx.EXPAND | wx.TOP | wx.BOTTOM, 8)
 
     def _set_bottom_status_defaults(self):
         defaults = {
@@ -256,7 +256,9 @@ class MyApp(SessionUIMixin, VehicleProfilesMixin, DashboardUIMixin, GraphUIMixin
     def sensor_control_reconnecting(self):
         self._stop_sensor_recording()
         self._set_graph_streaming(False)
+        self._set_graph_connection_state(False)
         self._reset_dashboard_values()
+        self._clear_connected_vehicle_header()
         self.settingmenu.Enable(ID_CONFIG, False)
         self.settingmenu.Enable(ID_RESET, False)
         self.settingmenu.Enable(ID_DISCONNECT, True)
@@ -349,16 +351,22 @@ class MyApp(SessionUIMixin, VehicleProfilesMixin, DashboardUIMixin, GraphUIMixin
         sidebar_sizer.Add(brand, 0, wx.LEFT | wx.RIGHT | wx.TOP, 22)
         sidebar_sizer.Add(subtitle, 0, wx.LEFT | wx.RIGHT | wx.TOP | wx.BOTTOM, 22)
 
-        primary_items = [
-            ("Overview", self.home_panel),
-            ("Dashboard", self.dashboard_panel),
-            ("Live Data", self.sensors_panel),
-            ("Diagnostics", self.DTCpanel),
-            ("Readiness", self.tests_panel),
-            ("Freeze Frame", self.freezeframe),
-            ("Graphs", self.graph_panel),
-            ("Vehicles", self.vehicle_profiles_panel),
-            ("Sessions", self.sessions_panel),
+        primary_groups = [
+            ("MONITOR", [
+                ("Overview", self.home_panel),
+                ("Dashboard", self.dashboard_panel),
+                ("Live Data", self.sensors_panel),
+                ("Graphs", self.graph_panel),
+            ]),
+            ("DIAGNOSE", [
+                ("Diagnostics", self.DTCpanel),
+                ("Readiness", self.tests_panel),
+                ("Freeze Frame", self.freezeframe),
+            ]),
+            ("MANAGE", [
+                ("Vehicles", self.vehicle_profiles_panel),
+                ("Sessions", self.sessions_panel),
+            ]),
         ]
         self.sidebar_buttons = {}
 
@@ -373,11 +381,16 @@ class MyApp(SessionUIMixin, VehicleProfilesMixin, DashboardUIMixin, GraphUIMixin
             button.SetMinSize((-1, 44))
             button.SetFont(self.theme.font(11, bold=label == "Overview"))
             button.Bind(wx.EVT_BUTTON, lambda _event, target=page, title=label: self._go_to_page(target, title))
-            sidebar_sizer.Add(button, 0, wx.EXPAND | wx.LEFT | wx.RIGHT | wx.BOTTOM, 10)
+            sidebar_sizer.Add(button, 0, wx.EXPAND | wx.LEFT | wx.RIGHT | wx.BOTTOM, 6)
             self.sidebar_buttons[page] = button
 
-        for label, page in primary_items:
-            add_item(label, page)
+        for group_label, items in primary_groups:
+            group = wx.StaticText(self.sidebar_panel, label=group_label)
+            group.SetForegroundColour(self.theme.sidebar_muted)
+            group.SetFont(self.theme.font(8, bold=True))
+            sidebar_sizer.Add(group, 0, wx.LEFT | wx.RIGHT | wx.TOP, 22)
+            for label, page in items:
+                add_item(label, page)
         sidebar_sizer.AddStretchSpacer()
         add_item("Activity Log", self.trace)
         self.sidebar_update_button = ModernButton(
@@ -505,7 +518,7 @@ class MyApp(SessionUIMixin, VehicleProfilesMixin, DashboardUIMixin, GraphUIMixin
                 self.page_title.SetLabel(title)
             self._refresh_sidebar_selection(page)
 
-    def _create_home_tile(self, parent, label, description, colour, hover_colour, handler):
+    def _create_home_tile(self, parent, label, description, colour, hover_colour, handler, icon):
         return ActionCard(
             parent,
             self.theme,
@@ -514,6 +527,7 @@ class MyApp(SessionUIMixin, VehicleProfilesMixin, DashboardUIMixin, GraphUIMixin
             colour,
             hover_colour,
             handler,
+            icon,
         )
 
     def build_home_page(self):
@@ -531,6 +545,7 @@ class MyApp(SessionUIMixin, VehicleProfilesMixin, DashboardUIMixin, GraphUIMixin
             self.theme.accent,
             self.theme.accent_hover,
             self.OnHomeDashboard,
+            "dashboard",
         )
         self.home_services_button = self._create_home_tile(
             self.home_panel,
@@ -539,6 +554,7 @@ class MyApp(SessionUIMixin, VehicleProfilesMixin, DashboardUIMixin, GraphUIMixin
             self.theme.success,
             self.theme.success_hover,
             self.OnHomeSensors,
+            "live",
         )
         self.home_graphs_button = self._create_home_tile(
             self.home_panel,
@@ -547,6 +563,7 @@ class MyApp(SessionUIMixin, VehicleProfilesMixin, DashboardUIMixin, GraphUIMixin
             self.theme.info,
             self.theme.info_hover,
             self.OnHomeGraphs,
+            "graphs",
         )
         self.home_readiness_button = self._create_home_tile(
             self.home_panel,
@@ -555,6 +572,7 @@ class MyApp(SessionUIMixin, VehicleProfilesMixin, DashboardUIMixin, GraphUIMixin
             self.theme.warning,
             self.theme.warning.ChangeLightness(85),
             self.OnHomeReadiness,
+            "readiness",
         )
         self.home_diagnostics_button = self._create_home_tile(
             self.home_panel,
@@ -563,6 +581,7 @@ class MyApp(SessionUIMixin, VehicleProfilesMixin, DashboardUIMixin, GraphUIMixin
             self.theme.danger,
             self.theme.danger.ChangeLightness(85),
             self.OnHomeDiagnostics,
+            "diagnostics",
         )
         vehicle_colour = wx.Colour(126, 34, 206)
         self.home_vehicle_button = self._create_home_tile(
@@ -572,6 +591,7 @@ class MyApp(SessionUIMixin, VehicleProfilesMixin, DashboardUIMixin, GraphUIMixin
             vehicle_colour,
             vehicle_colour.ChangeLightness(85),
             self.OnHomeVehicles,
+            "vehicles",
         )
         actions.Add(self.home_scan_button, pos=(0, 0), flag=wx.EXPAND)
         actions.Add(self.home_services_button, pos=(0, 1), flag=wx.EXPAND)
@@ -585,7 +605,7 @@ class MyApp(SessionUIMixin, VehicleProfilesMixin, DashboardUIMixin, GraphUIMixin
         actions.AddGrowableRow(0, 1)
         actions.AddGrowableRow(1, 1)
 
-        root_sizer.Add(actions, 1, wx.EXPAND | wx.ALL, 24)
+        root_sizer.Add(actions, 1, wx.EXPAND | wx.ALL, 28)
         self.home_panel.SetSizer(root_sizer)
 
         self.nb.AddPage(self.home_panel, "Home")
@@ -687,18 +707,31 @@ class MyApp(SessionUIMixin, VehicleProfilesMixin, DashboardUIMixin, GraphUIMixin
             if self.tests_active_section == "misfire"
             else "Reading monitor status…"
         )
+        self.tests_status_label.SetForegroundColour(self.theme.warning)
+        if self.tests_active_section == "readiness":
+            for count in self.tests_summary_labels.values():
+                count.SetLabel("…")
         self.RefreshTestsButton.Enable(False)
         if self.senprod and self.senprod.is_alive():
             self.senprod.wake()
 
     def OnTestsPageChanged(self, event):
         self.tests_active_section = "misfire" if event.GetSelection() == 1 else "readiness"
+        is_readiness = self.tests_active_section == "readiness"
+        self.tests_summary_panel.Show(is_readiness)
+        self.tests_help_label.SetLabel(
+            "Readiness shows which emissions monitors have completed. Clearing codes resets readiness."
+            if is_readiness
+            else "Mode 06 misfire results are shown only for cylinder monitors supported by the vehicle."
+        )
+        self.tests_panel.Layout()
         if self.senprod and self.senprod.is_alive():
             self.RefreshTests()
         event.Skip()
 
 
     def sensor_control_on(self):  # after connection enable few buttons
+        self._update_active_vehicle_header()
         self.settingmenu.Enable(ID_CONFIG, False)
         self.settingmenu.Enable(ID_RESET, False)
         self.settingmenu.Enable(ID_DISCONNECT, True)
@@ -709,12 +742,22 @@ class MyApp(SessionUIMixin, VehicleProfilesMixin, DashboardUIMixin, GraphUIMixin
         self.RefreshTestsButton.Enable(True)
         self.sensor_record_button.Enable(True)
         self.tests_status_label.SetLabel("Ready to check monitors")
+        self.tests_status_label.SetForegroundColour(self.theme.muted)
+        self._set_graph_connection_state(True)
         if self.dtc.GetItemCount() == 0:
             self.dtc_status_label.SetLabel("Ready to scan")
+            self.dtc_empty_label.SetLabel("No scan results yet.")
+            self.dtc_empty_label.Show()
+        else:
+            self.dtc_empty_label.Hide()
+        self._update_sensor_selection_ui(connected=True)
+        self.DTCpanel.Layout()
+        self.tests_panel.Layout()
 
     def sensor_control_off(self):  # after disconnect disable few buttons
         self._stop_sensor_recording()
         self._reset_dashboard_values()
+        self._clear_connected_vehicle_header()
         self.dtcmenu.Enable(ID_GETC, False)
         self.dtcmenu.Enable(ID_CLEAR, False)
         self.settingmenu.Enable(ID_DISCONNECT, False)
@@ -723,9 +766,20 @@ class MyApp(SessionUIMixin, VehicleProfilesMixin, DashboardUIMixin, GraphUIMixin
         self.GetDTCButton.Enable(False)
         self.ClearDTCButton.Enable(False)
         self.dtc_status_label.SetLabel("Connect to scan vehicle")
+        self.dtc_empty_label.SetLabel(
+            "Disconnected — displayed diagnostic results may be out of date."
+        )
+        self.dtc_empty_label.Show()
         self.RefreshTestsButton.Enable(False)
         self.sensor_record_button.Enable(False)
         self.tests_status_label.SetLabel("Connect to check monitors")
+        self.tests_status_label.SetForegroundColour(self.theme.muted)
+        for count in self.tests_summary_labels.values():
+            count.SetLabel("—")
+        self._set_graph_connection_state(False)
+        self._update_sensor_selection_ui(connected=False)
+        self.DTCpanel.Layout()
+        self.tests_panel.Layout()
         # http://pyserial.sourceforge.net/                                                    empty function
         # EVT_LIST_ITEM_ACTIVATED(self.sensors,self.sensor_id, lambda : None)
 
@@ -751,33 +805,62 @@ class MyApp(SessionUIMixin, VehicleProfilesMixin, DashboardUIMixin, GraphUIMixin
 
         self.sensors_panel = wx.Panel(self.nb)
         self.sensors_panel.SetBackgroundColour(self.theme.window)
+
+        toolbar_panel = wx.Panel(self.sensors_panel)
+        toolbar_panel.SetBackgroundColour(self.theme.surface)
+        toolbar_root = wx.BoxSizer(wx.VERTICAL)
+        status_row = wx.BoxSizer(wx.HORIZONTAL)
         toolbar = wx.BoxSizer(wx.HORIZONTAL)
-        self.sensor_search = wx.SearchCtrl(self.sensors_panel, style=wx.TE_PROCESS_ENTER)
-        self.sensor_search.SetDescriptiveText("Search PID or sensor")
-        self.sensor_search.ShowCancelButton(True)
-        self.sensor_search.SetMinSize((220, 36))
-        self.sensor_count_label = wx.StaticText(self.sensors_panel, label="Waiting for vehicle data")
+
+        guidance = wx.StaticText(
+            toolbar_panel,
+            label="Select one or more PIDs to record or add to a graph.",
+        )
+        guidance.SetForegroundColour(self.theme.muted)
+        self.sensor_count_label = wx.StaticText(toolbar_panel, label="Waiting for vehicle data")
         self.sensor_count_label.SetForegroundColour(self.theme.muted)
-        self.sensor_add_graph_button = ModernButton(
-            self.sensors_panel, "Graph", self.theme, variant="primary", size=(88, 36)
-        )
-        self.sensor_add_graph_button.SetToolTip("Add selected PIDs to Graphs")
-        self.sensor_record_status_label = wx.StaticText(
-            self.sensors_panel, label=""
-        )
+        self.sensor_selection_label = wx.StaticText(toolbar_panel, label="0 selected")
+        self.sensor_selection_label.SetForegroundColour(self.theme.accent)
+        self.sensor_selection_label.SetFont(self.theme.font(10, bold=True))
+        self.sensor_record_status_label = wx.StaticText(toolbar_panel, label="")
         self.sensor_record_status_label.SetForegroundColour(self.theme.muted)
         self.sensor_record_status_label.Hide()
+
+        status_row.Add(guidance, 1, wx.ALIGN_CENTER_VERTICAL)
+        status_row.Add(self.sensor_count_label, 0, wx.ALIGN_CENTER_VERTICAL | wx.RIGHT, 16)
+        status_row.Add(self.sensor_selection_label, 0, wx.ALIGN_CENTER_VERTICAL)
+
+        self.sensor_search = wx.SearchCtrl(toolbar_panel, style=wx.TE_PROCESS_ENTER)
+        self.sensor_search.SetDescriptiveText("Search PID or sensor")
+        self.sensor_search.ShowCancelButton(True)
+        self.sensor_search.SetMinSize((280, 36))
+        self.sensor_clear_button = ModernButton(
+            toolbar_panel, "Clear Selection", self.theme, variant="ghost", size=(120, 36)
+        )
+        self.sensor_add_graph_button = ModernButton(
+            toolbar_panel, "Add to Graph", self.theme, variant="primary", size=(118, 36)
+        )
+        self.sensor_add_graph_button.SetToolTip("Add selected PIDs to Graphs")
         self.sensor_record_button = ModernButton(
-            self.sensors_panel, "Record", self.theme, variant="success", size=(88, 36)
+            toolbar_panel, "Record Selected", self.theme, variant="success", size=(126, 36)
         )
         self.sensor_record_button.SetToolTip("Record selected PIDs to CSV")
 
-        toolbar.Add(self.sensor_search, 0, wx.RIGHT, 12)
-        toolbar.Add(self.sensor_count_label, 0, wx.ALIGN_CENTER_VERTICAL)
-        toolbar.AddStretchSpacer()
+        toolbar.Add(self.sensor_search, 1, wx.RIGHT, 12)
         toolbar.Add(self.sensor_record_status_label, 0, wx.ALIGN_CENTER_VERTICAL | wx.RIGHT, 12)
+        toolbar.Add(self.sensor_clear_button, 0, wx.RIGHT, 8)
         toolbar.Add(self.sensor_record_button, 0, wx.RIGHT, 8)
         toolbar.Add(self.sensor_add_graph_button, 0)
+        toolbar_root.Add(status_row, 0, wx.EXPAND | wx.LEFT | wx.RIGHT | wx.TOP, 10)
+        toolbar_root.Add(toolbar, 0, wx.EXPAND | wx.ALL, 10)
+        toolbar_panel.SetSizer(toolbar_root)
+
+        self.sensor_empty_label = wx.StaticText(
+            self.sensors_panel,
+            label="Connect to a vehicle to view supported live data.",
+        )
+        self.sensor_empty_label.SetForegroundColour(self.theme.muted)
+        self.sensor_empty_label.SetFont(self.theme.font(11))
 
         self.sensors = self.MyListCtrl(
             self.sensors_panel,
@@ -789,11 +872,14 @@ class MyApp(SessionUIMixin, VehicleProfilesMixin, DashboardUIMixin, GraphUIMixin
         self.sensors.InsertColumn(2, "Value", format=wx.LIST_FORMAT_RIGHT, width=220)
 
         root = wx.BoxSizer(wx.VERTICAL)
-        root.Add(toolbar, 0, wx.EXPAND | wx.ALL, 16)
-        root.Add(self.sensors, 1, wx.EXPAND | wx.LEFT | wx.RIGHT | wx.BOTTOM, 16)
+        root.AddSpacer(8)
+        root.Add(toolbar_panel, 0, wx.EXPAND | wx.LEFT | wx.RIGHT, 20)
+        root.Add(self.sensor_empty_label, 0, wx.LEFT | wx.RIGHT | wx.BOTTOM, 20)
+        root.Add(self.sensors, 1, wx.EXPAND | wx.LEFT | wx.RIGHT | wx.BOTTOM, 20)
         self.sensors_panel.SetSizer(root)
 
         self.sensor_search.Bind(wx.EVT_TEXT, self._schedule_sensor_filter)
+        self.sensor_clear_button.Bind(wx.EVT_BUTTON, self._clear_sensor_selection)
         self.sensor_add_graph_button.Bind(wx.EVT_BUTTON, self._add_selected_sensors_to_graph)
         self.sensor_record_button.Bind(wx.EVT_BUTTON, self._toggle_sensor_recording)
         self.sensors.Bind(wx.EVT_LIST_ITEM_SELECTED, self._on_sensor_selected)
@@ -802,6 +888,7 @@ class MyApp(SessionUIMixin, VehicleProfilesMixin, DashboardUIMixin, GraphUIMixin
         self.sensors_panel.Bind(
             wx.EVT_TIMER, self._update_sensor_recording_status, self.sensor_record_timer
         )
+        self._update_sensor_selection_ui()
         self.nb.AddPage(self.sensors_panel, "Sensors")
 
     def _toggle_sensor_recording(self, event=None):
@@ -862,7 +949,7 @@ class MyApp(SessionUIMixin, VehicleProfilesMixin, DashboardUIMixin, GraphUIMixin
         self.sensor_record_started_at = time.monotonic()
         self.sensor_record_sample_count = 0
         self.sensor_record_flush_count = 0
-        self.sensor_record_button.SetLabel("Stop")
+        self.sensor_record_button.SetLabel("Stop Recording")
         self.sensor_record_button.SetVariant("danger")
         self.sensor_record_button.SetToolTip("Stop and save recording")
         self.sensor_record_status_label.Show()
@@ -936,13 +1023,14 @@ class MyApp(SessionUIMixin, VehicleProfilesMixin, DashboardUIMixin, GraphUIMixin
         self.sensor_record_session = None
         self.sensor_record_started_at = None
         self.sensor_record_flush_count = 0
-        self.sensor_record_button.SetLabel("Record")
+        self.sensor_record_button.SetLabel("Record Selected")
         self.sensor_record_button.SetVariant("success")
         self.sensor_record_button.SetToolTip("Record selected PIDs to CSV")
         self.sensor_record_status_label.Show()
         self.sensor_record_status_label.SetLabel(
             status or f"Saved {sample_count} samples"
         )
+        self._update_sensor_selection_ui()
         self.sensors_panel.Layout()
 
     def _schedule_sensor_filter(self, event=None):
@@ -951,6 +1039,10 @@ class MyApp(SessionUIMixin, VehicleProfilesMixin, DashboardUIMixin, GraphUIMixin
         if self.sensor_filter_timer and self.sensor_filter_timer.IsRunning():
             self.sensor_filter_timer.Stop()
         self.sensor_filter_timer = wx.CallLater(150, self._apply_sensor_filter)
+
+    def _style_sensor_row(self, row_index):
+        colour = self.theme.surface_alt if row_index % 2 else self.theme.surface
+        self.sensors.SetItemBackgroundColour(row_index, colour)
 
     def _apply_sensor_filter(self):
         self.sensor_filter_timer = None
@@ -971,6 +1063,7 @@ class MyApp(SessionUIMixin, VehicleProfilesMixin, DashboardUIMixin, GraphUIMixin
             view_index = self.sensors.InsertItem(self.sensors.GetItemCount(), row[0])
             self.sensors.SetItem(view_index, 1, row[1])
             self.sensors.SetItem(view_index, 2, row[2])
+            self._style_sensor_row(view_index)
             self.sensor_visible_indices.append(source_index)
             self.sensor_view_by_source[source_index] = view_index
         self.sensor_selected_sources.intersection_update(self.sensor_visible_indices)
@@ -983,6 +1076,7 @@ class MyApp(SessionUIMixin, VehicleProfilesMixin, DashboardUIMixin, GraphUIMixin
         visible = len(self.sensor_visible_indices)
         total = len(self.sensor_rows)
         self.sensor_count_label.SetLabel(f"{visible} of {total} PIDs" if total else "Waiting for vehicle data")
+        self._update_sensor_selection_ui()
 
     def _selected_sensor_rows(self):
         selected = []
@@ -997,11 +1091,54 @@ class MyApp(SessionUIMixin, VehicleProfilesMixin, DashboardUIMixin, GraphUIMixin
             if 0 <= view_index < len(self.sensor_visible_indices):
                 self.sensor_selected_sources.add(self.sensor_visible_indices[view_index])
 
+    def _clear_sensor_selection(self, event=None):
+        self._rebuilding_sensor_list = True
+        try:
+            for view_index in self._selected_sensor_rows():
+                self.sensors.Select(view_index, False)
+            self.sensor_selected_sources.clear()
+        finally:
+            self._rebuilding_sensor_list = False
+        self._update_sensor_selection_ui()
+
+    def _update_sensor_selection_ui(self, connected=None):
+        selected = len(self.sensor_selected_sources)
+        if connected is None:
+            connected = bool(self.senprod and self.senprod.is_alive())
+        visible = len(self.sensor_visible_indices)
+        total = len(self.sensor_rows)
+
+        self.sensor_selection_label.SetLabel(
+            f"{selected} selected" if selected != 1 else "1 selected"
+        )
+        self.sensor_clear_button.Enable(selected > 0)
+        self.sensor_add_graph_button.Enable(selected > 0)
+        if not self.sensor_record_file:
+            self.sensor_record_button.Enable(connected and selected > 0)
+
+        if not connected:
+            self.sensor_empty_label.SetLabel("Disconnected — displayed values are not updating.")
+            self.sensor_empty_label.Show()
+        elif total and not visible:
+            self.sensor_empty_label.SetLabel("No PIDs match the current search.")
+            self.sensor_empty_label.Show()
+        elif not total:
+            self.sensor_empty_label.SetLabel(
+                "Waiting for supported PIDs…"
+                if connected
+                else "Connect to a vehicle to view supported live data."
+            )
+            self.sensor_empty_label.Show()
+        else:
+            self.sensor_empty_label.Hide()
+        self.sensors_panel.Layout()
+
     def _on_sensor_selected(self, event):
         if not self._rebuilding_sensor_list:
             view_index = event.GetIndex()
             if 0 <= view_index < len(self.sensor_visible_indices):
                 self.sensor_selected_sources.add(self.sensor_visible_indices[view_index])
+            self._update_sensor_selection_ui()
         event.Skip()
 
     def _on_sensor_deselected(self, event):
@@ -1009,6 +1146,7 @@ class MyApp(SessionUIMixin, VehicleProfilesMixin, DashboardUIMixin, GraphUIMixin
             view_index = event.GetIndex()
             if 0 <= view_index < len(self.sensor_visible_indices):
                 self.sensor_selected_sources.discard(self.sensor_visible_indices[view_index])
+            self._update_sensor_selection_ui()
         event.Skip()
 
     def _add_selected_sensors_to_graph(self, event=None):
@@ -1173,17 +1311,33 @@ class MyApp(SessionUIMixin, VehicleProfilesMixin, DashboardUIMixin, GraphUIMixin
         tID = wx.NewIdRef(count=1)
         self.DTCpanel = wx.Panel(self.nb, -1)
         self.DTCpanel.SetBackgroundColour(self.theme.window)
+        toolbar_panel = wx.Panel(self.DTCpanel)
+        toolbar_panel.SetBackgroundColour(self.theme.surface)
         self.GetDTCButton = ModernButton(
-            self.DTCpanel, "Scan codes", self.theme, variant="primary"
+            toolbar_panel, "Scan codes", self.theme, variant="primary"
         )
         self.ClearDTCButton = ModernButton(
-            self.DTCpanel, "Clear codes", self.theme, variant="danger"
+            toolbar_panel, "Clear codes", self.theme, variant="danger"
         )
         self.LookupDTCButton = ModernButton(
-            self.DTCpanel, "Code lookup", self.theme, variant="secondary"
+            toolbar_panel, "Code lookup", self.theme, variant="ghost"
         )
-        self.dtc_status_label = wx.StaticText(self.DTCpanel, label="Connect to scan vehicle")
+        self.dtc_status_label = wx.StaticText(
+            toolbar_panel, label="Connect to scan vehicle"
+        )
         self.dtc_status_label.SetForegroundColour(self.theme.muted)
+
+        toolbar_root = wx.BoxSizer(wx.VERTICAL)
+        status_row = wx.BoxSizer(wx.HORIZONTAL)
+        toolbar = wx.BoxSizer(wx.HORIZONTAL)
+
+        guidance = wx.StaticText(
+            toolbar_panel,
+            label="Scan the vehicle for emissions-related diagnostic trouble codes.",
+        )
+        guidance.SetForegroundColour(self.theme.muted)
+        status_row.Add(guidance, 1, wx.ALIGN_CENTER_VERTICAL)
+        status_row.Add(self.dtc_status_label, 0, wx.ALIGN_CENTER_VERTICAL)
 
         self.GetDTCButton.Bind(wx.EVT_BUTTON, self.GetDTC)
         self.ClearDTCButton.Bind(wx.EVT_BUTTON, self.QueryClear)
@@ -1199,15 +1353,52 @@ class MyApp(SessionUIMixin, VehicleProfilesMixin, DashboardUIMixin, GraphUIMixin
         self.dtc.InsertColumn(1, "Category", width=140)
         self.dtc.InsertColumn(2, "Description", width=520)
 
-        toolbar = wx.BoxSizer(wx.HORIZONTAL)
         toolbar.Add(self.GetDTCButton, 0, wx.RIGHT, 8)
-        toolbar.Add(self.ClearDTCButton, 0, wx.RIGHT, 8)
-        toolbar.Add(self.LookupDTCButton, 0, wx.RIGHT, 16)
-        toolbar.Add(self.dtc_status_label, 0, wx.ALIGN_CENTER_VERTICAL)
+        toolbar.Add(self.LookupDTCButton, 0, wx.RIGHT, 8)
+        toolbar.AddStretchSpacer()
+        toolbar.Add(self.ClearDTCButton, 0)
+        toolbar_root.Add(status_row, 0, wx.EXPAND | wx.LEFT | wx.RIGHT | wx.TOP, 10)
+        toolbar_root.Add(toolbar, 0, wx.EXPAND | wx.ALL, 10)
+        toolbar_panel.SetSizer(toolbar_root)
+
+        summary = wx.BoxSizer(wx.HORIZONTAL)
+        self.dtc_summary_labels = {}
+        for category, colour in (
+            ("Stored", self.theme.danger),
+            ("Pending", self.theme.warning),
+            ("Permanent", self.theme.accent),
+        ):
+            card = wx.Panel(self.DTCpanel, style=wx.BORDER_SIMPLE)
+            card.SetBackgroundColour(self.theme.surface)
+            card.SetMinSize((-1, 54))
+            card_sizer = wx.BoxSizer(wx.HORIZONTAL)
+            name = wx.StaticText(card, label=category)
+            name.SetForegroundColour(self.theme.muted)
+            count = wx.StaticText(card, label="0")
+            count.SetForegroundColour(colour)
+            count.SetFont(self.theme.font(16, bold=True))
+            card_sizer.Add(name, 0, wx.ALIGN_CENTER_VERTICAL)
+            card_sizer.AddStretchSpacer()
+            card_sizer.Add(count, 0, wx.ALIGN_CENTER_VERTICAL)
+            card.SetSizer(card_sizer)
+            summary.Add(card, 1, wx.EXPAND | wx.RIGHT, 10 if category != "Permanent" else 0)
+            card_sizer.AddSpacer(14)
+            card_sizer.PrependSpacer(14)
+            self.dtc_summary_labels[category] = count
+
+        self.dtc_empty_label = wx.StaticText(
+            self.DTCpanel,
+            label="Connect to a vehicle to scan diagnostic trouble codes.",
+        )
+        self.dtc_empty_label.SetForegroundColour(self.theme.muted)
+        self.dtc_empty_label.SetFont(self.theme.font(11))
 
         root = wx.BoxSizer(wx.VERTICAL)
-        root.Add(toolbar, 0, wx.EXPAND | wx.ALL, 16)
-        root.Add(self.dtc, 1, wx.EXPAND | wx.LEFT | wx.RIGHT | wx.BOTTOM, 16)
+        root.AddSpacer(8)
+        root.Add(toolbar_panel, 0, wx.EXPAND | wx.LEFT | wx.RIGHT, 20)
+        root.Add(summary, 0, wx.EXPAND | wx.LEFT | wx.RIGHT | wx.TOP, 20)
+        root.Add(self.dtc_empty_label, 0, wx.LEFT | wx.RIGHT | wx.TOP, 20)
+        root.Add(self.dtc, 1, wx.EXPAND | wx.ALL, 20)
         self.DTCpanel.SetSizer(root)
 
         self.nb.AddPage(self.DTCpanel, "DTC")
@@ -1316,20 +1507,58 @@ class MyApp(SessionUIMixin, VehicleProfilesMixin, DashboardUIMixin, GraphUIMixin
         self.tests_panel = wx.Panel(self.nb)
         self.tests_panel.SetBackgroundColour(self.theme.window)
         tests_root = wx.BoxSizer(wx.VERTICAL)
+        toolbar_panel = wx.Panel(self.tests_panel)
+        toolbar_panel.SetBackgroundColour(self.theme.surface)
+        toolbar_root = wx.BoxSizer(wx.VERTICAL)
         tests_toolbar = wx.BoxSizer(wx.HORIZONTAL)
         self.tests_status_label = wx.StaticText(
-            self.tests_panel, label="Connect to check monitors"
+            toolbar_panel, label="Connect to check monitors"
         )
         self.tests_status_label.SetForegroundColour(self.theme.muted)
         self.RefreshTestsButton = ModernButton(
-            self.tests_panel, "Refresh", self.theme, variant="primary"
+            toolbar_panel, "Refresh", self.theme, variant="primary"
         )
         self.RefreshTestsButton.Enable(False)
         self.RefreshTestsButton.Bind(wx.EVT_BUTTON, self.RefreshTests)
         tests_toolbar.Add(self.tests_status_label, 1, wx.ALIGN_CENTER_VERTICAL)
         tests_toolbar.Add(self.RefreshTestsButton, 0)
+        toolbar_root.Add(tests_toolbar, 0, wx.EXPAND | wx.ALL, 10)
+        toolbar_panel.SetSizer(toolbar_root)
 
-        tests_help = wx.StaticText(
+        self.tests_summary_panel = wx.Panel(self.tests_panel)
+        self.tests_summary_panel.SetBackgroundColour(self.theme.window)
+        tests_summary = wx.BoxSizer(wx.HORIZONTAL)
+        self.tests_summary_labels = {}
+        for category, colour in (
+            ("Ready", self.theme.success),
+            ("Not Ready", self.theme.warning),
+            ("Unsupported", self.theme.muted),
+        ):
+            card = wx.Panel(self.tests_summary_panel, style=wx.BORDER_SIMPLE)
+            card.SetBackgroundColour(self.theme.surface)
+            card.SetMinSize((-1, 54))
+            card_sizer = wx.BoxSizer(wx.HORIZONTAL)
+            name = wx.StaticText(card, label=category)
+            name.SetForegroundColour(self.theme.muted)
+            count = wx.StaticText(card, label="—")
+            count.SetForegroundColour(colour)
+            count.SetFont(self.theme.font(16, bold=True))
+            card_sizer.AddSpacer(14)
+            card_sizer.Add(name, 0, wx.ALIGN_CENTER_VERTICAL)
+            card_sizer.AddStretchSpacer()
+            card_sizer.Add(count, 0, wx.ALIGN_CENTER_VERTICAL)
+            card_sizer.AddSpacer(14)
+            card.SetSizer(card_sizer)
+            tests_summary.Add(
+                card,
+                1,
+                wx.EXPAND | wx.RIGHT,
+                10 if category != "Unsupported" else 0,
+            )
+            self.tests_summary_labels[category] = count
+        self.tests_summary_panel.SetSizer(tests_summary)
+
+        self.tests_help_label = wx.StaticText(
             self.tests_panel,
             label=(
                 "Readiness shows which emissions monitors have completed. "
@@ -1337,7 +1566,7 @@ class MyApp(SessionUIMixin, VehicleProfilesMixin, DashboardUIMixin, GraphUIMixin
                 "Clearing diagnostic codes resets readiness."
             ),
         )
-        tests_help.SetForegroundColour(self.theme.muted)
+        self.tests_help_label.SetForegroundColour(self.theme.muted)
 
         self.tests_notebook = wx.Notebook(self.tests_panel)
         self.OBDTests = self.MyListCtrl(
@@ -1354,14 +1583,15 @@ class MyApp(SessionUIMixin, VehicleProfilesMixin, DashboardUIMixin, GraphUIMixin
         )
         self.misfire_tests.InsertColumn(0, "Monitor", width=330)
         self.misfire_tests.InsertColumn(1, "Mode 06 result", width=180)
-        for cylinder in range(1, 13):
-            self.misfire_tests.Append([f"Cylinder {cylinder}", "—"])
+        self.misfire_tests.Append(["Refresh to detect supported cylinder monitors", "—"])
 
         self.tests_notebook.AddPage(self.OBDTests, "Readiness")
         self.tests_notebook.AddPage(self.misfire_tests, "Misfire Results")
         self.tests_notebook.Bind(wx.EVT_NOTEBOOK_PAGE_CHANGED, self.OnTestsPageChanged)
-        tests_root.Add(tests_toolbar, 0, wx.EXPAND | wx.ALL, 20)
-        tests_root.Add(tests_help, 0, wx.LEFT | wx.RIGHT | wx.BOTTOM, 20)
+        tests_root.AddSpacer(8)
+        tests_root.Add(toolbar_panel, 0, wx.EXPAND | wx.LEFT | wx.RIGHT, 20)
+        tests_root.Add(self.tests_summary_panel, 0, wx.EXPAND | wx.LEFT | wx.RIGHT | wx.TOP, 20)
+        tests_root.Add(self.tests_help_label, 0, wx.LEFT | wx.RIGHT | wx.TOP | wx.BOTTOM, 20)
         tests_root.Add(self.tests_notebook, 1, wx.EXPAND | wx.LEFT | wx.RIGHT | wx.BOTTOM, 20)
         self.tests_panel.SetSizer(tests_root)
         self.nb.AddPage(self.tests_panel, "Readiness")
@@ -1394,7 +1624,7 @@ class MyApp(SessionUIMixin, VehicleProfilesMixin, DashboardUIMixin, GraphUIMixin
 
         content_sizer = wx.BoxSizer(wx.VERTICAL)
         content_sizer.Add(self.content_header, 0, wx.EXPAND | wx.LEFT | wx.RIGHT | wx.TOP, 20)
-        content_sizer.Add(self.nb, 1, wx.EXPAND | wx.ALL, 20)
+        content_sizer.Add(self.nb, 1, wx.EXPAND | wx.LEFT | wx.RIGHT | wx.BOTTOM, 20)
         content_sizer.Add(self.bottom_toolbar, 0, wx.EXPAND)
         self.content_panel.SetSizer(content_sizer)
 
@@ -1505,6 +1735,7 @@ class MyApp(SessionUIMixin, VehicleProfilesMixin, DashboardUIMixin, GraphUIMixin
                     self.sensor_rows.append(["", "", ""])
                 if source_index not in self.sensor_view_by_source and not query_active:
                     view_index = self.sensors.InsertItem(self.sensors.GetItemCount(), "")
+                    self._style_sensor_row(view_index)
                     self.sensor_visible_indices.append(source_index)
                     self.sensor_view_by_source[source_index] = view_index
 
@@ -1529,6 +1760,8 @@ class MyApp(SessionUIMixin, VehicleProfilesMixin, DashboardUIMixin, GraphUIMixin
         self.sensor_count_label.SetLabel(
             f"{len(self.sensor_visible_indices)} of {len(self.sensor_rows)} PIDs"
         )
+        if not query_active and self.sensor_empty_label.IsShown() and self.sensor_rows:
+            self._update_sensor_selection_ui()
 
     def OnFreezeframeResult(self, event):
         self.freezeframe.SetItem(event.data[0], event.data[1], event.data[2])
@@ -1571,6 +1804,15 @@ class MyApp(SessionUIMixin, VehicleProfilesMixin, DashboardUIMixin, GraphUIMixin
             self.OBDTests.SetItemTextColour(data["index"], colour)
         elif data["kind"] == "misfire":
             self.misfire_tests.SetItem(data["index"], 1, data["result"])
+            result = data["result"]
+            colour = (
+                self.theme.muted
+                if result == "Unsupported"
+                else self.theme.success
+                if result.startswith("0 ")
+                else self.theme.warning
+            )
+            self.misfire_tests.SetItemTextColour(data["index"], colour)
         elif data["kind"] == "misfire_reset":
             self.misfire_tests.DeleteAllItems()
             cylinders = data["cylinders"]
@@ -1580,9 +1822,15 @@ class MyApp(SessionUIMixin, VehicleProfilesMixin, DashboardUIMixin, GraphUIMixin
             else:
                 self.misfire_tests.Append(["No supported cylinder monitors", "—"])
         elif data["kind"] == "complete":
+            self.tests_summary_labels["Ready"].SetLabel(str(data["ready"]))
+            self.tests_summary_labels["Not Ready"].SetLabel(str(data["not_ready"]))
+            self.tests_summary_labels["Unsupported"].SetLabel(str(data["unsupported"]))
             self.tests_status_label.SetLabel(
                 f"{data['ready']} ready  •  {data['not_ready']} not ready  •  "
                 f"{data['unsupported']} unsupported"
+            )
+            self.tests_status_label.SetForegroundColour(
+                self.theme.warning if data["not_ready"] else self.theme.success
             )
             self.RefreshTestsButton.Enable(True)
         elif data["kind"] == "misfire_complete":
@@ -1592,10 +1840,15 @@ class MyApp(SessionUIMixin, VehicleProfilesMixin, DashboardUIMixin, GraphUIMixin
                 if count
                 else "No supported per-cylinder misfire monitors"
             )
+            self.tests_status_label.SetForegroundColour(
+                self.theme.success if count else self.theme.muted
+            )
             self.RefreshTestsButton.Enable(True)
         elif data["kind"] == "error":
             self.tests_status_label.SetLabel("Unable to read monitor status")
+            self.tests_status_label.SetForegroundColour(self.theme.danger)
             self.RefreshTestsButton.Enable(True)
+        self.tests_panel.Layout()
 
     """
     def OnCombo(self, event):
@@ -1648,10 +1901,16 @@ class MyApp(SessionUIMixin, VehicleProfilesMixin, DashboardUIMixin, GraphUIMixin
     def OnDtc(self, event):
         if event.data == 0:  # signal, that DTC was cleared
             self.dtc.DeleteAllItems()
+            for count in self.dtc_summary_labels.values():
+                count.SetLabel("0")
             self.dtc_status_label.SetLabel("Scanning diagnostic trouble codes…")
+            self.dtc_empty_label.SetLabel("Scanning diagnostic trouble codes…")
+            self.dtc_empty_label.Show()
             self.GetDTCButton.Enable(False)
         elif isinstance(event.data, dict):
             counts = event.data.get("counts", {})
+            for category, count in self.dtc_summary_labels.items():
+                count.SetLabel(str(counts.get(category, 0)))
             total = sum(counts.values())
             if total:
                 self.dtc_status_label.SetLabel(
@@ -1659,11 +1918,25 @@ class MyApp(SessionUIMixin, VehicleProfilesMixin, DashboardUIMixin, GraphUIMixin
                     f"{counts.get('Pending', 0)} pending  •  "
                     f"{counts.get('Permanent', 0)} permanent"
                 )
+                self.dtc_empty_label.Hide()
             else:
                 self.dtc_status_label.SetLabel("No diagnostic trouble codes reported")
+                self.dtc_empty_label.SetLabel("No diagnostic trouble codes were reported.")
+                self.dtc_empty_label.Show()
             self.GetDTCButton.Enable(True)
         else:
-            self.dtc.Append(event.data)
+            row = tuple(event.data)
+            row_index = self.dtc.Append(row)
+            category_colours = {
+                "Stored": self.theme.danger,
+                "Pending": self.theme.warning,
+                "Permanent": self.theme.accent,
+            }
+            self.dtc.SetItemTextColour(
+                row_index, category_colours.get(row[1], self.theme.text)
+            )
+            self.dtc_empty_label.Hide()
+        self.DTCpanel.Layout()
 
     def OnDisconnect(self, event):  # disconnect connection to ECU
         self._stop_sensor_recording()
@@ -1703,6 +1976,8 @@ class MyApp(SessionUIMixin, VehicleProfilesMixin, DashboardUIMixin, GraphUIMixin
 
     def GetDTC(self, e):
         self.dtc_status_label.SetLabel("Scanning diagnostic trouble codes…")
+        self.dtc_empty_label.SetLabel("Scanning diagnostic trouble codes…")
+        self.dtc_empty_label.Show()
         self.GetDTCButton.Enable(False)
         self.ThreadControl = 2
         self._go_to_page(self.DTCpanel)
@@ -1713,25 +1988,76 @@ class MyApp(SessionUIMixin, VehicleProfilesMixin, DashboardUIMixin, GraphUIMixin
         self.dtc.SetItem(0, 1, code[1])
 
     def CodeLookup(self, e=None):
-        id = 0
-        diag = wx.Frame(None, id, title="Diagnostic Trouble Codes")
+        diag = wx.Frame(
+            self.frame,
+            title="Diagnostic Trouble Code Lookup",
+            size=(760, 620),
+        )
         ico = wx.Icon(resource_path('assets/pyobd.png'), wx.BITMAP_TYPE_PNG)
         diag.SetIcon(ico)
-        tree = wx.TreeCtrl(diag, id, style=wx.TR_HAS_BUTTONS)
+        diag.SetBackgroundColour(self.theme.window)
 
-        root = tree.AddRoot("Code Reference")
-        proot = root;  # tree.AppendItem(root,"Powertrain (P) Codes")
-        codes = pcodes.keys()
-        codes = sorted(codes)
-        group = ""
-        for c in codes:
-            if c[:3] != group:
-                group_root = tree.AppendItem(proot, c[:3] + "XX")
-                group = c[:3]
-            leaf = tree.AppendItem(group_root, c)
-            tree.AppendItem(leaf, pcodes[c])
+        panel = wx.Panel(diag)
+        panel.SetBackgroundColour(self.theme.window)
+        search = wx.SearchCtrl(panel, style=wx.TE_PROCESS_ENTER)
+        search.SetDescriptiveText("Search code or description")
+        search.ShowCancelButton(True)
+        search.SetMinSize((-1, 38))
+        result_label = wx.StaticText(panel, label="")
+        result_label.SetForegroundColour(self.theme.muted)
 
-        diag.SetSize((400, 500))
+        results = self.MyListCtrl(
+            panel,
+            wx.NewIdRef(),
+            style=wx.LC_REPORT | wx.BORDER_NONE | wx.LC_HRULES | wx.LC_SINGLE_SEL,
+        )
+        results.InsertColumn(0, "Code", width=120)
+        results.InsertColumn(1, "Description", width=560)
+        self.theme.style_list(results)
+
+        rows = sorted(pcodes.items())
+        pending_filter = {"timer": None}
+
+        def populate():
+            pending_filter["timer"] = None
+            query = search.GetValue().strip().lower()
+            filtered = [
+                (code, description)
+                for code, description in rows
+                if not query or query in code.lower() or query in description.lower()
+            ]
+            results.Freeze()
+            try:
+                results.DeleteAllItems()
+                for code, description in filtered:
+                    results.Append([code, description])
+            finally:
+                results.Thaw()
+            result_label.SetLabel(f"{len(filtered)} codes")
+            panel.Layout()
+
+        def schedule_filter(event):
+            timer = pending_filter["timer"]
+            if timer and timer.IsRunning():
+                timer.Stop()
+            pending_filter["timer"] = wx.CallLater(120, populate)
+            event.Skip()
+
+        def close_lookup(event):
+            timer = pending_filter["timer"]
+            if timer and timer.IsRunning():
+                timer.Stop()
+            event.Skip()
+
+        root = wx.BoxSizer(wx.VERTICAL)
+        root.Add(search, 0, wx.EXPAND | wx.ALL, 16)
+        root.Add(result_label, 0, wx.LEFT | wx.RIGHT | wx.BOTTOM, 16)
+        root.Add(results, 1, wx.EXPAND | wx.LEFT | wx.RIGHT | wx.BOTTOM, 16)
+        panel.SetSizer(root)
+        search.Bind(wx.EVT_TEXT, schedule_filter)
+        diag.Bind(wx.EVT_CLOSE, close_lookup)
+        populate()
+        diag.CentreOnParent()
         diag.Show(True)
 
     def QueryClear(self, e):
@@ -1746,6 +2072,7 @@ class MyApp(SessionUIMixin, VehicleProfilesMixin, DashboardUIMixin, GraphUIMixin
             self.ClearDTC()
 
     def ClearDTC(self):
+        self.dtc_status_label.SetLabel("Clearing diagnostic trouble codes…")
         self.ThreadControl = 1
         self._go_to_page(self.DTCpanel)
         self.senprod.wake()
@@ -2307,6 +2634,7 @@ class MyApp(SessionUIMixin, VehicleProfilesMixin, DashboardUIMixin, GraphUIMixin
 
             # write configuration to cfg file
             self.config.write(open(self.configfilepath, 'w'))
+            self._update_active_vehicle_header()
 
     def OnExitMenu(self, event=None):
         self.frame.Close()
