@@ -35,6 +35,7 @@ ColumnLayout {
                 highlighted: appModel.recordingActive
                 onClicked: appModel.recordingActive ? appModel.stop_recording() : recordingDialog.open()
             }
+            Button { text: "Open recordings"; onClicked: appModel.open_app_link("recordings") }
         }
     }
 
@@ -111,7 +112,6 @@ ColumnLayout {
                     Layout.preferredWidth: 72
                     text: pid
                     color: "#64748b"
-                    font.family: "monospace"
                 }
                 Label {
                     Layout.fillWidth: true

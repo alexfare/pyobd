@@ -22,11 +22,13 @@ def main():
     if icon_path.exists():
         app.setWindowIcon(QIcon(str(icon_path)))
 
-    engine = QQmlApplicationEngine()
     model = AppModel()
-    app.aboutToQuit.connect(model.shutdown)
+    engine = QQmlApplicationEngine()
     engine.rootContext().setContextProperty("appModel", model)
     engine.load(QUrl.fromLocalFile(str(Path(__file__).parent / "ui" / "Main.qml")))
     if not engine.rootObjects():
         return 1
-    return app.exec()
+    exit_code = app.exec()
+    model.shutdown()
+    del engine
+    return exit_code
