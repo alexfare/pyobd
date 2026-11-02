@@ -27,6 +27,14 @@ ColumnLayout {
                 text: "Favorites only"
                 onToggled: appModel.set_live_filter(search.text, checked)
             }
+            Label { text: appModel.selectedLiveCount + " selected"; color: "#64748b" }
+            Button { text: "Clear"; enabled: appModel.selectedLiveCount > 0 && !appModel.recordingActive; onClicked: appModel.clear_live_selection() }
+            Button {
+                text: appModel.recordingActive ? "Stop recording" : "Record selected"
+                enabled: appModel.recordingActive || appModel.selectedLiveCount > 0
+                highlighted: appModel.recordingActive
+                onClicked: appModel.recordingActive ? appModel.stop_recording() : recordingDialog.open()
+            }
         }
     }
 
@@ -42,6 +50,7 @@ ColumnLayout {
             anchors.leftMargin: 12
             anchors.rightMargin: 18
             spacing: 12
+            Item { Layout.preferredWidth: 34 }
             Item { Layout.preferredWidth: 38 }
             Label { text: "PID"; Layout.preferredWidth: 72; color: "#64748b"; font.bold: true }
             Label { text: "Sensor"; Layout.fillWidth: true; color: "#64748b"; font.bold: true }
@@ -75,6 +84,7 @@ ColumnLayout {
             required property string readingValue
             required property string unit
             required property bool favorite
+            required property bool selected
             width: liveList.width
             height: 62
             color: index % 2 ? "#f8fafc" : "white"
@@ -84,6 +94,12 @@ ColumnLayout {
                 anchors.leftMargin: 12
                 anchors.rightMargin: 18
                 spacing: 12
+                CheckBox {
+                    Layout.preferredWidth: 34
+                    checked: selected
+                    enabled: !appModel.recordingActive
+                    onClicked: appModel.toggle_live_selection(pid)
+                }
                 Button {
                     Layout.preferredWidth: 38
                     Layout.preferredHeight: 38
@@ -122,5 +138,29 @@ ColumnLayout {
             color: "#64748b"
             font.pixelSize: 16
         }
+    }
+
+    Dialog {
+        id: recordingDialog
+        anchors.centerIn: Overlay.overlay
+        width: 440
+        modal: true
+        title: "New live-data recording"
+        standardButtons: Dialog.Save | Dialog.Cancel
+        onAccepted: appModel.start_recording(recordingName.text)
+        ColumnLayout {
+            anchors.fill: parent
+            Label { text: "Recording name"; font.bold: true }
+            TextField { id: recordingName; Layout.fillWidth: true; text: "Live Data Session"; selectByMouse: true }
+            Label { text: appModel.selectedLiveCount + " PID(s) will be recorded to CSV"; color: "#64748b" }
+        }
+    }
+
+    Label {
+        visible: appModel.recordingStatus.length > 0
+        text: appModel.recordingStatus
+        color: "#64748b"
+        Layout.leftMargin: 20
+        Layout.bottomMargin: 8
     }
 }

@@ -26,6 +26,7 @@ class EventChannel(str, Enum):
     READINESS = "readiness"
     FREEZE_FRAME = "freeze_frame"
     OPERATION_ERROR = "operation_error"
+    UPDATE_STATUS = "update_status"
 
 
 @dataclass(frozen=True)

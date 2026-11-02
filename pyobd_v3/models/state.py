@@ -38,6 +38,8 @@ class ConnectionConfig:
             return "WIFI:" + address
         if self.transport == "Bluetooth":
             return "BT:" + self.address.strip()
+        if self.transport == "USB / Serial" and not self.address.strip():
+            return "AUTO"
         return self.address.strip()
 
 

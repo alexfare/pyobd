@@ -14,6 +14,8 @@ ScrollView {
         address.text = saved.address
         port.text = saved.port
         baudrate.currentIndex = Math.max(0, baudrate.model.indexOf(saved.baudrate))
+        timeout.text = saved.timeout
+        retries.value = Number(saved.retries)
     }
 
     ColumnLayout {
@@ -50,6 +52,32 @@ ScrollView {
                 }
                 TextField { id: port; Layout.fillWidth: true; visible: transport.currentText === "Wi-Fi"; placeholderText: "Port"; text: "35000" }
                 ComboBox { id: baudrate; Layout.fillWidth: true; visible: transport.currentText !== "Wi-Fi" && transport.currentText !== "Demo"; model: ["AUTO", "38400", "9600", "115200"] }
+                RowLayout {
+                    Layout.fillWidth: true
+                    visible: transport.currentText !== "Demo"
+                    TextField { id: timeout; Layout.fillWidth: true; placeholderText: "Connection timeout (seconds)"; text: "2.0" }
+                    Label { text: "Reconnect attempts"; color: "#64748b" }
+                    SpinBox { id: retries; from: 1; to: 10; value: 3; editable: true }
+                }
+                ColumnLayout {
+                    Layout.fillWidth: true
+                    visible: transport.currentText === "USB / Serial"
+                    RowLayout {
+                        Layout.fillWidth: true
+                        Label { text: "Detected serial adapters"; font.bold: true; Layout.fillWidth: true }
+                        Button { text: "Refresh"; onClicked: appModel.refresh_serial_adapters() }
+                    }
+                    Label { visible: appModel.serialAdapters.length === 0; text: "No serial adapters detected. Leave the port blank to scan automatically."; color: "#64748b" }
+                    Repeater {
+                        model: appModel.serialAdapters
+                        delegate: Button {
+                            required property var modelData
+                            Layout.fillWidth: true
+                            text: (modelData.connected ? "✓ Connected  " : "") + modelData.label
+                            onClicked: address.text = modelData.target
+                        }
+                    }
+                }
                 ColumnLayout {
                     Layout.fillWidth: true
                     visible: transport.currentText === "Bluetooth"
@@ -78,7 +106,10 @@ ScrollView {
                     Button {
                         text: appModel.connected ? "Reconnect" : "Connect"
                         highlighted: true
-                        onClicked: appModel.connect_vehicle(transport.currentText, address.text, port.text, baudrate.currentText)
+                        onClicked: appModel.connect_vehicle(
+                            transport.currentText, address.text, port.text,
+                            baudrate.currentText, timeout.text, retries.value.toString()
+                        )
                     }
                     Button { text: "Disconnect"; enabled: appModel.connectionStatus !== "Disconnected"; onClicked: appModel.disconnect_vehicle() }
                     Item { Layout.fillWidth: true }

@@ -9,7 +9,7 @@ ApplicationWindow {
     height: 900
     minimumWidth: 1050
     minimumHeight: 680
-    title: "pyOBD v3"
+    title: "pyOBD v" + appModel.appVersion
     color: "#f3f6fa"
 
     readonly property color navy: "#122337"
@@ -42,12 +42,17 @@ ApplicationWindow {
                     Layout.bottomMargin: 22
                 }
 
-                Repeater {
-                    model: ["Overview", "Dashboard", "Live Data", "Graphs", "Diagnostics", "Readiness", "Freeze Frame", "Vehicles", "Connection"]
+                ListView {
+                    id: navigationList
+                    Layout.fillWidth: true
+                    Layout.fillHeight: true
+                    clip: true
+                    spacing: 8
+                    model: ["Overview", "Dashboard", "Live Data", "Graphs", "Diagnostics", "Readiness", "Freeze Frame", "Vehicles", "Connection", "Settings", "About"]
                     delegate: Button {
                         required property string modelData
-                        Layout.fillWidth: true
-                        Layout.preferredHeight: 44
+                        width: navigationList.width
+                        height: 44
                         text: modelData
                         flat: true
                         onClicked: appModel.select_page(modelData)
@@ -66,9 +71,8 @@ ApplicationWindow {
                     }
                 }
 
-                Item { Layout.fillHeight: true }
                 Label {
-                    text: "pyOBD v3.0\nModern OBD-II diagnostics"
+                    text: "pyOBD v" + appModel.appVersion + "\nModern OBD-II diagnostics"
                     color: "#8fa2b8"
                     font.pixelSize: 12
                     lineHeight: 1.35
@@ -129,6 +133,8 @@ ApplicationWindow {
                     if (appModel.page === "Readiness") return readinessPage
                     if (appModel.page === "Freeze Frame") return freezeFramePage
                     if (appModel.page === "Vehicles") return vehiclesPage
+                    if (appModel.page === "Settings") return settingsPage
+                    if (appModel.page === "About") return aboutPage
                     return placeholderPage
                 }
             }
@@ -164,12 +170,14 @@ ApplicationWindow {
     Component { id: readinessPage; ReadinessPage {} }
     Component { id: freezeFramePage; FreezeFramePage {} }
     Component { id: vehiclesPage; VehiclesPage {} }
+    Component { id: settingsPage; SettingsPage {} }
+    Component { id: aboutPage; AboutPage {} }
     Component {
         id: placeholderPage
         Item {
             Label {
                 anchors.centerIn: parent
-                text: appModel.page + " migration is queued for Phase 3"
+                text: appModel.page
                 color: "#64748b"
                 font.pixelSize: 22
             }

@@ -102,45 +102,68 @@ class VehicleService:
         self._operations.put("freeze_frame")
 
     def _run(self):
-        self._publish_connection(ConnectionStatus.CONNECTING)
         target = self._config.adapter_target()
         if not target:
             self._publish_connection(ConnectionStatus.FAILED, "Adapter target is required")
             return
-        try:
-            self._connection = OBDConnection(
-                target,
-                None,
-                self._config.baudrate,
-                self._config.timeout,
-                self._config.retries,
-                "FAST",
-                event_sink=self._event_sink,
-                cancel_check=self._stop_event.is_set,
+        reconnects = 0
+        connected_once = False
+        while not self._stop_event.is_set():
+            self._publish_connection(
+                ConnectionStatus.RECONNECTING if connected_once else ConnectionStatus.CONNECTING
             )
-            if self._stop_event.is_set():
-                return
-            if self._connection.connection.status() not in ("Car Connected", OBDStatus.CAR_CONNECTED):
-                reason = self._connection.failure_reason or "No vehicle connection"
-                self._publish_connection(ConnectionStatus.FAILED, reason)
-                return
-            self._publish_identity()
-            self._discover_supported_pids()
-            self._publish_readiness()
-            while not self._stop_event.is_set():
-                self._process_operation()
-                self._poll_next_reading()
-                self._stop_event.wait(self._update_interval)
-        except Exception as error:
-            self._publish_connection(ConnectionStatus.FAILED, str(error))
-            self._event_sink.publish(AppEvent(EventChannel.OPERATION_ERROR, str(error)))
-        finally:
-            if self._connection is not None:
-                try:
-                    self._connection.close()
-                except Exception:
-                    pass
-            self._connection = None
+            try:
+                self._connection = OBDConnection(
+                    target,
+                    None,
+                    self._config.baudrate,
+                    self._config.timeout,
+                    self._config.retries,
+                    "FAST",
+                    attempt_status="Reconnecting" if connected_once else None,
+                    event_sink=self._event_sink,
+                    cancel_check=self._stop_event.is_set,
+                )
+                if self._stop_event.is_set():
+                    break
+                if self._connection.connection.status() not in (
+                    "Car Connected", OBDStatus.CAR_CONNECTED
+                ):
+                    reason = self._connection.failure_reason or "No vehicle connection"
+                    self._publish_connection(ConnectionStatus.FAILED, reason)
+                    break
+                connected_once = True
+                reconnects = 0
+                self._readings.clear()
+                self._live_commands = []
+                self._live_index = 0
+                self._publish_identity()
+                self._discover_supported_pids()
+                self._publish_readiness()
+                while not self._stop_event.is_set():
+                    status = self._connection.connection.status()
+                    if status not in ("Car Connected", OBDStatus.CAR_CONNECTED):
+                        raise ConnectionError("Vehicle connection lost")
+                    self._process_operation()
+                    self._poll_next_reading()
+                    self._stop_event.wait(self._update_interval)
+            except Exception as error:
+                if self._stop_event.is_set():
+                    break
+                reconnects += 1
+                self._event_sink.publish(AppEvent(EventChannel.OPERATION_ERROR, str(error)))
+                if not connected_once or reconnects > self._config.retries:
+                    self._publish_connection(ConnectionStatus.FAILED, str(error))
+                    break
+                self._publish_connection(ConnectionStatus.RECONNECTING, str(error))
+                self._stop_event.wait(1.0)
+            finally:
+                if self._connection is not None:
+                    try:
+                        self._connection.close()
+                    except Exception:
+                        pass
+                self._connection = None
 
     def _publish_connection(self, status, error=""):
         if self._stop_event.is_set() and status != ConnectionStatus.DISCONNECTED:
@@ -225,9 +248,9 @@ class VehicleService:
             pid, command.desc, text, unit,
             progress=self._progress(command.name, magnitude),
         )
-        self._event_sink.publish(AppEvent(
-            EventChannel.TELEMETRY, tuple(self._readings.values())
-        ))
+        self._event_sink.publish(AppEvent(EventChannel.TELEMETRY, (
+            self._readings[pid],
+        )))
 
     def _process_operation(self):
         try:

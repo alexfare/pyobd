@@ -56,10 +56,10 @@ headless diagnostics.
 
 ### Phase 4 — Migration
 
-- [ ] Port settings, logging, recording, updates, and support information.
-- [ ] Match serial, Wi-Fi, Bluetooth, custom URL, and Demo behavior.
-- [ ] Remove all Qt-to-wx compatibility code.
-- [ ] Reach feature parity with v2.6.
+- [x] Port settings, logging, recording, updates, and support information.
+- [x] Match serial, Wi-Fi, Bluetooth, custom URL, and Demo behavior.
+- [x] Remove all Qt-to-wx compatibility code.
+- [x] Reach feature parity with v2.6.
 
 ### Phase 5 — Release
 

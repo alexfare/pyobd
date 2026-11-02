@@ -3,15 +3,27 @@
 from collections import defaultdict, deque
 import json
 from pathlib import Path
+import re
+import threading
+import urllib.error
+import urllib.request
 from uuid import uuid4
 
 from PySide6.QtCore import Property, QObject, QUrl, Signal, Slot
+from PySide6.QtGui import QDesktopServices
 
 from event_sink import AppEvent, CallbackEventSink, EventChannel
+from pyobd_v3.app_info import (
+    APP_VERSION, ISSUES_URL, LICENSE_URL, PROJECT_URL, RELEASE_API_URL,
+    RELEASES_URL, SUPPORT_URL,
+)
 from pyobd_v3.dashboard_model import DashboardListModel
 from pyobd_v3.live_data_model import LiveDataListModel
 from pyobd_v3.models import ConnectionConfig, ConnectionState, VehicleState
-from pyobd_v3.services import SettingsStore, VehicleService, bluetooth_adapters
+from pyobd_v3.services import (
+    AppLog, RecordingService, SettingsStore, VehicleService,
+    bluetooth_adapters, serial_adapters,
+)
 from pyobd_v3.services.settings import DEFAULT_DASHBOARD_WIDGETS, DEFAULT_WIDGETS
 
 
@@ -33,12 +45,26 @@ class AppModel(QObject):
         self._live_data_model = LiveDataListModel(self)
         self._live_search = ""
         self._favorites_only = False
+        self._live_selected = set()
         self._diagnostic_codes = []
         self._readiness = []
         self._freeze_frame = []
         self._operation_error = ""
+        self._update_status = ""
+        self._update_url = RELEASES_URL
         self._bluetooth_adapters = bluetooth_adapters()
+        self._serial_adapters = serial_adapters()
         self._store = SettingsStore()
+        self._preferences = self._store.preferences()
+        try:
+            self._poll_interval = max(
+                0.03, float(self._preferences.get("poll_interval", 0.08))
+            )
+        except (TypeError, ValueError):
+            self._poll_interval = 0.08
+        self._log = AppLog()
+        self._recording = RecordingService()
+        self._recording_status = ""
         self._favorites = self._store.favorites()
         self._profiles = self._store.profiles()
         self._active_profile_id = ""
@@ -59,8 +85,9 @@ class AppModel(QObject):
         self._event_sink = CallbackEventSink()
         self._event_sink.subscribe(self.serviceEvent.emit)
         self.serviceEvent.connect(self._apply_event)
-        self._vehicle_service = VehicleService(self._event_sink)
+        self._vehicle_service = VehicleService(self._event_sink, self._poll_interval)
         self._refresh_dashboard_model()
+        self._log.info("pyOBD v3 started")
 
     @Property(str, notify=pageChanged)
     def page(self):
@@ -192,6 +219,39 @@ class AppModel(QObject):
         selected = self._connection.adapter if self._connection.connected else ""
         return [dict(item, connected=item.get("target") == selected) for item in self._bluetooth_adapters]
 
+    @Property("QVariantList", notify=stateChanged)
+    def serialAdapters(self):
+        selected = self._connection.adapter if self._connection.connected else ""
+        return [dict(item, connected=item.get("target") == selected) for item in self._serial_adapters]
+
+    @Property(int, notify=stateChanged)
+    def selectedLiveCount(self):
+        return len(self._live_selected)
+
+    @Property(bool, notify=stateChanged)
+    def recordingActive(self):
+        return self._recording.active
+
+    @Property(str, notify=stateChanged)
+    def recordingStatus(self):
+        return self._recording_status
+
+    @Property(str, constant=True)
+    def appVersion(self):
+        return APP_VERSION
+
+    @Property(str, notify=stateChanged)
+    def updateStatus(self):
+        return self._update_status
+
+    @Property(str, constant=True)
+    def logPath(self):
+        return str(self._log.path)
+
+    @Property(float, notify=stateChanged)
+    def pollInterval(self):
+        return self._poll_interval
+
     @Property(str, notify=stateChanged)
     def connectionStatus(self):
         return self._connection.status.value
@@ -235,20 +295,28 @@ class AppModel(QObject):
         self._page = page
         self.pageChanged.emit()
 
-    @Slot(str, str, str, str)
-    def connect_vehicle(self, transport, address, port, baudrate):
+    @Slot(str, str, str, str, str, str)
+    def connect_vehicle(self, transport, address, port, baudrate, timeout, retries):
         self._operation_error = ""
         self._vehicle_service.stop()
-        self._vehicle_service = VehicleService(self._event_sink)
+        self._vehicle_service = VehicleService(self._event_sink, self._poll_interval)
+        try:
+            timeout_value = max(0.5, float(timeout))
+            retry_value = max(1, min(10, int(retries)))
+        except (TypeError, ValueError):
+            timeout_value, retry_value = 2.0, 3
         config = ConnectionConfig(
             transport=transport,
             address=address,
             port=port,
             baudrate=baudrate or "AUTO",
+            timeout=timeout_value,
+            retries=retry_value,
         )
         self._store.save_connection({
             "transport": transport, "address": address,
             "port": port, "baudrate": baudrate or "AUTO",
+            "timeout": timeout_value, "retries": retry_value,
         })
         self._vehicle_service.start(config)
 
@@ -264,11 +332,19 @@ class AppModel(QObject):
             "address": values.get("address", "192.168.0.10"),
             "port": values.get("port", "35000"),
             "baudrate": values.get("baudrate", "AUTO"),
+            "timeout": str(values.get("timeout", 2.0)),
+            "retries": str(values.get("retries", 3)),
         }
 
     @Slot()
     def refresh_bluetooth_adapters(self):
         self._bluetooth_adapters = bluetooth_adapters()
+        self._serial_adapters = serial_adapters()
+        self.stateChanged.emit()
+
+    @Slot()
+    def refresh_serial_adapters(self):
+        self._serial_adapters = serial_adapters()
         self.stateChanged.emit()
 
     @Slot(str, bool)
@@ -287,6 +363,101 @@ class AppModel(QObject):
         self._store.save_favorites(self._favorites)
         self._rebuild_live_data()
         self.stateChanged.emit()
+
+    @Slot(str)
+    def toggle_live_selection(self, pid):
+        if pid in self._live_selected:
+            self._live_selected.remove(pid)
+        else:
+            self._live_selected.add(pid)
+        self._rebuild_live_data()
+        self.stateChanged.emit()
+
+    @Slot()
+    def clear_live_selection(self):
+        self._live_selected.clear()
+        self._rebuild_live_data()
+        self.stateChanged.emit()
+
+    @Slot(str)
+    def start_recording(self, name):
+        if not self._live_selected:
+            self._recording_status = "Select at least one PID"
+            self.stateChanged.emit()
+            return
+        try:
+            path = self._recording.start(
+                name.strip() or "Live Data",
+                self._live_selected,
+                self.vin if self.vin != "----" else "Unassigned",
+            )
+            self._recording_status = "Recording to " + path.name
+            self._log.info(self._recording_status)
+        except OSError as error:
+            self._recording_status = str(error)
+            self._log.error(error)
+        self.stateChanged.emit()
+
+    @Slot()
+    def stop_recording(self):
+        try:
+            result = self._recording.stop()
+            if result:
+                self._recording_status = "Saved {} samples".format(result["samples"])
+                self._log.info(self._recording_status)
+        except OSError as error:
+            self._recording_status = str(error)
+            self._log.error(error)
+        self.stateChanged.emit()
+
+    @Slot(str)
+    def save_poll_interval(self, milliseconds):
+        try:
+            interval = max(30, min(1000, int(milliseconds))) / 1000.0
+        except (TypeError, ValueError):
+            return
+        self._poll_interval = interval
+        self._preferences["poll_interval"] = interval
+        self._store.save_preferences(self._preferences)
+        self.stateChanged.emit()
+
+    @Slot(str)
+    def open_url(self, url):
+        if url:
+            QDesktopServices.openUrl(QUrl(url))
+
+    @Slot(str)
+    def open_app_link(self, name):
+        urls = {
+            "project": PROJECT_URL, "releases": RELEASES_URL,
+            "issues": ISSUES_URL, "support": SUPPORT_URL,
+            "license": LICENSE_URL, "logs": self._log.path.parent.as_uri(),
+        }
+        self.open_url(str(urls.get(name, "")))
+
+    @Slot()
+    def check_for_updates(self):
+        if self._update_status == "Checking for updates…":
+            return
+        self._update_status = "Checking for updates…"
+        self.stateChanged.emit()
+
+        def check():
+            try:
+                request = urllib.request.Request(
+                    RELEASE_API_URL,
+                    headers={"Accept": "application/vnd.github+json", "User-Agent": "pyOBD"},
+                )
+                with urllib.request.urlopen(request, timeout=8) as response:
+                    release = json.loads(response.read().decode("utf-8"))
+                latest = release.get("tag_name", "")
+                url = release.get("html_url", RELEASES_URL)
+                payload = (latest, url, "")
+            except (OSError, ValueError, urllib.error.URLError) as error:
+                payload = ("", RELEASES_URL, str(error))
+            self._event_sink.publish(AppEvent(EventChannel.UPDATE_STATUS, payload))
+
+        threading.Thread(target=check, name="pyOBD-v3-update", daemon=True).start()
 
     @Slot(str)
     def add_overview_widget(self, selection):
@@ -626,6 +797,12 @@ class AppModel(QObject):
     def _apply_event(self, event: AppEvent):
         if event.channel == EventChannel.CONNECTION_STATE:
             self._connection = event.payload
+            self._log.info(
+                "Connection {}{}".format(
+                    self._connection.status.value,
+                    (": " + self._connection.error) if self._connection.error else "",
+                )
+            )
             if not self._connection.connected:
                 self._operation_error = ""
                 self._readings = {}
@@ -642,6 +819,9 @@ class AppModel(QObject):
                 self._active_profile_id = ""
                 self._vehicle_layout_enabled = False
                 self._overview_widgets = self._store.overview_widgets()
+                if self._connection.status.value == "Disconnected":
+                    self.stop_recording()
+                    self._live_selected.clear()
         elif event.channel == EventChannel.VEHICLE_STATE:
             self._vehicle = event.payload
             self._activate_matching_profile()
@@ -650,9 +830,18 @@ class AppModel(QObject):
                 self._vehicle.vin, self._vehicle_layout_enabled
             )
         elif event.channel == EventChannel.TELEMETRY:
-            self._readings = {
+            self._readings.update({
                 reading.pid: reading.as_mapping() for reading in event.payload
-            }
+            })
+            try:
+                self._recording.write(event.payload)
+                if self._recording.active:
+                    self._recording_status = "Recording · {} samples".format(
+                        self._recording.samples
+                    )
+            except OSError as error:
+                self._recording_status = str(error)
+                self._recording.stop()
             for reading in event.payload:
                 numeric = self._numeric_value(reading.value)
                 if numeric is not None:
@@ -662,6 +851,9 @@ class AppModel(QObject):
             self.graphChanged.emit()
         elif event.channel == EventChannel.SUPPORTED_PIDS:
             self._supported_pids = [item.as_mapping() for item in event.payload]
+            self._live_selected.intersection_update(
+                item.get("pid", "") for item in self._supported_pids
+            )
             self._rebuild_live_data()
         elif event.channel == EventChannel.DIAGNOSTIC_CODES:
             self._diagnostic_codes = [item.as_mapping() for item in event.payload]
@@ -671,6 +863,20 @@ class AppModel(QObject):
             self._freeze_frame = [item.as_mapping() for item in event.payload]
         elif event.channel == EventChannel.OPERATION_ERROR:
             self._operation_error = str(event.payload)
+            self._log.error(event.payload)
+        elif event.channel == EventChannel.DEBUG:
+            payload = event.payload
+            self._log.info(payload[-1] if isinstance(payload, (list, tuple)) else payload)
+        elif event.channel == EventChannel.UPDATE_STATUS:
+            latest, self._update_url, error = event.payload
+            if error:
+                self._update_status = "Update check failed: " + error
+            elif not latest:
+                self._update_status = "No published release found"
+            elif self._version_numbers(latest) > self._version_numbers(APP_VERSION):
+                self._update_status = "pyOBD {} is available".format(latest)
+            else:
+                self._update_status = "pyOBD {} is up to date".format(APP_VERSION)
         else:
             return
         self.stateChanged.emit()
@@ -691,6 +897,7 @@ class AppModel(QObject):
                 "value": reading.get("value", "---"),
                 "unit": reading.get("unit", ""),
                 "favorite": favorite,
+                "selected": number in self._live_selected,
             })
         rows.sort(key=lambda item: (not item["favorite"], item["pid"]))
         self._live_data = rows
@@ -822,6 +1029,13 @@ class AppModel(QObject):
         local = qurl.toLocalFile() if qurl.isLocalFile() else url
         return Path(local)
 
+    @staticmethod
+    def _version_numbers(version):
+        numbers = [int(value) for value in re.findall(r"\d+", str(version))[:3]]
+        return tuple((numbers + [0, 0, 0])[:3])
+
     @Slot()
     def shutdown(self):
+        self.stop_recording()
         self._vehicle_service.stop()
+        self._log.info("pyOBD v3 stopped")
