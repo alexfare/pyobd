@@ -43,15 +43,14 @@ ApplicationWindow {
                 }
 
                 Repeater {
-                    model: ["Overview", "Dashboard", "Live Data", "Graphs", "Diagnostics", "Readiness", "Vehicles"]
+                    model: ["Overview", "Dashboard", "Live Data", "Graphs", "Diagnostics", "Readiness", "Freeze Frame", "Vehicles", "Connection"]
                     delegate: Button {
                         required property string modelData
                         Layout.fillWidth: true
-                        Layout.preferredHeight: 48
+                        Layout.preferredHeight: 44
                         text: modelData
                         flat: true
                         onClicked: appModel.select_page(modelData)
-
                         contentItem: Text {
                             text: parent.text
                             color: appModel.page === parent.text ? "white" : "#b9c7d8"
@@ -68,7 +67,6 @@ ApplicationWindow {
                 }
 
                 Item { Layout.fillHeight: true }
-
                 Label {
                     text: "pyOBD v3.0\nModern OBD-II diagnostics"
                     color: "#8fa2b8"
@@ -87,212 +85,89 @@ ApplicationWindow {
 
             Rectangle {
                 Layout.fillWidth: true
-                Layout.preferredHeight: 94
+                Layout.preferredHeight: 86
+                Layout.minimumHeight: 86
                 color: "white"
                 border.color: window.border
-
                 RowLayout {
                     anchors.fill: parent
                     anchors.leftMargin: 28
                     anchors.rightMargin: 28
-
                     Column {
                         spacing: 3
-                        Label {
-                            text: appModel.page
-                            color: window.textPrimary
-                            font.pixelSize: 30
-                            font.bold: true
-                        }
-                        Label {
-                            text: appModel.page === "Overview"
-                                  ? "Real-time vehicle data and system status"
-                                  : "This screen will migrate from the v2.6 application"
-                            color: window.textMuted
-                            font.pixelSize: 14
-                        }
+                        Label { text: appModel.page; color: window.textPrimary; font.pixelSize: 28; font.bold: true }
+                        Label { text: "Vehicle diagnostics and live data"; color: window.textMuted; font.pixelSize: 14 }
                     }
-
                     Item { Layout.fillWidth: true }
-
                     Rectangle {
-                        width: 126
-                        height: 42
+                        width: 132
+                        height: 40
                         radius: 12
-                        color: "#dcf8e8"
+                        color: appModel.connected ? "#dcf8e8" : "#fee2e2"
                         Row {
                             anchors.centerIn: parent
                             spacing: 8
-                            Rectangle {
-                                width: 10
-                                height: 10
-                                radius: 5
-                                color: appModel.connected ? "#22a35a" : "#ef4444"
-                            }
-                            Label {
-                                text: appModel.connectionStatus
-                                color: appModel.connected ? "#17653b" : "#991b1b"
-                                font.bold: true
-                            }
+                            Rectangle { width: 10; height: 10; radius: 5; color: appModel.connected ? "#22a35a" : "#ef4444" }
+                            Label { text: appModel.connectionStatus; color: appModel.connected ? "#17653b" : "#991b1b"; font.bold: true }
                         }
                     }
-
-                    Button {
-                        text: "Configure"
-                        Layout.preferredWidth: 120
-                        Layout.preferredHeight: 42
-                    }
+                    Button { text: "Configure"; onClicked: appModel.select_page("Connection") }
                 }
             }
 
-            ScrollView {
+            Loader {
                 Layout.fillWidth: true
                 Layout.fillHeight: true
-                clip: true
-
-                ColumnLayout {
-                    width: Math.max(implicitWidth, window.width - 238)
-                    spacing: 14
-
-                    GridLayout {
-                        visible: appModel.page === "Overview"
-                        Layout.fillWidth: true
-                        Layout.margins: 24
-                        columns: 4
-                        columnSpacing: 14
-                        rowSpacing: 14
-
-                        Repeater {
-                            model: appModel.telemetry
-                            delegate: Rectangle {
-                                required property var modelData
-                                Layout.fillWidth: true
-                                Layout.preferredHeight: 210
-                                radius: 16
-                                color: "white"
-                                border.color: window.border
-
-                                ColumnLayout {
-                                    anchors.fill: parent
-                                    anchors.margins: 18
-                                    spacing: 8
-                                    Label {
-                                        text: modelData.label
-                                        color: window.textPrimary
-                                        font.pixelSize: 15
-                                        font.bold: true
-                                    }
-                                    Row {
-                                        spacing: 7
-                                        Label {
-                                            text: modelData.value
-                                            color: window.textPrimary
-                                            font.pixelSize: 38
-                                            font.bold: true
-                                        }
-                                        Label {
-                                            anchors.baseline: parent.children[0].baseline
-                                            text: modelData.unit
-                                            color: window.textMuted
-                                            font.pixelSize: 14
-                                        }
-                                    }
-                                    Item { Layout.fillHeight: true }
-                                    ProgressBar {
-                                        Layout.fillWidth: true
-                                        value: modelData.progress
-                                    }
-                                }
-                            }
-                        }
-
-                        Rectangle {
-                            Layout.columnSpan: 2
-                            Layout.fillWidth: true
-                            Layout.preferredHeight: 310
-                            radius: 16
-                            color: "white"
-                            border.color: window.border
-
-                            ColumnLayout {
-                                anchors.fill: parent
-                                anchors.margins: 20
-                                Label {
-                                    text: "Live Data Graph"
-                                    color: window.textPrimary
-                                    font.pixelSize: 18
-                                    font.bold: true
-                                }
-                                Canvas {
-                                    Layout.fillWidth: true
-                                    Layout.fillHeight: true
-                                    onPaint: {
-                                        const ctx = getContext("2d")
-                                        ctx.clearRect(0, 0, width, height)
-                                        ctx.strokeStyle = window.blue
-                                        ctx.lineWidth = 3
-                                        ctx.beginPath()
-                                        for (let x = 0; x <= width; x += 12) {
-                                            const y = height * 0.55 + Math.sin(x / 33) * 28 + Math.sin(x / 12) * 9
-                                            if (x === 0) ctx.moveTo(x, y); else ctx.lineTo(x, y)
-                                        }
-                                        ctx.stroke()
-                                    }
-                                }
-                            }
-                        }
-
-                        Rectangle {
-                            Layout.columnSpan: 2
-                            Layout.fillWidth: true
-                            Layout.preferredHeight: 310
-                            radius: 16
-                            color: "white"
-                            border.color: window.border
-
-                            ColumnLayout {
-                                anchors.fill: parent
-                                anchors.margins: 20
-                                spacing: 12
-                                Label { text: "Vehicle Health"; color: window.textPrimary; font.pixelSize: 18; font.bold: true }
-                                Label { text: "✓  No trouble codes"; color: "#18864b"; font.pixelSize: 22; font.bold: true }
-                                Rectangle { Layout.fillWidth: true; height: 1; color: window.border }
-                                Label { text: "I/M Readiness"; color: window.textPrimary; font.pixelSize: 15; font.bold: true }
-                                Label { text: "7 of 8 monitors complete"; color: window.textMuted; font.pixelSize: 14 }
-                                ProgressBar { Layout.fillWidth: true; value: 0.875 }
-                                Item { Layout.fillHeight: true }
-                            }
-                        }
-                    }
-
-                    Label {
-                        visible: appModel.page !== "Overview"
-                        Layout.alignment: Qt.AlignHCenter
-                        Layout.topMargin: 180
-                        text: appModel.page + " migration is queued"
-                        color: window.textMuted
-                        font.pixelSize: 22
-                    }
+                Layout.minimumHeight: 0
+                sourceComponent: {
+                    if (appModel.page === "Overview") return overviewPage
+                    if (appModel.page === "Connection") return connectionPage
+                    if (appModel.page === "Live Data") return liveDataPage
+                    if (appModel.page === "Diagnostics") return diagnosticsPage
+                    if (appModel.page === "Readiness") return readinessPage
+                    if (appModel.page === "Freeze Frame") return freezeFramePage
+                    if (appModel.page === "Vehicles") return vehiclesPage
+                    return placeholderPage
                 }
             }
 
             Rectangle {
                 Layout.fillWidth: true
-                Layout.preferredHeight: 64
+                Layout.preferredHeight: 58
+                Layout.minimumHeight: 58
                 color: "white"
                 border.color: window.border
                 RowLayout {
                     anchors.fill: parent
                     anchors.leftMargin: 28
                     anchors.rightMargin: 28
-                    spacing: 44
+                    spacing: 36
                     Label { text: "Protocol  " + appModel.protocol; color: window.textMuted }
                     Label { text: "Adapter  " + appModel.adapter; color: window.textMuted }
-                    Label { text: "Port  " + appModel.port; color: window.textMuted }
+                    Label { text: "Port  " + appModel.port; color: window.textMuted; elide: Text.ElideMiddle; Layout.maximumWidth: 260 }
                     Label { text: "VIN  " + appModel.vin; color: window.textMuted }
                     Item { Layout.fillWidth: true }
                     Label { text: "Voltage  " + appModel.voltage; color: window.textPrimary; font.bold: true }
                 }
+            }
+        }
+    }
+
+    Component { id: overviewPage; OverviewPage {} }
+    Component { id: connectionPage; ConnectionPage {} }
+    Component { id: liveDataPage; LiveDataPage {} }
+    Component { id: diagnosticsPage; DiagnosticsPage {} }
+    Component { id: readinessPage; ReadinessPage {} }
+    Component { id: freezeFramePage; FreezeFramePage {} }
+    Component { id: vehiclesPage; VehiclesPage {} }
+    Component {
+        id: placeholderPage
+        Item {
+            Label {
+                anchors.centerIn: parent
+                text: appModel.page + " migration is queued for Phase 3"
+                color: "#64748b"
+                font.pixelSize: 22
             }
         }
     }

@@ -9,20 +9,20 @@
 - [x] Overview prototype created with Demo data.
 - [x] Framework-neutral application models created.
 - [x] UI-neutral event sink replaces direct wx event posting.
-- [ ] Connection and polling services run without a UI.
+- [x] Connection and polling services run without a UI.
 - [x] Demo service supplies the same models as a real connection.
 
 ## Screen migration
 
-- [ ] Overview customization completed.
-- [ ] Connection configuration completed.
-- [ ] Live Data completed.
-- [ ] Diagnostics and DTC lookup completed.
-- [ ] Readiness completed.
-- [ ] Freeze Frame completed.
+- [x] Overview customization completed.
+- [x] Connection configuration completed.
+- [x] Live Data completed.
+- [x] Diagnostics and DTC lookup completed.
+- [x] Readiness completed.
+- [x] Freeze Frame completed.
 - [ ] Graphs completed.
 - [ ] Dashboard completed.
-- [ ] Vehicle profiles completed.
+- [x] Vehicle profiles completed.
 - [ ] Settings, updates, About, and support completed.
 
 ## Behavior parity
