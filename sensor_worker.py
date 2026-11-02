@@ -5,13 +5,11 @@ import threading
 import time
 import traceback
 
-import wx
-
 import obd
 import obd_io
-from app_events import *
-from debugEvent import DebugEvent
+from event_sink import AppEvent, EventChannel
 from obd.utils import OBDStatus
+from wx_event_sink import WxEventSink
 
 READINESS_MONITORS = (
     "MISFIRE_MONITORING", "FUEL_SYSTEM_MONITORING", "COMPONENT_MONITORING",
@@ -45,8 +43,11 @@ class SensorProducer(threading.Thread):
         if getattr(self._notify_window, "graph_event_pending", False):
             return False
         self._notify_window.graph_event_pending = True
-        wx.PostEvent(self._notify_window, GraphEvent(data))
+        self._publish(EventChannel.GRAPH, data)
         return True
+
+    def _publish(self, channel, payload=None):
+        self._event_sink.publish(AppEvent(channel, payload))
 
     @staticmethod
     def _readiness_results(status_value):
@@ -89,13 +90,17 @@ class SensorProducer(threading.Thread):
                 counts[category] += 1
         return rows, counts
 
-    def __init__(self, _notify_window, portName, SERTIMEOUT, RECONNATTEMPTS, BAUDRATE, FAST):
+    def __init__(
+        self, _notify_window, portName, SERTIMEOUT, RECONNATTEMPTS, BAUDRATE, FAST,
+        event_sink=None,
+    ):
         #from queue import Queue
         self.portName = portName
         self.RECONNATTEMPTS = RECONNATTEMPTS
         self.SERTIMEOUT = SERTIMEOUT
         self.port = None
         self._notify_window = _notify_window
+        self._event_sink = event_sink or WxEventSink(_notify_window)
         self.baudrate = BAUDRATE
         self.FAST = FAST
         self.demo_mode = str(portName).upper() == "DEMO"
@@ -118,7 +123,7 @@ class SensorProducer(threading.Thread):
         except:
             pass
         status_text = "Reconnecting..." if reconnecting else "Connecting..."
-        wx.PostEvent(self._notify_window, StatusEvent([0, 1, status_text]))
+        self._publish(EventChannel.STATUS, [0, 1, status_text])
         self.connection = obd_io.OBDConnection(
             self.portName,
             self._notify_window,
@@ -128,6 +133,7 @@ class SensorProducer(threading.Thread):
             self.FAST,
             attempt_status="Reconnecting" if reconnecting else None,
             cancel_check=lambda: self._notify_window.ThreadControl == 666,
+            event_sink=self._event_sink,
         )
         if self._notify_window.ThreadControl == 666:
             try:
@@ -142,29 +148,29 @@ class SensorProducer(threading.Thread):
             self.disconnect_status = (
                 f"Connection failed: {reason}" if reason else "Connection failed"
             )
-            #wx.PostEvent(self._notify_window, StatusEvent([666]))  # signal apl, that communication was disconnected
-            #wx.PostEvent(self._notify_window, StatusEvent([0, 1, "Error cant connect..."]))
             #self.state="finished"
             return None
         elif self._is_connected_status(current_status):
-            wx.PostEvent(self._notify_window, DebugEvent([1, "Communication initialized..."]))
-            wx.PostEvent(self._notify_window, StatusEvent([0, 1, "Car connected!"]))
+            self._publish(EventChannel.DEBUG, [1, "Communication initialized..."])
+            self._publish(EventChannel.STATUS, [0, 1, "Car connected!"])
 
             r = self.connection.query(obd.commands.ELM_VERSION)
             self.ELMver = str(r.value)
             r = self.connection.query(obd.commands.ELM_VOLTAGE)
             self.ELMvoltage = str(r.value)
-            wx.PostEvent(self._notify_window, StatusEvent([5, 1, str(self.ELMvoltage)]))
+            self._publish(EventChannel.STATUS, [5, 1, str(self.ELMvoltage)])
             self.protocol = self.connection.connection.protocol_name()
 
-            wx.PostEvent(self._notify_window, StatusEvent([2, 1, str(self.ELMver)]))
-            wx.PostEvent(self._notify_window, StatusEvent([1, 1, str(self.protocol)]))
-            wx.PostEvent(self._notify_window, StatusEvent([3, 1, str(self.connection.connection.port_name())]))
+            self._publish(EventChannel.STATUS, [2, 1, str(self.ELMver)])
+            self._publish(EventChannel.STATUS, [1, 1, str(self.protocol)])
+            self._publish(EventChannel.STATUS, [
+                3, 1, str(self.connection.connection.port_name())
+            ])
             try:
                 r = self.connection.query(obd.commands.VIN)
                 if r.value != None:
                     self.VIN = r.value.decode()
-                    wx.PostEvent(self._notify_window, StatusEvent([4, 1, str(self.VIN)]))
+                    self._publish(EventChannel.STATUS, [4, 1, str(self.VIN)])
             except:
                 pass
                 #traceback.print_exc()
@@ -217,7 +223,7 @@ class SensorProducer(threading.Thread):
         def reconnect():
             nonlocal health_failures
             self.disconnect_status = "Connection lost"
-            wx.PostEvent(self._notify_window, StatusEvent([0, 1, "Connection lost"]))
+            self._publish(EventChannel.STATUS, [0, 1, "Connection lost"])
             if self.initCommunication(reconnecting=True) != "OK":
                 self._notify_window.ThreadControl = 666
                 return False
@@ -264,7 +270,7 @@ class SensorProducer(threading.Thread):
                         previous_page = None
                         continue
                     voltage = self.connection.query(obd.commands.ELM_VOLTAGE)
-                    wx.PostEvent(self._notify_window, StatusEvent([5, 1, str(voltage.value)]))
+                    self._publish(EventChannel.STATUS, [5, 1, str(voltage.value)])
 
             elif page == "tests":
                 if page_changed or self._notify_window.tests_refresh_requested:
@@ -274,8 +280,8 @@ class SensorProducer(threading.Thread):
                             response = self.connection.query(obd.commands[1][1])
                             readiness, counts = self._readiness_results(response.value)
                             for result in readiness:
-                                wx.PostEvent(self._notify_window, TestEvent(result))
-                            wx.PostEvent(self._notify_window, TestEvent({"kind": "complete", **counts}))
+                                self._publish(EventChannel.TEST, result)
+                            self._publish(EventChannel.TEST, {"kind": "complete", **counts})
                         else:
                             commands = [
                                 (cylinder, getattr(obd.commands, f"MONITOR_MISFIRE_CYLINDER_{cylinder}"))
@@ -284,23 +290,23 @@ class SensorProducer(threading.Thread):
                                     obd.commands, f"MONITOR_MISFIRE_CYLINDER_{cylinder}"
                                 ))
                             ]
-                            wx.PostEvent(self._notify_window, TestEvent({
+                            self._publish(EventChannel.TEST, {
                                 "kind": "misfire_reset",
                                 "cylinders": [cylinder for cylinder, _command in commands],
-                            }))
+                            })
                             for index, (_cylinder, command) in enumerate(commands):
                                 if self._notify_window.tests_poll_cancelled:
                                     break
                                 response = self.connection.query(command)
-                                wx.PostEvent(self._notify_window, TestEvent({
+                                self._publish(EventChannel.TEST, {
                                     "kind": "misfire", "index": index,
                                     "result": self._misfire_result(response.value),
-                                }))
-                            wx.PostEvent(self._notify_window, TestEvent({
+                                })
+                            self._publish(EventChannel.TEST, {
                                 "kind": "misfire_complete", "count": len(commands),
-                            }))
+                            })
                     except Exception:
-                        wx.PostEvent(self._notify_window, TestEvent({"kind": "error"}))
+                        self._publish(EventChannel.TEST, {"kind": "error"})
                         traceback.print_exc()
 
             elif page == "sensors":
@@ -321,7 +327,7 @@ class SensorProducer(threading.Thread):
                             [index, 2, "---"],
                         ])
                     if catalog_updates:
-                        wx.PostEvent(self._notify_window, ResultEvent(catalog_updates))
+                        self._publish(EventChannel.RESULT, catalog_updates)
 
                 updates = []
                 batch_size = 4
@@ -338,7 +344,7 @@ class SensorProducer(threading.Thread):
                         ])
                     sensor_index = (sensor_index + 1) % len(sensor_commands)
                 if updates:
-                    wx.PostEvent(self._notify_window, ResultEvent(updates))
+                    self._publish(EventChannel.RESULT, updates)
 
             elif page == "dtc":
                 if self._notify_window.ThreadControl == 1:
@@ -350,11 +356,11 @@ class SensorProducer(threading.Thread):
                     self._notify_window.ThreadControl = 0
                     page_changed = True
                 if page_changed:
-                    wx.PostEvent(self._notify_window, DTCEvent(0))
+                    self._publish(EventChannel.DTC, 0)
                     codes, counts = self._collect_dtc_results(self.connection)
                     for code in codes:
-                        wx.PostEvent(self._notify_window, DTCEvent(code))
-                    wx.PostEvent(self._notify_window, DTCEvent({"counts": counts}))
+                        self._publish(EventChannel.DTC, code)
+                    self._publish(EventChannel.DTC, {"counts": counts})
 
             elif page == "freeze_frame":
                 if freeze_commands is None:
@@ -368,17 +374,23 @@ class SensorProducer(threading.Thread):
                     ]
                     freeze_index = 0
                     for index, command in enumerate(freeze_commands):
-                        wx.PostEvent(self._notify_window, InsertFreezeframeRowEvent(index))
-                        wx.PostEvent(self._notify_window, FreezeframeResultEvent([index, 0, command.command]))
-                        wx.PostEvent(self._notify_window, FreezeframeResultEvent([index, 1, command.desc]))
+                        self._publish(EventChannel.INSERT_FREEZE_FRAME_ROW, index)
+                        self._publish(
+                            EventChannel.FREEZE_FRAME_RESULT,
+                            [index, 0, command.command],
+                        )
+                        self._publish(
+                            EventChannel.FREEZE_FRAME_RESULT,
+                            [index, 1, command.desc],
+                        )
                 if freeze_commands:
                     index = freeze_index % len(freeze_commands)
                     response = self.connection.query(freeze_commands[index])
                     if response.value is not None:
-                        wx.PostEvent(self._notify_window, FreezeframeResultEvent([
+                        self._publish(EventChannel.FREEZE_FRAME_RESULT, [
                             index, 2,
                             self._notify_window.format_measurement_value(response.value),
-                        ]))
+                        ])
                     freeze_index = (freeze_index + 1) % len(freeze_commands)
 
             elif page == "graph":
@@ -407,9 +419,9 @@ class SensorProducer(threading.Thread):
                         response = self.connection.query(command)
                         if response.value is None:
                             if emit_values:
-                                wx.PostEvent(self._notify_window, GraphValueEvent([
+                                self._publish(EventChannel.GRAPH_VALUE, [
                                     command.command, 2, "No data"
-                                ]))
+                                ])
                             continue
                         successful_query = True
                         magnitude, unit, text = self._notify_window.get_measurement_components(
@@ -426,9 +438,9 @@ class SensorProducer(threading.Thread):
                             series["y"].append(0.0)
                         series["unit"] = unit or "value"
                         if emit_values:
-                            wx.PostEvent(self._notify_window, GraphValueEvent([
+                            self._publish(EventChannel.GRAPH_VALUE, [
                                 command.command, 2, text
-                            ]))
+                            ])
                         plot_series.append((
                             series["x"], series["y"], series["unit"],
                             series["desc"], command.command,
@@ -467,7 +479,7 @@ class SensorProducer(threading.Thread):
                             "magnitude": magnitude, "unit": unit, "text": text,
                         })
                     self._notify_window.dashboard_event_pending = True
-                    wx.PostEvent(self._notify_window, DashboardValuesEvent(values))
+                    self._publish(EventChannel.DASHBOARD_VALUES, values)
                     dashboard_last_emit_at = now
 
             elif not health_check(now):
@@ -504,13 +516,13 @@ class SensorProducer(threading.Thread):
             and not getattr(self._notify_window, "_shutdown_started", False)
         ):
             self._stop_notified = True
-            wx.PostEvent(self._notify_window, StatusEvent([0, 1, status_text]))
-            wx.PostEvent(self._notify_window, StatusEvent([1, 1, "----"]))
-            wx.PostEvent(self._notify_window, StatusEvent([2, 1, "----"]))
-            wx.PostEvent(self._notify_window, StatusEvent([3, 1, "----"]))
-            wx.PostEvent(self._notify_window, StatusEvent([4, 1, "----"]))
-            wx.PostEvent(self._notify_window, StatusEvent([5, 1, "----"]))
-            wx.PostEvent(self._notify_window, CloseEvent([]))
+            self._publish(EventChannel.STATUS, [0, 1, status_text])
+            self._publish(EventChannel.STATUS, [1, 1, "----"])
+            self._publish(EventChannel.STATUS, [2, 1, "----"])
+            self._publish(EventChannel.STATUS, [3, 1, "----"])
+            self._publish(EventChannel.STATUS, [4, 1, "----"])
+            self._publish(EventChannel.STATUS, [5, 1, "----"])
+            self._publish(EventChannel.CLOSE, [])
         print("Sensor producer has stopped.")
 
 # class producer end
