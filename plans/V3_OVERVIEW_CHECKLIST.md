@@ -2,7 +2,7 @@
 
 ## Widget catalog
 
-- [ ] PID value card.
+- [x] PID value card.
 - [ ] Compact PID graph.
 - [ ] Vehicle health and DTC summary.
 - [ ] Readiness summary.
@@ -13,31 +13,31 @@
 
 ## Editing
 
-- [ ] Add an explicit Edit Overview mode.
+- [x] Add an explicit Edit Overview mode.
 - [ ] Add widgets from a searchable catalog.
 - [ ] Remove widgets without deleting their saved settings immediately.
 - [ ] Drag widgets between grid positions.
-- [ ] Resize widgets using supported grid sizes.
+- [x] Resize widgets using supported grid sizes.
 - [ ] Configure PID, units, title, color, and display style where applicable.
 - [ ] Preview changes before leaving edit mode.
 - [ ] Undo the current edit session.
-- [ ] Restore the default Overview.
+- [x] Restore the default Overview.
 
 ## Layout rules
 
-- [ ] Use a structured responsive grid rather than free overlap.
+- [x] Use a structured responsive grid rather than free overlap.
 - [ ] Reflow widgets safely when the window becomes narrow.
-- [ ] Prevent widgets from becoming too small to read.
+- [x] Prevent widgets from becoming too small to read.
 - [ ] Preserve logical keyboard and screen-reader order after rearranging.
-- [ ] Keep connection status and Configure available regardless of layout.
-- [ ] Show unavailable PIDs without breaking the layout.
+- [x] Keep connection status and Configure available regardless of layout.
+- [x] Show unavailable PIDs without breaking the layout.
 
 ## Persistence
 
-- [ ] Save layouts automatically after confirmed edits.
-- [ ] Maintain one global default layout.
-- [ ] Allow an optional layout per vehicle profile.
-- [ ] Load the vehicle layout after VIN/profile matching.
+- [x] Save layouts automatically after confirmed edits.
+- [x] Maintain one global default layout.
+- [x] Allow an optional layout per vehicle profile.
+- [x] Load the vehicle layout after VIN/profile matching.
 - [ ] Version the saved layout format for future migrations.
 - [ ] Recover from missing, corrupt, or outdated layout data.
 - [ ] Export and import Overview layouts.

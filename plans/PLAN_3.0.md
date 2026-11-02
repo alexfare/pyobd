@@ -37,14 +37,14 @@ headless diagnostics.
 
 ### Phase 2 — Core diagnostics
 
-- [ ] Add Connection configuration and status.
-- [ ] Make Overview a customizable, responsive widget grid.
-- [ ] Allow users to add, remove, reorder, and resize Overview widgets.
-- [ ] Save a global Overview layout and optional per-vehicle layouts.
-- [ ] Add Live Data with search, favorites, and supported-PID filtering.
-- [ ] Add stored, pending, and permanent DTCs with descriptions.
-- [ ] Add Readiness and Freeze Frame screens.
-- [ ] Add vehicle profiles and default-dashboard selection.
+- [x] Add Connection configuration and status.
+- [x] Make Overview a customizable, responsive widget grid.
+- [x] Allow users to add, remove, reorder, and resize Overview widgets.
+- [x] Save a global Overview layout and optional per-vehicle layouts.
+- [x] Add Live Data with search, favorites, and supported-PID filtering.
+- [x] Add stored, pending, and permanent DTCs with descriptions.
+- [x] Add Readiness and Freeze Frame screens.
+- [x] Add vehicle profiles and default-dashboard selection.
 
 ### Phase 3 — Visualization
 

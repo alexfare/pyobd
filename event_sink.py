@@ -21,6 +21,11 @@ class EventChannel(str, Enum):
     CONNECTION_STATE = "connection_state"
     VEHICLE_STATE = "vehicle_state"
     TELEMETRY = "telemetry"
+    SUPPORTED_PIDS = "supported_pids"
+    DIAGNOSTIC_CODES = "diagnostic_codes"
+    READINESS = "readiness"
+    FREEZE_FRAME = "freeze_frame"
+    OPERATION_ERROR = "operation_error"
 
 
 @dataclass(frozen=True)
