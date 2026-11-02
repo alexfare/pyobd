@@ -5,6 +5,7 @@ from uuid import uuid4
 from PySide6.QtCore import Property, QObject, Signal, Slot
 
 from event_sink import AppEvent, CallbackEventSink, EventChannel
+from pyobd_v3.live_data_model import LiveDataListModel
 from pyobd_v3.models import ConnectionConfig, ConnectionState, VehicleState
 from pyobd_v3.services import SettingsStore, VehicleService, bluetooth_adapters
 from pyobd_v3.services.settings import DEFAULT_WIDGETS
@@ -23,6 +24,7 @@ class AppModel(QObject):
         self._supported_pids = []
         self._readings = {}
         self._live_data = []
+        self._live_data_model = LiveDataListModel(self)
         self._live_search = ""
         self._favorites_only = False
         self._diagnostic_codes = []
@@ -74,6 +76,10 @@ class AppModel(QObject):
     @Property("QVariantList", notify=stateChanged)
     def liveData(self):
         return self._live_data
+
+    @Property(QObject, constant=True)
+    def liveDataModel(self):
+        return self._live_data_model
 
     @Property("QVariantList", notify=stateChanged)
     def diagnosticCodes(self):
@@ -319,6 +325,7 @@ class AppModel(QObject):
                 self._readings = {}
                 self._supported_pids = []
                 self._live_data = []
+                self._live_data_model.update_rows([])
                 self._diagnostic_codes = []
                 self._readiness = []
                 self._freeze_frame = []
@@ -372,6 +379,7 @@ class AppModel(QObject):
             })
         rows.sort(key=lambda item: (not item["favorite"], item["pid"]))
         self._live_data = rows
+        self._live_data_model.update_rows(rows)
 
     def _save_overview(self):
         self._store.save_overview_widgets(

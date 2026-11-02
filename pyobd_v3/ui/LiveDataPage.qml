@@ -51,6 +51,7 @@ ColumnLayout {
 
     ListView {
         id: liveList
+        objectName: "liveDataList"
         Layout.fillWidth: true
         Layout.fillHeight: true
         Layout.minimumHeight: 0
@@ -59,7 +60,7 @@ ColumnLayout {
         Layout.bottomMargin: 16
         clip: true
         boundsBehavior: Flickable.StopAtBounds
-        model: appModel.liveData
+        model: appModel.liveDataModel
         ScrollBar.vertical: ScrollBar {
             policy: ScrollBar.AlwaysOn
             width: 12
@@ -69,7 +70,11 @@ ColumnLayout {
 
         delegate: Rectangle {
             required property int index
-            required property var modelData
+            required property string pid
+            required property string sensorName
+            required property string readingValue
+            required property string unit
+            required property bool favorite
             width: liveList.width
             height: 62
             color: index % 2 ? "#f8fafc" : "white"
@@ -82,26 +87,26 @@ ColumnLayout {
                 Button {
                     Layout.preferredWidth: 38
                     Layout.preferredHeight: 38
-                    text: modelData.favorite ? "★" : "☆"
+                    text: favorite ? "★" : "☆"
                     flat: true
-                    onClicked: appModel.toggle_favorite(modelData.pid)
+                    onClicked: appModel.toggle_favorite(pid)
                 }
                 Label {
                     Layout.preferredWidth: 72
-                    text: modelData.pid
+                    text: pid
                     color: "#64748b"
                     font.family: "monospace"
                 }
                 Label {
                     Layout.fillWidth: true
-                    text: modelData.name
+                    text: sensorName
                     color: "#172033"
                     font.bold: true
                     elide: Text.ElideRight
                 }
                 Label {
                     Layout.preferredWidth: 180
-                    text: modelData.value + (modelData.unit.length ? " " + modelData.unit : "")
+                    text: readingValue + (unit.length ? " " + unit : "")
                     horizontalAlignment: Text.AlignRight
                     color: "#172033"
                     font.pixelSize: 17
