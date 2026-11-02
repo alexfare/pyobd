@@ -32,8 +32,6 @@ import string
 import threading
 import time
 from math import ceil
-import wx #due to debugEvent messaging
-
 import re
 
 import obd_sensors
@@ -44,8 +42,8 @@ import obd
 import decimal
 import math
 
-from app_events import StatusEvent
 from diagnostic_transport import ReadOnlyDiagnosticTransport
+from event_sink import AppEvent, EventChannel, NullEventSink
 
 
 class _FakeMonitorStatus:
@@ -299,9 +297,10 @@ class OBDConnection:
 
     def __init__(
         self, portnum, _notify_window, baud, SERTIMEOUT, RECONNATTEMPTS, FAST,
-        attempt_status=None, cancel_check=None,
+        attempt_status=None, cancel_check=None, event_sink=None,
     ):
         self._notify_window = _notify_window
+        self._event_sink = event_sink or NullEventSink()
         self.query_lock = threading.RLock()
         self.transport = ReadOnlyDiagnosticTransport(self, self.query_lock)
         self.failure_reason = None
@@ -335,7 +334,9 @@ class OBDConnection:
 
         if portnum == 'DEMO':
             self.connection = _DemoConnection(original_baud)
-            wx.PostEvent(self._notify_window, DebugEvent([1, "Demo mode active (simulated vehicle data)."] ))
+            self._event_sink.publish(AppEvent(
+                EventChannel.DEBUG, [1, "Demo mode active (simulated vehicle data)."]
+            ))
             return
 
         if portnum is None:
@@ -343,7 +344,9 @@ class OBDConnection:
             candidate_ports = sorted(candidate_ports)
             if not candidate_ports:
                 self.failure_reason = "No connected serial ports detected"
-                wx.PostEvent(self._notify_window, DebugEvent([1, "No connected serial ports detected."]))
+                self._event_sink.publish(AppEvent(
+                    EventChannel.DEBUG, [1, "No connected serial ports detected."]
+                ))
                 self.connection = _DisconnectedConnection("Not Connected")
                 return
             port_attempts = candidate_ports
@@ -355,10 +358,13 @@ class OBDConnection:
             if cancel_check and cancel_check():
                 break
             if attempt_status:
-                wx.PostEvent(self._notify_window, StatusEvent([
+                self._event_sink.publish(AppEvent(EventChannel.STATUS, [
                     0, 1, f"{attempt_status} ({counter}/{len(port_attempts)})..."
                 ]))
-            wx.PostEvent(self._notify_window, DebugEvent([2, "Connection attempt:" + str(counter) + " (" + str(candidate_port) + ")"]))
+            self._event_sink.publish(AppEvent(
+                EventChannel.DEBUG,
+                [2, "Connection attempt:" + str(counter) + " (" + str(candidate_port) + ")"],
+            ))
             try:
                 self.connection.close()
             except:
@@ -376,20 +382,25 @@ class OBDConnection:
                 )
             except Exception as ex:
                 self.failure_reason = str(ex)
-                wx.PostEvent(self._notify_window, DebugEvent([1, "Open failed on " + str(candidate_port) + ": " + self.failure_reason]))
+                self._event_sink.publish(AppEvent(
+                    EventChannel.DEBUG,
+                    [1, "Open failed on " + str(candidate_port) + ": " + self.failure_reason],
+                ))
                 self.connection = _DisconnectedConnection("Not Connected")
                 continue
 
             if self.connection.status() == "Car Connected":
                 self.failure_reason = None
-                wx.PostEvent(self._notify_window, DebugEvent([2, "Connected to: " + str(self.connection.port_name())]))
+                self._event_sink.publish(AppEvent(
+                    EventChannel.DEBUG, [2, "Connected to: " + str(self.connection.port_name())]
+                ))
                 break
 
             self.failure_reason = (
                 getattr(self.connection, "last_error", None)
                 or "Adapter opened, but no vehicle connection was established"
             )
-            wx.PostEvent(self._notify_window, DebugEvent([
+            self._event_sink.publish(AppEvent(EventChannel.DEBUG, [
                 1, "Connection failed on " + str(candidate_port) + ": " + self.failure_reason
             ]))
             self.connection.close()

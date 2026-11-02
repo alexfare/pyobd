@@ -31,9 +31,9 @@ headless diagnostics.
 - [x] Create the parallel `pyobd_v3` application package.
 - [x] Create the Qt/QML application shell and visual theme.
 - [x] Create the first Overview screen using Demo data.
-- [ ] Add framework-neutral connection and vehicle-state models.
-- [ ] Replace direct `wx.PostEvent` calls behind a UI-neutral event sink.
-- [ ] Add a v3 Demo service that uses the existing simulated OBD behavior.
+- [x] Add framework-neutral connection and vehicle-state models.
+- [x] Replace direct `wx.PostEvent` calls behind a UI-neutral event sink.
+- [x] Add a v3 Demo service that uses the existing simulated OBD behavior.
 
 ### Phase 2 — Core diagnostics
 

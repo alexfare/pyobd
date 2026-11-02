@@ -7,10 +7,10 @@
 - [x] Qt/QML shell created.
 - [x] Initial visual theme created.
 - [x] Overview prototype created with Demo data.
-- [ ] Framework-neutral application models created.
-- [ ] UI-neutral event sink replaces direct wx event posting.
+- [x] Framework-neutral application models created.
+- [x] UI-neutral event sink replaces direct wx event posting.
 - [ ] Connection and polling services run without a UI.
-- [ ] Demo service supplies the same models as a real connection.
+- [x] Demo service supplies the same models as a real connection.
 
 ## Screen migration
 

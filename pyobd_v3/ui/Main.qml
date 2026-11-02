@@ -123,8 +123,17 @@ ApplicationWindow {
                         Row {
                             anchors.centerIn: parent
                             spacing: 8
-                            Rectangle { width: 10; height: 10; radius: 5; color: "#22a35a" }
-                            Label { text: "Demo active"; color: "#17653b"; font.bold: true }
+                            Rectangle {
+                                width: 10
+                                height: 10
+                                radius: 5
+                                color: appModel.connected ? "#22a35a" : "#ef4444"
+                            }
+                            Label {
+                                text: appModel.connectionStatus
+                                color: appModel.connected ? "#17653b" : "#991b1b"
+                                font.bold: true
+                            }
                         }
                     }
 
@@ -191,7 +200,7 @@ ApplicationWindow {
                                     Item { Layout.fillHeight: true }
                                     ProgressBar {
                                         Layout.fillWidth: true
-                                        value: index === 0 ? 0.31 : index === 1 ? 0.42 : 0.72
+                                        value: modelData.progress
                                     }
                                 }
                             }
@@ -277,12 +286,12 @@ ApplicationWindow {
                     anchors.leftMargin: 28
                     anchors.rightMargin: 28
                     spacing: 44
-                    Label { text: "Protocol  Demo OBD-II"; color: window.textMuted }
-                    Label { text: "Adapter  Simulated ELM327"; color: window.textMuted }
-                    Label { text: "Port  DEMO"; color: window.textMuted }
-                    Label { text: "VIN  DEMO0000000000001"; color: window.textMuted }
+                    Label { text: "Protocol  " + appModel.protocol; color: window.textMuted }
+                    Label { text: "Adapter  " + appModel.adapter; color: window.textMuted }
+                    Label { text: "Port  " + appModel.port; color: window.textMuted }
+                    Label { text: "VIN  " + appModel.vin; color: window.textMuted }
                     Item { Layout.fillWidth: true }
-                    Label { text: "Voltage  14.2 V"; color: window.textPrimary; font.bold: true }
+                    Label { text: "Voltage  " + appModel.voltage; color: window.textPrimary; font.bold: true }
                 }
             }
         }

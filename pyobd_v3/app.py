@@ -6,11 +6,13 @@ import sys
 from PySide6.QtCore import QUrl
 from PySide6.QtGui import QGuiApplication, QIcon
 from PySide6.QtQml import QQmlApplicationEngine
+from PySide6.QtQuickControls2 import QQuickStyle
 
 from .app_model import AppModel
 
 
 def main():
+    QQuickStyle.setStyle("Basic")
     app = QGuiApplication(sys.argv)
     app.setApplicationDisplayName("pyOBD v3")
     app.setOrganizationName("Fare Brothers, LLC")
@@ -22,6 +24,7 @@ def main():
 
     engine = QQmlApplicationEngine()
     model = AppModel()
+    app.aboutToQuit.connect(model.shutdown)
     engine.rootContext().setContextProperty("appModel", model)
     engine.load(QUrl.fromLocalFile(str(Path(__file__).parent / "ui" / "Main.qml")))
     if not engine.rootObjects():
