@@ -6,9 +6,11 @@ Item {
     property real gaugeValue: 0
     property real minimum: 0
     property real maximum: 100
+    property int divisions: 10
     property bool showDigital: true
     property string displayValue: "---"
     property string unit: ""
+    property color accent: "#2878f0"
 
     Canvas {
         id: dial
@@ -28,8 +30,18 @@ Item {
             ctx.lineWidth = Math.max(8, radius * 0.11)
             ctx.beginPath(); ctx.arc(cx, cy, radius, start, end); ctx.stroke()
             const ratio = Math.max(0, Math.min(1, (root.gaugeValue - root.minimum) / Math.max(1, root.maximum - root.minimum)))
-            ctx.strokeStyle = "#2878f0"
+            ctx.strokeStyle = root.accent
             ctx.beginPath(); ctx.arc(cx, cy, radius, start, start + (end - start) * ratio); ctx.stroke()
+            ctx.lineCap = "butt"
+            ctx.strokeStyle = "#64748b"
+            ctx.lineWidth = 1
+            for (let step = 0; step <= root.divisions; ++step) {
+                const tickAngle = start + (end - start) * step / root.divisions
+                ctx.beginPath()
+                ctx.moveTo(cx + Math.cos(tickAngle) * radius * 0.84, cy + Math.sin(tickAngle) * radius * 0.84)
+                ctx.lineTo(cx + Math.cos(tickAngle) * radius * 0.97, cy + Math.sin(tickAngle) * radius * 0.97)
+                ctx.stroke()
+            }
             const angle = start + (end - start) * ratio
             ctx.strokeStyle = "#172033"
             ctx.lineWidth = 3
@@ -47,6 +59,8 @@ Item {
             function onGaugeValueChanged() { dial.requestPaint() }
             function onMinimumChanged() { dial.requestPaint() }
             function onMaximumChanged() { dial.requestPaint() }
+            function onDivisionsChanged() { dial.requestPaint() }
+            function onAccentChanged() { dial.requestPaint() }
         }
     }
 

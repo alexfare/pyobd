@@ -117,7 +117,18 @@ class AppModel(QObject):
 
     @Property("QVariantList", notify=stateChanged)
     def dashboardCatalog(self):
-        return [item for item in self.widgetCatalog if item.get("type") == "pid"]
+        catalog = [item for item in self.widgetCatalog if item.get("type") == "pid"]
+        known = {item.get("pid") for item in catalog}
+        for widget in self._dashboard_widgets:
+            for pid in (widget.get("pid"), widget.get("center_pid")):
+                if pid and pid not in known:
+                    catalog.append({
+                        "pid": pid,
+                        "name": widget.get("title", pid) if pid == widget.get("pid") else pid,
+                        "type": "pid",
+                    })
+                    known.add(pid)
+        return catalog
 
     @Property("QVariantList", notify=stateChanged)
     def dashboardWidgets(self):
@@ -358,10 +369,14 @@ class AppModel(QObject):
         self._dashboard_widgets.append({
             "id": uuid4().hex,
             "pid": pid,
+            "center_pid": "",
             "title": catalog_item.get("name", pid),
             "style": "combined",
+            "shape": "rounded",
+            "colour": "blue",
             "minimum": 0.0,
             "maximum": self._default_dashboard_maximum(pid),
+            "divisions": 10,
             "x": offset,
             "y": offset,
             "width": 320.0,
@@ -391,8 +406,61 @@ class AppModel(QObject):
         widget = self._dashboard_widget(widget_id)
         if widget is None:
             return
-        widget["width"] = max(220.0, width)
-        widget["height"] = max(170.0, height)
+        width = max(120.0, width)
+        height = max(100.0, height)
+        if widget.get("shape") == "circle":
+            width = height = max(width, height)
+        widget["width"] = width
+        widget["height"] = height
+        self._save_dashboard()
+
+    @Slot(str, float, float, float, float)
+    def set_dashboard_geometry(self, widget_id, x, y, width, height):
+        widget = self._dashboard_widget(widget_id)
+        if widget is None:
+            return
+        width = max(120.0, width)
+        height = max(100.0, height)
+        if widget.get("shape") == "circle":
+            width = height = max(width, height)
+        widget.update({
+            "x": max(0.0, x), "y": max(0.0, y),
+            "width": width, "height": height,
+        })
+        self._save_dashboard()
+
+    @Slot(str, str, str, str, str, str, str, str, str, int)
+    def update_dashboard_properties(
+        self, widget_id, pid, center_pid, title, style, shape, colour,
+        minimum, maximum, divisions,
+    ):
+        widget = self._dashboard_widget(widget_id)
+        if widget is None or style not in ("digital", "dial", "combined"):
+            return
+        if shape not in ("rounded", "circle", "rectangle"):
+            return
+        if colour not in ("blue", "green", "orange", "red", "purple", "cyan"):
+            return
+        try:
+            lower = float(minimum)
+            upper = float(maximum)
+        except (TypeError, ValueError):
+            return
+        if upper <= lower:
+            return
+        widget.update({
+            "pid": pid,
+            "center_pid": center_pid if style == "combined" else "",
+            "title": title.strip() or pid,
+            "style": style,
+            "shape": shape,
+            "colour": colour,
+            "minimum": lower,
+            "maximum": upper,
+            "divisions": max(2, min(20, divisions)),
+        })
+        if shape == "circle":
+            widget["width"] = widget["height"] = max(widget["width"], widget["height"])
         self._save_dashboard()
 
     @Slot(str, str)
@@ -426,6 +494,22 @@ class AppModel(QObject):
         if widget is None:
             return
         widget["z"] = max(0, int(widget.get("z", 0)) + direction)
+        self._save_dashboard()
+
+    @Slot(str, bool)
+    def set_dashboard_layer_edge(self, widget_id, front):
+        widget = self._dashboard_widget(widget_id)
+        if widget is None:
+            return
+        if front:
+            widget["z"] = max(
+                [int(item.get("z", 0)) for item in self._dashboard_widgets] or [0]
+            ) + 1
+        else:
+            widget["z"] = 0
+            for item in self._dashboard_widgets:
+                if item is not widget:
+                    item["z"] = max(1, int(item.get("z", 0)))
         self._save_dashboard()
 
     @Slot()
@@ -651,17 +735,27 @@ class AppModel(QObject):
             rows.append({
                 "widgetId": item.get("id", ""),
                 "pid": item.get("pid", ""),
+                "centerPid": item.get("center_pid", ""),
                 "title": item.get("title", ""),
                 "style": item.get("style", "combined"),
+                "shape": item.get("shape", "rounded"),
+                "colour": item.get("colour", "blue"),
                 "minimum": item.get("minimum", 0.0),
                 "maximum": item.get("maximum", 100.0),
+                "divisions": item.get("divisions", 10),
                 "xPosition": item.get("x", 0.0),
                 "yPosition": item.get("y", 0.0),
                 "widgetWidth": item.get("width", 320.0),
                 "widgetHeight": item.get("height", 260.0),
                 "layerValue": item.get("z", 0),
                 "readingValue": item.get("value", "---"),
+                "centerReadingValue": self._readings.get(
+                    item.get("center_pid") or item.get("pid", ""), {}
+                ).get("value", "---"),
                 "unit": item.get("unit", ""),
+                "centerUnit": self._readings.get(
+                    item.get("center_pid") or item.get("pid", ""), {}
+                ).get("unit", ""),
                 "numericValue": item.get("numericValue") or 0.0,
             })
         self._dashboard_model.update_rows(rows)
@@ -693,20 +787,30 @@ class AppModel(QObject):
         pid = str(item.get("pid", "")).upper()
         if not pid:
             raise ValueError("Dashboard widget is missing a PID")
-        style = item.get("style", "combined")
+        style = str(item.get("style", item.get("type", "combined"))).lower()
         if style not in ("digital", "dial", "combined"):
             style = "combined"
+        shape = str(item.get("shape", "rounded")).lower()
+        if shape not in ("rounded", "circle", "rectangle"):
+            shape = "rounded"
+        colour = str(item.get("colour", "blue")).lower()
+        if colour not in ("blue", "green", "orange", "red", "purple", "cyan"):
+            colour = "blue"
         return {
             "id": str(item.get("id") or uuid4().hex),
             "pid": pid,
+            "center_pid": str(item.get("center_pid", "")).upper(),
             "title": str(item.get("title") or pid),
             "style": style,
+            "shape": shape,
+            "colour": colour,
             "minimum": float(item.get("minimum", 0.0)),
             "maximum": float(item.get("maximum", self._default_dashboard_maximum(pid))),
+            "divisions": max(2, min(20, int(item.get("divisions", 10)))),
             "x": max(0.0, float(item.get("x", 30.0))),
             "y": max(0.0, float(item.get("y", 30.0))),
-            "width": max(220.0, float(item.get("width", 320.0))),
-            "height": max(170.0, float(item.get("height", 260.0))),
+            "width": max(120.0, float(item.get("width", 320.0))),
+            "height": max(100.0, float(item.get("height", 260.0))),
             "z": max(0, int(item.get("z", 1))),
         }
 

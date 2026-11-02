@@ -5,9 +5,10 @@ from PySide6.QtCore import QAbstractListModel, QModelIndex, Qt
 
 class DashboardListModel(QAbstractListModel):
     ROLE_NAMES = (
-        "widgetId", "pid", "title", "style", "minimum", "maximum",
+        "widgetId", "pid", "centerPid", "title", "style", "shape", "colour",
+        "minimum", "maximum", "divisions",
         "xPosition", "yPosition", "widgetWidth", "widgetHeight", "layerValue",
-        "readingValue", "unit", "numericValue",
+        "readingValue", "centerReadingValue", "unit", "centerUnit", "numericValue",
     )
     ROLE_MAP = {
         Qt.UserRole + index + 1: name.encode()

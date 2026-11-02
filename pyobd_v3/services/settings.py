@@ -12,8 +12,8 @@ DEFAULT_WIDGETS = [
 ]
 
 DEFAULT_DASHBOARD_WIDGETS = [
-    {"id": "dash-rpm", "pid": "010C", "title": "Engine RPM", "style": "combined", "minimum": 0.0, "maximum": 8000.0, "x": 30.0, "y": 30.0, "width": 320.0, "height": 280.0, "z": 1},
-    {"id": "dash-speed", "pid": "010D", "title": "Vehicle Speed", "style": "digital", "minimum": 0.0, "maximum": 140.0, "x": 370.0, "y": 30.0, "width": 300.0, "height": 200.0, "z": 2},
+    {"id": "dash-rpm", "pid": "010C", "center_pid": "010D", "title": "Engine RPM", "style": "combined", "shape": "circle", "colour": "blue", "minimum": 0.0, "maximum": 8000.0, "divisions": 10, "x": 30.0, "y": 30.0, "width": 320.0, "height": 320.0, "z": 1},
+    {"id": "dash-speed", "pid": "010D", "center_pid": "", "title": "Vehicle Speed", "style": "digital", "shape": "rounded", "colour": "green", "minimum": 0.0, "maximum": 140.0, "divisions": 10, "x": 370.0, "y": 30.0, "width": 300.0, "height": 200.0, "z": 2},
 ]
 
 

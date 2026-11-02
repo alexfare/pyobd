@@ -6,7 +6,40 @@ import QtQuick.Layouts
 ColumnLayout {
     id: root
     property bool editing: false
+    property string selectedWidgetId: ""
     spacing: 0
+
+    function colourValue(name) {
+        const colours = {
+            blue: "#2563eb", green: "#16a34a", orange: "#d97706",
+            red: "#dc2626", purple: "#7e22ce", cyan: "#0891b2"
+        }
+        return colours[name] || colours.blue
+    }
+
+    function catalogIndex(pid) {
+        const catalog = appModel.dashboardCatalog
+        for (let index = 0; index < catalog.length; ++index)
+            if (catalog[index].pid === pid) return index
+        return 0
+    }
+
+    function openProperties(card) {
+        selectedWidgetId = card.widgetId
+        mainPidChoice.currentIndex = catalogIndex(card.pid)
+        centerPidChoice.currentIndex = catalogIndex(card.centerPid || card.pid)
+        sameCenterPid.checked = !card.centerPid
+        titleField.text = card.title
+        displayChoice.currentIndex = displayChoice.model.indexOf(card.style)
+        shapeChoice.currentIndex = shapeChoice.model.indexOf(card.shape)
+        colourChoice.currentIndex = colourChoice.model.indexOf(card.colour)
+        minimumField.text = card.minimum.toString()
+        maximumField.text = card.maximum.toString()
+        divisionsSpin.value = card.divisions
+        widthSpin.value = Math.round(card.width)
+        heightSpin.value = Math.round(card.height)
+        propertiesDialog.open()
+    }
 
     Rectangle {
         Layout.fillWidth: true
@@ -22,6 +55,7 @@ ColumnLayout {
             Button { text: "Import"; visible: root.editing; onClicked: importDialog.open() }
             Button { text: "Export"; visible: root.editing; onClicked: exportDialog.open() }
             Button { text: "Restore"; visible: root.editing; onClicked: appModel.restore_dashboard() }
+            Label { visible: root.editing; text: "Drag gauges to move · drag edges to resize"; color: "#64748b" }
             Item { Layout.fillWidth: true }
             Label { text: appModel.dashboardMessage; color: "#64748b" }
         }
@@ -50,28 +84,35 @@ ColumnLayout {
                     id: card
                     required property string widgetId
                     required property string pid
+                    required property string centerPid
                     required property string title
                     required property string style
+                    required property string shape
+                    required property string colour
                     required property real minimum
                     required property real maximum
+                    required property int divisions
                     required property real xPosition
                     required property real yPosition
                     required property real widgetWidth
                     required property real widgetHeight
                     required property int layerValue
                     required property string readingValue
+                    required property string centerReadingValue
                     required property string unit
+                    required property string centerUnit
                     required property real numericValue
+                    readonly property color accent: root.colourValue(colour)
 
                     x: xPosition
                     y: yPosition
                     width: widgetWidth
                     height: widgetHeight
                     z: layerValue
-                    radius: 18
+                    radius: shape === "circle" ? Math.min(width, height) / 2 : (shape === "rounded" ? 18 : 0)
                     color: "white"
                     border.width: root.editing ? 2 : 1
-                    border.color: root.editing ? "#2878f0" : "#dce3ec"
+                    border.color: root.editing ? accent : "#dce3ec"
 
                     DragHandler {
                         target: card
@@ -91,6 +132,11 @@ ColumnLayout {
                             Layout.fillWidth: true
                             Label { text: card.title; font.bold: true; color: "#172033"; Layout.fillWidth: true; elide: Text.ElideRight }
                             Label { text: card.pid; color: "#64748b"; font.pixelSize: 11 }
+                            Button {
+                                visible: root.editing
+                                text: "Properties"
+                                onClicked: root.openProperties(card)
+                            }
                         }
 
                         DashboardGauge {
@@ -100,9 +146,11 @@ ColumnLayout {
                             gaugeValue: card.numericValue
                             minimum: card.minimum
                             maximum: card.maximum
+                            divisions: card.divisions
                             showDigital: card.style === "combined"
-                            displayValue: card.readingValue
-                            unit: card.unit
+                            displayValue: card.centerReadingValue
+                            unit: card.centerUnit
+                            accent: card.accent
                         }
 
                         Column {
@@ -114,50 +162,170 @@ ColumnLayout {
                             Label { anchors.horizontalCenter: parent.horizontalCenter; text: card.unit; color: "#64748b"; font.pixelSize: 16 }
                         }
 
-                        RowLayout {
-                            visible: root.editing
-                            Layout.fillWidth: true
-                            ComboBox {
-                                Layout.preferredWidth: 110
-                                model: ["digital", "dial", "combined"]
-                                currentIndex: Math.max(0, model.indexOf(card.style))
-                                onActivated: appModel.set_dashboard_style(card.widgetId, currentText)
+                    }
+
+                    Rectangle {
+                        id: rightResizeHandle
+                        visible: root.editing
+                        width: 10
+                        height: parent.height - 28
+                        anchors.right: parent.right
+                        anchors.verticalCenter: parent.verticalCenter
+                        color: "transparent"
+                        property real startWidth
+                        property real startHeight
+                        HoverHandler { cursorShape: Qt.SizeHorCursor }
+                        DragHandler {
+                            target: null
+                            onActiveChanged: {
+                                if (active) {
+                                    rightResizeHandle.startWidth = card.width
+                                    rightResizeHandle.startHeight = card.height
+                                } else {
+                                    appModel.set_dashboard_geometry(card.widgetId, card.x, card.y, card.width, card.height)
+                                }
                             }
-                            TextField { id: minimumField; Layout.preferredWidth: 62; text: card.minimum.toString(); placeholderText: "Min"; onEditingFinished: appModel.set_dashboard_range(card.widgetId, text, maximumField.text) }
-                            TextField { id: maximumField; Layout.preferredWidth: 70; text: card.maximum.toString(); placeholderText: "Max"; onEditingFinished: appModel.set_dashboard_range(card.widgetId, minimumField.text, text) }
-                            Button { text: "↓"; onClicked: appModel.change_dashboard_layer(card.widgetId, -1) }
-                            Button { text: "↑"; onClicked: appModel.change_dashboard_layer(card.widgetId, 1) }
-                            Button { text: "×"; onClicked: appModel.remove_dashboard_widget(card.widgetId) }
+                            onActiveTranslationChanged: {
+                                const size = Math.max(120, rightResizeHandle.startWidth + activeTranslation.x)
+                                card.width = size
+                                if (card.shape === "circle") card.height = size
+                            }
                         }
                     }
 
                     Rectangle {
-                        id: resizeHandle
+                        id: bottomResizeHandle
                         visible: root.editing
-                        width: 24
-                        height: 24
-                        anchors.right: parent.right
+                        width: parent.width - 28
+                        height: 10
                         anchors.bottom: parent.bottom
-                        radius: 6
-                        color: "#2878f0"
+                        anchors.horizontalCenter: parent.horizontalCenter
+                        color: "transparent"
                         property real startWidth
                         property real startHeight
+                        HoverHandler { cursorShape: Qt.SizeVerCursor }
                         DragHandler {
-                            id: resizeDrag
                             target: null
                             onActiveChanged: {
                                 if (active) {
-                                    resizeHandle.startWidth = card.width
-                                    resizeHandle.startHeight = card.height
+                                    bottomResizeHandle.startWidth = card.width
+                                    bottomResizeHandle.startHeight = card.height
                                 } else {
-                                    appModel.resize_dashboard_widget(card.widgetId, card.width, card.height)
+                                    appModel.set_dashboard_geometry(card.widgetId, card.x, card.y, card.width, card.height)
                                 }
                             }
                             onActiveTranslationChanged: {
-                                card.width = Math.max(220, resizeHandle.startWidth + activeTranslation.x)
-                                card.height = Math.max(170, resizeHandle.startHeight + activeTranslation.y)
+                                const size = Math.max(100, bottomResizeHandle.startHeight + activeTranslation.y)
+                                card.height = size
+                                if (card.shape === "circle") card.width = size
                             }
                         }
+                    }
+
+                    Rectangle {
+                        id: cornerResizeHandle
+                        visible: root.editing
+                        width: 18
+                        height: 18
+                        anchors.right: parent.right
+                        anchors.bottom: parent.bottom
+                        radius: 5
+                        color: card.accent
+                        property real startWidth
+                        property real startHeight
+                        HoverHandler { cursorShape: Qt.SizeFDiagCursor }
+                        DragHandler {
+                            target: null
+                            onActiveChanged: {
+                                if (active) {
+                                    cornerResizeHandle.startWidth = card.width
+                                    cornerResizeHandle.startHeight = card.height
+                                } else {
+                                    appModel.set_dashboard_geometry(card.widgetId, card.x, card.y, card.width, card.height)
+                                }
+                            }
+                            onActiveTranslationChanged: {
+                                if (card.shape === "circle") {
+                                    const size = Math.max(120, cornerResizeHandle.startWidth + Math.max(activeTranslation.x, activeTranslation.y))
+                                    card.width = size
+                                    card.height = size
+                                } else {
+                                    card.width = Math.max(120, cornerResizeHandle.startWidth + activeTranslation.x)
+                                    card.height = Math.max(100, cornerResizeHandle.startHeight + activeTranslation.y)
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    Dialog {
+        id: propertiesDialog
+        anchors.centerIn: Overlay.overlay
+        width: 560
+        height: 650
+        modal: true
+        title: "Gauge properties"
+        standardButtons: Dialog.Save | Dialog.Cancel
+        onAccepted: {
+            const pid = mainPidChoice.currentValue || "010C"
+            const centerPid = sameCenterPid.checked ? "" : (centerPidChoice.currentValue || pid)
+            appModel.update_dashboard_properties(
+                root.selectedWidgetId, pid, centerPid, titleField.text,
+                displayChoice.currentText, shapeChoice.currentText,
+                colourChoice.currentText, minimumField.text,
+                maximumField.text, divisionsSpin.value
+            )
+            appModel.resize_dashboard_widget(root.selectedWidgetId, widthSpin.value, heightSpin.value)
+        }
+
+        GridLayout {
+            anchors.fill: parent
+            columns: 2
+            rowSpacing: 10
+            columnSpacing: 12
+
+            Label { text: "Main PID" }
+            ComboBox { id: mainPidChoice; Layout.fillWidth: true; model: appModel.dashboardCatalog; textRole: "name"; valueRole: "pid" }
+            Label { text: "Widget name" }
+            TextField { id: titleField; Layout.fillWidth: true }
+            Label { text: "Display" }
+            ComboBox { id: displayChoice; Layout.fillWidth: true; model: ["digital", "dial", "combined"] }
+            Label { text: "Center PID"; visible: displayChoice.currentText === "combined" }
+            ColumnLayout {
+                visible: displayChoice.currentText === "combined"
+                Layout.fillWidth: true
+                CheckBox { id: sameCenterPid; text: "Same as main PID" }
+                ComboBox { id: centerPidChoice; enabled: !sameCenterPid.checked; Layout.fillWidth: true; model: appModel.dashboardCatalog; textRole: "name"; valueRole: "pid" }
+            }
+            Label { text: "Shape" }
+            ComboBox { id: shapeChoice; Layout.fillWidth: true; model: ["rounded", "circle", "rectangle"] }
+            Label { text: "Colour" }
+            ComboBox { id: colourChoice; Layout.fillWidth: true; model: ["blue", "green", "orange", "red", "purple", "cyan"] }
+            Label { text: "Width" }
+            SpinBox { id: widthSpin; Layout.fillWidth: true; from: 120; to: 800; editable: true }
+            Label { text: "Height" }
+            SpinBox { id: heightSpin; Layout.fillWidth: true; from: 100; to: 600; editable: true }
+            Label { text: "Dial minimum"; visible: displayChoice.currentText !== "digital" }
+            TextField { id: minimumField; visible: displayChoice.currentText !== "digital"; Layout.fillWidth: true }
+            Label { text: "Dial maximum"; visible: displayChoice.currentText !== "digital" }
+            TextField { id: maximumField; visible: displayChoice.currentText !== "digital"; Layout.fillWidth: true }
+            Label { text: "Dial divisions"; visible: displayChoice.currentText !== "digital" }
+            SpinBox { id: divisionsSpin; visible: displayChoice.currentText !== "digital"; Layout.fillWidth: true; from: 2; to: 20; editable: true }
+
+            RowLayout {
+                Layout.columnSpan: 2
+                Layout.fillWidth: true
+                Button { text: "Send to back"; onClicked: appModel.set_dashboard_layer_edge(root.selectedWidgetId, false) }
+                Button { text: "Bring to front"; onClicked: appModel.set_dashboard_layer_edge(root.selectedWidgetId, true) }
+                Item { Layout.fillWidth: true }
+                Button {
+                    text: "Delete gauge"
+                    onClicked: {
+                        appModel.remove_dashboard_widget(root.selectedWidgetId)
+                        propertiesDialog.close()
                     }
                 }
             }
