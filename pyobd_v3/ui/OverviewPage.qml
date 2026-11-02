@@ -55,14 +55,73 @@ ScrollView {
                         RowLayout {
                             Layout.fillWidth: true
                             Label { text: modelData.title; color: "#172033"; font.pixelSize: 16; font.bold: true; Layout.fillWidth: true }
-                            Label { text: modelData.pid; color: "#64748b"; font.pixelSize: 11 }
+                            Label { text: modelData.pid || modelData.type; color: "#64748b"; font.pixelSize: 11 }
                         }
+
                         Row {
+                            visible: modelData.type === "pid"
                             spacing: 8
                             Label { text: modelData.value; color: modelData.available ? "#172033" : "#94a3b8"; font.pixelSize: 38; font.bold: true }
                             Label { anchors.baseline: parent.children[0].baseline; text: modelData.unit; color: "#64748b" }
                         }
-                        ProgressBar { Layout.fillWidth: true; value: modelData.progress }
+
+                        ProgressBar {
+                            visible: modelData.type === "pid"
+                            Layout.fillWidth: true
+                            value: modelData.progress
+                        }
+
+                        Canvas {
+                            id: compactGraph
+                            visible: modelData.type === "graph"
+                            Layout.fillWidth: true
+                            Layout.fillHeight: true
+                            onWidthChanged: requestPaint()
+                            onHeightChanged: requestPaint()
+                            onPaint: {
+                                const ctx = getContext("2d")
+                                ctx.reset()
+                                const points = appModel.graph_points(modelData.pid)
+                                if (points.length < 2) return
+                                let low = Math.min.apply(null, points)
+                                let high = Math.max.apply(null, points)
+                                if (high <= low) high = low + 1
+                                ctx.strokeStyle = "#2878f0"
+                                ctx.lineWidth = 3
+                                ctx.beginPath()
+                                for (let i = 0; i < points.length; ++i) {
+                                    const x = i * width / Math.max(1, points.length - 1)
+                                    const y = height - ((points[i] - low) / (high - low)) * height
+                                    if (i === 0) ctx.moveTo(x, y); else ctx.lineTo(x, y)
+                                }
+                                ctx.stroke()
+                            }
+                            Connections {
+                                target: appModel
+                                function onGraphChanged() { compactGraph.requestPaint() }
+                            }
+                        }
+
+                        Label {
+                            visible: modelData.type !== "pid" && modelData.type !== "graph" && modelData.type !== "shortcut"
+                            Layout.fillWidth: true
+                            Layout.fillHeight: true
+                            text: modelData.value || "Unavailable"
+                            color: modelData.available ? "#172033" : "#94a3b8"
+                            font.pixelSize: 28
+                            font.bold: true
+                            verticalAlignment: Text.AlignVCenter
+                            elide: Text.ElideRight
+                        }
+
+                        Button {
+                            visible: modelData.type === "shortcut"
+                            Layout.fillWidth: true
+                            Layout.fillHeight: true
+                            text: "Open " + modelData.value
+                            onClicked: appModel.open_shortcut(modelData.value)
+                        }
+
                         Item { Layout.fillHeight: true }
                         RowLayout {
                             visible: root.editing
