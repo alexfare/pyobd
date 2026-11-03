@@ -57,6 +57,9 @@ class VehicleService:
         self._connection = None
         self._config = ConnectionConfig()
         self._live_commands = []
+        self._poll_commands = []
+        self._requested_pids = set()
+        self._poll_lock = threading.Lock()
         self._live_index = 0
         self._readings = {}
 
@@ -106,6 +109,24 @@ class VehicleService:
     def request_misfire(self):
         self._operations.put("misfire")
 
+    def set_poll_pids(self, pids=None):
+        with self._poll_lock:
+            self._requested_pids = None if pids is None else {
+                str(pid).upper() for pid in pids if pid
+            }
+            self._refresh_poll_commands_locked()
+
+    def _refresh_poll_commands_locked(self):
+        if self._requested_pids is None:
+            self._poll_commands = list(self._live_commands)
+        else:
+            self._poll_commands = [
+                command for command in self._live_commands
+                if command.command.decode(errors="ignore").upper()
+                in self._requested_pids
+            ]
+        self._live_index = 0
+
     def _run(self):
         target = self._config.adapter_target()
         if not target:
@@ -140,7 +161,9 @@ class VehicleService:
                 connected_once = True
                 reconnects = 0
                 self._readings.clear()
-                self._live_commands = []
+                with self._poll_lock:
+                    self._live_commands = []
+                    self._poll_commands = []
                 self._live_index = 0
                 self._publish_identity()
                 self._discover_supported_pids()
@@ -233,17 +256,20 @@ class VehicleService:
             if getattr(obd.commands, name) in commands
         ]
         remaining = [command for command in commands if command not in preferred]
-        self._live_commands = preferred + remaining + [obd.commands.ELM_VOLTAGE]
+        with self._poll_lock:
+            self._live_commands = preferred + remaining + [obd.commands.ELM_VOLTAGE]
+            self._refresh_poll_commands_locked()
         supported.append(SupportedPID("ATRV", "Adapter Voltage"))
         if self._stop_event.is_set():
             return
         self._event_sink.publish(AppEvent(EventChannel.SUPPORTED_PIDS, tuple(supported)))
 
     def _poll_next_reading(self):
-        if not self._live_commands:
-            return
-        command = self._live_commands[self._live_index % len(self._live_commands)]
-        self._live_index += 1
+        with self._poll_lock:
+            if not self._poll_commands:
+                return
+            command = self._poll_commands[self._live_index % len(self._poll_commands)]
+            self._live_index += 1
         response = self._connection.query(command)
         if self._stop_event.is_set() or response.value is None:
             return
