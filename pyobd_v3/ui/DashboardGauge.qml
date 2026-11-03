@@ -23,8 +23,8 @@ Item {
             const ctx = getContext("2d")
             ctx.reset()
             const cx = width / 2
-            const cy = height * 0.58
-            const radius = Math.min(width * 0.42, height * 0.48)
+            const cy = height / 2
+            const radius = Math.min(width, height) * 0.42
             const start = Math.PI * 0.75
             const end = Math.PI * 2.25
             ctx.lineCap = "round"
