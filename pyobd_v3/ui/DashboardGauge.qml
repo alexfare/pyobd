@@ -15,6 +15,8 @@ Item {
     Canvas {
         id: dial
         anchors.fill: parent
+        antialiasing: true
+        onVisibleChanged: if (visible) requestPaint()
         onWidthChanged: requestPaint()
         onHeightChanged: requestPaint()
         onPaint: {
@@ -67,7 +69,7 @@ Item {
         visible: root.showDigital
         anchors.horizontalCenter: parent.horizontalCenter
         anchors.verticalCenter: parent.verticalCenter
-        anchors.verticalCenterOffset: height * 0.25
+        anchors.verticalCenterOffset: -height * 0.45
         Label { anchors.horizontalCenter: parent.horizontalCenter; text: root.displayValue; font.pixelSize: 28; font.bold: true; color: "#172033" }
         Label { anchors.horizontalCenter: parent.horizontalCenter; text: root.unit; color: "#64748b" }
     }

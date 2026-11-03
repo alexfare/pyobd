@@ -907,6 +907,11 @@ class AppModel(QObject):
         ]
         self._save_dashboard()
 
+    @Slot()
+    def clear_dashboard(self):
+        self._dashboard_widgets = []
+        self._save_dashboard()
+
     @Slot(str, float, float)
     def move_dashboard_widget(self, widget_id, x, y):
         widget = self._dashboard_widget(widget_id)
@@ -921,8 +926,9 @@ class AppModel(QObject):
         widget = self._dashboard_widget(widget_id)
         if widget is None:
             return
-        width = max(120.0, width)
-        height = max(100.0, height)
+        is_dial = widget.get("style") in ("dial", "combined")
+        width = max(240.0 if is_dial else 120.0, width)
+        height = max(240.0 if is_dial else 100.0, height)
         if widget.get("shape") == "circle":
             width = height = max(width, height)
         widget["width"] = width
@@ -934,8 +940,9 @@ class AppModel(QObject):
         widget = self._dashboard_widget(widget_id)
         if widget is None:
             return
-        width = max(120.0, width)
-        height = max(100.0, height)
+        is_dial = widget.get("style") in ("dial", "combined")
+        width = max(240.0 if is_dial else 120.0, width)
+        height = max(240.0 if is_dial else 100.0, height)
         if widget.get("shape") == "circle":
             width = height = max(width, height)
         widget.update({
@@ -974,6 +981,9 @@ class AppModel(QObject):
             "maximum": upper,
             "divisions": max(2, min(20, divisions)),
         })
+        if style in ("dial", "combined"):
+            widget["width"] = max(240.0, widget["width"])
+            widget["height"] = max(240.0, widget["height"])
         if shape == "circle":
             widget["width"] = widget["height"] = max(widget["width"], widget["height"])
         self._save_dashboard()
