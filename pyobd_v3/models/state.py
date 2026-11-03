@@ -15,13 +15,13 @@ class ConnectionStatus(str, Enum):
 
 @dataclass(frozen=True)
 class ConnectionConfig:
-    transport: str = "Wi-Fi"
+    transport: str = "Auto detect"
     address: str = "192.168.0.10"
     port: str = "35000"
     baudrate: str = "AUTO"
-    timeout: float = 2.0
-    retries: int = 3
-    send_mode: str = "FAST"
+    timeout: float = 1.0
+    retries: int = 5
+    send_mode: str = "NORMAL"
     measurement_system: str = "IMPERIAL"
 
     def adapter_target(self) -> str:
@@ -50,7 +50,7 @@ class ConnectionConfig:
 @dataclass(frozen=True)
 class ConnectionState:
     status: ConnectionStatus = ConnectionStatus.DISCONNECTED
-    transport: str = "Wi-Fi"
+    transport: str = "Auto detect"
     adapter: str = "----"
     port: str = "----"
     protocol: str = "----"

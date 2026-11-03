@@ -15,6 +15,7 @@ from PySide6.QtCore import Property, QObject, QTimer, QUrl, Signal, Slot
 from PySide6.QtGui import QDesktopServices
 
 from event_sink import AppEvent, CallbackEventSink, EventChannel
+from obd2_codes import pcodes
 from pyobd_v3.app_info import (
     ADAPTER_URL, APP_VERSION, ISSUES_URL, LICENSE_URL, PROJECT_URL, RELEASE_API_URL,
     RELEASES_URL, SUPPORT_URL,
@@ -85,6 +86,8 @@ class AppModel(QObject):
         self._replay_timer.timeout.connect(self._advance_session_replay)
         self._favorites = self._store.favorites()
         self._graph_pids = self._store.graph_pids()
+        self._graph_presets = self._store.graph_presets()
+        self._current_graph_preset = ""
         self._profiles = self._store.profiles()
         self._active_profile_id = ""
         self._vehicle_profile_status = ""
@@ -395,7 +398,7 @@ class AppModel(QObject):
             timeout_value = max(0.5, float(timeout))
             retry_value = max(1, min(10, int(retries)))
         except (TypeError, ValueError):
-            timeout_value, retry_value = 2.0, 3
+            timeout_value, retry_value = 1.0, 5
         config = ConnectionConfig(
             transport=transport,
             address=address,
@@ -403,7 +406,7 @@ class AppModel(QObject):
             baudrate=baudrate or "AUTO",
             timeout=timeout_value,
             retries=retry_value,
-            send_mode=send_mode if send_mode in ("FAST", "NORMAL") else "FAST",
+            send_mode=send_mode if send_mode in ("FAST", "NORMAL") else "NORMAL",
             measurement_system=(
                 measurement_system
                 if measurement_system in ("IMPERIAL", "METRIC") else "IMPERIAL"
@@ -431,7 +434,7 @@ class AppModel(QObject):
             timeout_value = max(0.5, float(timeout))
             retry_value = max(1, min(10, int(retries)))
         except (TypeError, ValueError):
-            timeout_value, retry_value = 2.0, 3
+            timeout_value, retry_value = 1.0, 5
         self._store.save_connection({
             "transport": transport,
             "address": address,
@@ -439,7 +442,7 @@ class AppModel(QObject):
             "baudrate": baudrate or "AUTO",
             "timeout": timeout_value,
             "retries": retry_value,
-            "send_mode": send_mode if send_mode in ("FAST", "NORMAL") else "FAST",
+            "send_mode": send_mode if send_mode in ("FAST", "NORMAL") else "NORMAL",
             "measurement_system": (
                 measurement_system
                 if measurement_system in ("IMPERIAL", "METRIC") else "IMPERIAL"
@@ -450,13 +453,13 @@ class AppModel(QObject):
     def saved_connection(self):
         values = self._store.connection()
         return {
-            "transport": values.get("transport", "Wi-Fi"),
+            "transport": values.get("transport", "Auto detect"),
             "address": values.get("address", "192.168.0.10"),
             "port": values.get("port", "35000"),
             "baudrate": values.get("baudrate", "AUTO"),
-            "timeout": str(values.get("timeout", 2.0)),
-            "retries": str(values.get("retries", 3)),
-            "send_mode": values.get("send_mode", "FAST"),
+            "timeout": str(values.get("timeout", 1.0)),
+            "retries": str(values.get("retries", 5)),
+            "send_mode": values.get("send_mode", "NORMAL"),
             "measurement_system": values.get("measurement_system", "IMPERIAL"),
         }
 
@@ -755,10 +758,19 @@ class AppModel(QObject):
     def graphPids(self):
         return list(self._graph_pids)
 
+    @Property("QStringList", notify=graphSelectionChanged)
+    def graphPresetNames(self):
+        return sorted(self._graph_presets, key=str.casefold)
+
+    @Property(str, notify=graphSelectionChanged)
+    def currentGraphPreset(self):
+        return self._current_graph_preset
+
     @Slot(str)
     def add_graph_pid(self, pid):
         if pid and pid not in self._graph_pids:
             self._graph_pids.append(pid)
+            self._current_graph_preset = ""
             self._store.save_graph_pids(self._graph_pids)
             self.graphSelectionChanged.emit()
 
@@ -766,8 +778,48 @@ class AppModel(QObject):
     def remove_graph_pid(self, index):
         if 0 <= index < len(self._graph_pids):
             self._graph_pids.pop(index)
+            self._current_graph_preset = ""
             self._store.save_graph_pids(self._graph_pids)
             self.graphSelectionChanged.emit()
+
+    @Slot(str)
+    def select_graph_preset(self, name):
+        if name not in self._graph_presets:
+            return
+        self._current_graph_preset = name
+        self._graph_pids = list(dict.fromkeys(self._graph_presets[name]))
+        self._store.save_graph_pids(self._graph_pids)
+        self.graphSelectionChanged.emit()
+
+    @Slot(str)
+    def save_graph_preset(self, name):
+        name = name.strip()
+        if not name or not self._graph_pids:
+            return
+        self._graph_presets[name] = list(self._graph_pids)
+        self._current_graph_preset = name
+        self._store.save_graph_presets(self._graph_presets)
+        self.graphSelectionChanged.emit()
+
+    @Slot(str)
+    def rename_graph_preset(self, name):
+        name = name.strip()
+        old_name = self._current_graph_preset
+        if not old_name or not name or (name != old_name and name in self._graph_presets):
+            return
+        self._graph_presets[name] = self._graph_presets.pop(old_name)
+        self._current_graph_preset = name
+        self._store.save_graph_presets(self._graph_presets)
+        self.graphSelectionChanged.emit()
+
+    @Slot()
+    def delete_graph_preset(self):
+        if self._current_graph_preset not in self._graph_presets:
+            return
+        del self._graph_presets[self._current_graph_preset]
+        self._current_graph_preset = ""
+        self._store.save_graph_presets(self._graph_presets)
+        self.graphSelectionChanged.emit()
 
     @Slot()
     def add_selected_to_graphs(self):
@@ -777,6 +829,7 @@ class AppModel(QObject):
                 self._graph_pids.append(pid)
                 changed = True
         if changed:
+            self._current_graph_preset = ""
             self._store.save_graph_pids(self._graph_pids)
             self.graphSelectionChanged.emit()
         self.select_page("Graphs")
@@ -1125,6 +1178,15 @@ class AppModel(QObject):
     @Slot()
     def refresh_diagnostics(self):
         self._vehicle_service.request_diagnostics()
+
+    @Slot(str, result="QVariantList")
+    def lookup_diagnostic_codes(self, query):
+        query = query.strip().casefold()
+        return [
+            {"code": code, "description": description}
+            for code, description in sorted(pcodes.items())
+            if not query or query in code.casefold() or query in description.casefold()
+        ]
 
     @Slot()
     def clear_diagnostics(self):

@@ -95,6 +95,20 @@ class SettingsStore:
         self._data["graph_pids"] = list(values)
         self._save()
 
+    def graph_presets(self):
+        values = self._data.get("graph_presets", {})
+        if not isinstance(values, dict):
+            return {}
+        return {
+            str(name): [str(pid) for pid in pids]
+            for name, pids in values.items()
+            if str(name).strip() and isinstance(pids, list)
+        }
+
+    def save_graph_presets(self, values):
+        self._data["graph_presets"] = dict(values)
+        self._save()
+
     def dashboard_widgets(self):
         widgets = self._data.get("dashboard_widgets", DEFAULT_DASHBOARD_WIDGETS)
         return [dict(widget) for widget in widgets]

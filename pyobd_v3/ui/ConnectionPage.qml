@@ -76,9 +76,9 @@ ScrollView {
                 RowLayout {
                     Layout.fillWidth: true
                     visible: transport.currentText !== "Demo"
-                    TextField { id: timeout; Layout.fillWidth: true; placeholderText: "Connection timeout (seconds)"; text: "2.0" }
+                    TextField { id: timeout; Layout.fillWidth: true; placeholderText: "Connection timeout (seconds)"; text: "1.0" }
                     Label { text: "Reconnect attempts"; color: "#64748b" }
-                    SpinBox { id: retries; from: 1; to: 10; value: 3; editable: true }
+                    SpinBox { id: retries; from: 1; to: 10; value: 5; editable: true }
                 }
                 ColumnLayout {
                     Layout.fillWidth: true
@@ -125,7 +125,7 @@ ScrollView {
                 RowLayout {
                     Layout.fillWidth: true
                     Label { text: "Send mode"; color: "#64748b" }
-                    ComboBox { id: sendMode; Layout.fillWidth: true; model: ["FAST", "NORMAL"] }
+                    ComboBox { id: sendMode; Layout.fillWidth: true; model: ["FAST", "NORMAL"]; currentIndex: 1 }
                     Label { text: "Measurements"; color: "#64748b" }
                     ComboBox { id: measurements; Layout.fillWidth: true; model: ["IMPERIAL", "METRIC"] }
                 }
