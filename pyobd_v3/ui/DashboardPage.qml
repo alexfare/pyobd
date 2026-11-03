@@ -203,22 +203,17 @@ ColumnLayout {
 
                     }
 
-                    Column {
+                    Label {
                         visible: card.shape === "circle"
                         width: card.width * 0.62
                         anchors.horizontalCenter: parent.horizontalCenter
                         anchors.bottom: parent.bottom
-                        anchors.bottomMargin: 10
-                        spacing: 0
-                        Label {
-                            width: parent.width
-                            text: card.title
-                            font.bold: true
-                            color: "#172033"
-                            horizontalAlignment: Text.AlignHCenter
-                            elide: Text.ElideRight
-                        }
-                        Label { width: parent.width; text: card.pid; color: "#64748b"; font.pixelSize: 10; horizontalAlignment: Text.AlignHCenter }
+                        anchors.bottomMargin: 20
+                        text: card.title
+                        font.bold: true
+                        color: "#172033"
+                        horizontalAlignment: Text.AlignHCenter
+                        elide: Text.ElideRight
                     }
 
                     Rectangle {

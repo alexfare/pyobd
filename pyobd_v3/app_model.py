@@ -425,6 +425,20 @@ class AppModel(QObject):
     def disconnect_vehicle(self):
         self._vehicle_service.stop()
 
+    @Slot()
+    def quick_connect(self):
+        if self.connected:
+            self.disconnect_vehicle()
+            return
+        if self.connectionStatus in ("Connecting", "Reconnecting"):
+            return
+        saved = self.saved_connection()
+        self.connect_vehicle(
+            saved["transport"], saved["address"], saved["port"],
+            saved["baudrate"], saved["timeout"], saved["retries"],
+            saved["send_mode"], saved["measurement_system"],
+        )
+
     @Slot(str, str, str, str, str, str, str, str)
     def save_connection_settings(
         self, transport, address, port, baudrate, timeout, retries,

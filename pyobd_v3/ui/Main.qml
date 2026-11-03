@@ -48,7 +48,7 @@ ApplicationWindow {
                     Layout.fillHeight: true
                     clip: true
                     spacing: 8
-                    model: ["Overview", "Dashboard", "Live Data", "Graphs", "Diagnostics", "Readiness", "Freeze Frame", "Vehicles", "Sessions", "Connection", "Trace", "Settings", "About"]
+                    model: ["Overview", "Dashboard", "Live Data", "Graphs", "Diagnostics", "Readiness", "Freeze Frame", "Vehicles", "Sessions", "Connection", "Settings", "Trace", "About"]
                     delegate: Button {
                         required property string modelData
                         width: navigationList.width
@@ -112,6 +112,7 @@ ApplicationWindow {
                         Layout.maximumWidth: 180
                     }
                     Rectangle {
+                        id: connectionPill
                         width: 132
                         height: 40
                         radius: 12
@@ -122,6 +123,10 @@ ApplicationWindow {
                             Rectangle { width: 10; height: 10; radius: 5; color: appModel.connected ? "#22a35a" : "#ef4444" }
                             Label { text: appModel.connectionStatus; color: appModel.connected ? "#17653b" : "#991b1b"; font.bold: true }
                         }
+                        TapHandler { onTapped: appModel.quick_connect() }
+                        ToolTip.visible: connectionHover.hovered
+                        ToolTip.text: appModel.connected ? "Disconnect" : "Connect using saved settings"
+                        HoverHandler { id: connectionHover; cursorShape: Qt.PointingHandCursor }
                     }
                     Button { text: "Configure"; onClicked: appModel.select_page("Connection") }
                 }
