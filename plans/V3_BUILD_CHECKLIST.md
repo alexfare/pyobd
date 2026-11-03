@@ -20,8 +20,8 @@
 - [x] Diagnostics and DTC lookup completed.
 - [x] Readiness completed.
 - [x] Freeze Frame completed.
-- [ ] Graphs completed.
-- [ ] Dashboard completed.
+- [x] Graphs completed.
+- [x] Dashboard completed.
 - [x] Vehicle profiles completed.
 - [ ] Settings, updates, About, and support completed.
 

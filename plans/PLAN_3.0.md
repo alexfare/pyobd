@@ -48,11 +48,11 @@ headless diagnostics.
 
 ### Phase 3 — Visualization
 
-- [ ] Add responsive live graphs.
-- [ ] Add PID value, graph, vehicle health, readiness, connection, and shortcut Overview widgets.
-- [ ] Rebuild the customizable dashboard.
-- [ ] Support dial, digital, and combined widgets.
-- [ ] Support free positioning, resizing, layering, and layout import/export.
+- [x] Add responsive live graphs.
+- [x] Add PID value, graph, vehicle health, readiness, connection, and shortcut Overview widgets.
+- [x] Rebuild the customizable dashboard.
+- [x] Support dial, digital, and combined widgets.
+- [x] Support free positioning, resizing, layering, and layout import/export.
 
 ### Phase 4 — Migration
 

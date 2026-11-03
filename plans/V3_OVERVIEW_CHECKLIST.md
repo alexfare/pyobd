@@ -3,12 +3,12 @@
 ## Widget catalog
 
 - [x] PID value card.
-- [ ] Compact PID graph.
-- [ ] Vehicle health and DTC summary.
-- [ ] Readiness summary.
-- [ ] Connection details.
-- [ ] Vehicle profile summary.
-- [ ] Navigation shortcut.
+- [x] Compact PID graph.
+- [x] Vehicle health and DTC summary.
+- [x] Readiness summary.
+- [x] Connection details.
+- [x] Vehicle profile summary.
+- [x] Navigation shortcut.
 - [ ] Empty-state guidance when disconnected.
 
 ## Editing

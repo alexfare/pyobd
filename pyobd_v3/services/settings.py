@@ -5,10 +5,15 @@ from pathlib import Path
 
 
 DEFAULT_WIDGETS = [
-    {"id": "rpm", "pid": "010C", "title": "Engine RPM", "size": "small"},
-    {"id": "speed", "pid": "010D", "title": "Vehicle Speed", "size": "small"},
-    {"id": "coolant", "pid": "0105", "title": "Coolant", "size": "small"},
-    {"id": "voltage", "pid": "ATRV", "title": "Voltage", "size": "small"},
+    {"id": "rpm", "type": "pid", "pid": "010C", "title": "Engine RPM", "size": "small"},
+    {"id": "speed", "type": "pid", "pid": "010D", "title": "Vehicle Speed", "size": "small"},
+    {"id": "health", "type": "health", "pid": "", "title": "Vehicle Health", "size": "small"},
+    {"id": "readiness", "type": "readiness", "pid": "", "title": "Readiness", "size": "small"},
+]
+
+DEFAULT_DASHBOARD_WIDGETS = [
+    {"id": "dash-rpm", "pid": "010C", "center_pid": "010D", "title": "Engine RPM", "style": "combined", "shape": "circle", "colour": "blue", "minimum": 0.0, "maximum": 8000.0, "divisions": 10, "x": 30.0, "y": 30.0, "width": 320.0, "height": 320.0, "z": 1},
+    {"id": "dash-speed", "pid": "010D", "center_pid": "", "title": "Vehicle Speed", "style": "digital", "shape": "rounded", "colour": "green", "minimum": 0.0, "maximum": 140.0, "divisions": 10, "x": 370.0, "y": 30.0, "width": 300.0, "height": 200.0, "z": 2},
 ]
 
 
@@ -73,4 +78,12 @@ class SettingsStore:
 
     def save_connection(self, values):
         self._data["connection"] = dict(values)
+        self._save()
+
+    def dashboard_widgets(self):
+        widgets = self._data.get("dashboard_widgets", DEFAULT_DASHBOARD_WIDGETS)
+        return [dict(widget) for widget in widgets]
+
+    def save_dashboard_widgets(self, widgets):
+        self._data["dashboard_widgets"] = list(widgets)
         self._save()

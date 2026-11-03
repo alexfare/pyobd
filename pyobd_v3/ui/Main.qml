@@ -121,6 +121,8 @@ ApplicationWindow {
                 Layout.minimumHeight: 0
                 sourceComponent: {
                     if (appModel.page === "Overview") return overviewPage
+                    if (appModel.page === "Dashboard") return dashboardPage
+                    if (appModel.page === "Graphs") return graphsPage
                     if (appModel.page === "Connection") return connectionPage
                     if (appModel.page === "Live Data") return liveDataPage
                     if (appModel.page === "Diagnostics") return diagnosticsPage
@@ -154,6 +156,8 @@ ApplicationWindow {
     }
 
     Component { id: overviewPage; OverviewPage {} }
+    Component { id: dashboardPage; DashboardPage {} }
+    Component { id: graphsPage; GraphsPage {} }
     Component { id: connectionPage; ConnectionPage {} }
     Component { id: liveDataPage; LiveDataPage {} }
     Component { id: diagnosticsPage; DiagnosticsPage {} }
