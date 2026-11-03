@@ -40,11 +40,13 @@ class AppModel(QObject):
     traceChanged = Signal()
     dashboardChanged = Signal()
     graphSelectionChanged = Signal()
+    settingsSectionChanged = Signal()
     serviceEvent = Signal(object)
 
     def __init__(self):
         super().__init__()
         self._page = "Overview"
+        self._settings_section = "General"
         self._connection = ConnectionState()
         self._vehicle = VehicleState()
         self._supported_pids = []
@@ -129,6 +131,10 @@ class AppModel(QObject):
     @Property(str, notify=pageChanged)
     def page(self):
         return self._page
+
+    @Property(str, notify=settingsSectionChanged)
+    def settingsSection(self):
+        return self._settings_section
 
     @Property("QVariantList", notify=stateChanged)
     def telemetry(self):
@@ -385,6 +391,15 @@ class AppModel(QObject):
             return
         self._page = page
         self.pageChanged.emit()
+
+    @Slot(str)
+    def open_settings(self, section):
+        if section not in ("Connection", "General", "Trace", "About"):
+            section = "General"
+        if section != self._settings_section:
+            self._settings_section = section
+            self.settingsSectionChanged.emit()
+        self.select_page("Settings")
 
     @Slot(str, str, str, str, str, str, str, str)
     def connect_vehicle(
