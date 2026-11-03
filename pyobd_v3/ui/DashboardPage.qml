@@ -157,7 +157,18 @@ ColumnLayout {
                         RowLayout {
                             visible: card.shape !== "circle" || root.editing
                             Layout.fillWidth: true
-                            Label { visible: card.shape !== "circle"; text: card.title; font.bold: true; color: "#172033"; Layout.fillWidth: true; elide: Text.ElideRight }
+                            Label {
+                                visible: card.shape !== "circle"
+                                text: card.title
+                                font.bold: true
+                                color: "#172033"
+                                Layout.fillWidth: true
+                                Layout.minimumWidth: 0
+                                maximumLineCount: 1
+                                wrapMode: Text.NoWrap
+                                elide: Text.ElideRight
+                                clip: true
+                            }
                             Label { visible: card.shape !== "circle"; text: card.pid; color: "#64748b"; font.pixelSize: 11 }
                             Item { visible: card.shape === "circle"; Layout.fillWidth: true }
                             ToolButton {
@@ -213,7 +224,10 @@ ColumnLayout {
                         font.bold: true
                         color: "#172033"
                         horizontalAlignment: Text.AlignHCenter
+                        maximumLineCount: 1
+                        wrapMode: Text.NoWrap
                         elide: Text.ElideRight
+                        clip: true
                     }
 
                     Rectangle {
@@ -318,6 +332,7 @@ ColumnLayout {
     Dialog {
         id: newDashboardDialog
         anchors.centerIn: Overlay.overlay
+        width: 420
         title: "New dashboard"
         modal: true
         standardButtons: Dialog.Save | Dialog.Cancel
@@ -328,6 +343,7 @@ ColumnLayout {
     Dialog {
         id: renameDashboardDialog
         anchors.centerIn: Overlay.overlay
+        width: 420
         title: "Rename dashboard"
         modal: true
         standardButtons: Dialog.Save | Dialog.Cancel
