@@ -287,8 +287,6 @@ def truncate(num, n):
 GET_DTC_COMMAND   = "03"
 CLEAR_DTC_COMMAND = "04"
 GET_FREEZE_DTC_COMMAND = "07"
-import traceback
-from debugEvent import *
 import logging
 logger = logging.getLogger(__name__)
 

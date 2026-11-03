@@ -80,6 +80,13 @@ class SettingsStore:
         self._data["connection"] = dict(values)
         self._save()
 
+    def preferences(self):
+        return dict(self._data.get("preferences", {}))
+
+    def save_preferences(self, values):
+        self._data["preferences"] = dict(values)
+        self._save()
+
     def dashboard_widgets(self):
         widgets = self._data.get("dashboard_widgets", DEFAULT_DASHBOARD_WIDGETS)
         return [dict(widget) for widget in widgets]

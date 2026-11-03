@@ -23,7 +23,7 @@
 - [x] Graphs completed.
 - [x] Dashboard completed.
 - [x] Vehicle profiles completed.
-- [ ] Settings, updates, About, and support completed.
+- [x] Settings, updates, About, and support completed.
 
 ## Behavior parity
 
@@ -40,8 +40,8 @@
 
 ## Quality
 
-- [ ] No OBD or transport service imports wxPython or PySide6.
-- [ ] No blocking adapter work runs on the UI thread.
+- [x] No OBD or transport service imports wxPython or PySide6.
+- [x] No blocking adapter work runs on the UI thread.
 - [ ] Repeated page changes remain responsive while connected.
 - [ ] Disconnect and shutdown leave no worker running.
 - [ ] Light, dark, and high-contrast appearances are usable.

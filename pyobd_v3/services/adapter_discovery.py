@@ -3,6 +3,22 @@
 from serial.tools import list_ports
 
 
+def serial_adapters():
+    try:
+        ports = sorted(list_ports.comports(), key=lambda item: item.device or "")
+    except Exception:
+        return []
+    return [
+        {
+            "label": "{} ({})".format(
+                port.description or "Serial adapter", port.device
+            ),
+            "target": port.device,
+        }
+        for port in ports if port.device
+    ]
+
+
 def bluetooth_adapters():
     detected = []
     fallback = []

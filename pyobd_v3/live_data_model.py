@@ -9,6 +9,7 @@ class LiveDataListModel(QAbstractListModel):
     VALUE_ROLE = Qt.UserRole + 3
     UNIT_ROLE = Qt.UserRole + 4
     FAVORITE_ROLE = Qt.UserRole + 5
+    SELECTED_ROLE = Qt.UserRole + 6
 
     _ROLE_NAMES = {
         PID_ROLE: b"pid",
@@ -16,6 +17,7 @@ class LiveDataListModel(QAbstractListModel):
         VALUE_ROLE: b"readingValue",
         UNIT_ROLE: b"unit",
         FAVORITE_ROLE: b"favorite",
+        SELECTED_ROLE: b"selected",
     }
 
     def __init__(self, parent=None):
@@ -38,6 +40,7 @@ class LiveDataListModel(QAbstractListModel):
             self.VALUE_ROLE: row.get("value", "---"),
             self.UNIT_ROLE: row.get("unit", ""),
             self.FAVORITE_ROLE: row.get("favorite", False),
+            self.SELECTED_ROLE: row.get("selected", False),
         }
         return values.get(role)
 
