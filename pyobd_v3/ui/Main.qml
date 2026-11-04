@@ -24,7 +24,7 @@ ApplicationWindow {
 
         Rectangle {
             Layout.fillHeight: true
-            Layout.preferredWidth: 238
+            Layout.preferredWidth: window.width < 1200 ? 204 : 238
             color: window.navy
 
             ColumnLayout {
@@ -55,6 +55,8 @@ ApplicationWindow {
                         height: 44
                         text: modelData
                         flat: true
+                        focusPolicy: Qt.StrongFocus
+                        Accessible.name: modelData
                         onClicked: modelData === "Settings" ? appModel.open_settings("General") : appModel.select_page(modelData)
                         contentItem: Text {
                             text: parent.text
@@ -100,7 +102,7 @@ ApplicationWindow {
                     Column {
                         spacing: 3
                         Label { text: appModel.page; color: window.textPrimary; font.pixelSize: 28; font.bold: true }
-                        Label { text: "Vehicle diagnostics and live data"; color: window.textMuted; font.pixelSize: 14 }
+                        Label { visible: window.width >= 1180; text: "Vehicle diagnostics and live data"; color: window.textMuted; font.pixelSize: 14 }
                     }
                     Item { Layout.fillWidth: true }
                     Label {
@@ -111,19 +113,24 @@ ApplicationWindow {
                         elide: Text.ElideRight
                         Layout.maximumWidth: 180
                     }
-                    Rectangle {
+                    Button {
                         id: connectionPill
                         width: 132
                         height: 40
-                        radius: 12
-                        color: appModel.connected ? "#dcf8e8" : "#fee2e2"
-                        Row {
+                        focusPolicy: Qt.StrongFocus
+                        Accessible.name: appModel.connected ? "Disconnect vehicle" : "Connect using saved settings"
+                        onClicked: appModel.quick_connect()
+                        contentItem: Row {
                             anchors.centerIn: parent
                             spacing: 8
                             Rectangle { width: 10; height: 10; radius: 5; color: appModel.connected ? "#22a35a" : "#ef4444" }
                             Label { text: appModel.connectionStatus; color: appModel.connected ? "#17653b" : "#991b1b"; font.bold: true }
                         }
-                        TapHandler { onTapped: appModel.quick_connect() }
+                        background: Rectangle {
+                            radius: 12
+                            color: appModel.connected ? "#dcf8e8" : "#fee2e2"
+                            border.color: connectionPill.activeFocus ? window.blue : "transparent"
+                        }
                         ToolTip.visible: connectionHover.hovered
                         ToolTip.text: appModel.connected ? "Disconnect" : "Connect using saved settings"
                         HoverHandler { id: connectionHover; cursorShape: Qt.PointingHandCursor }
@@ -163,10 +170,11 @@ ApplicationWindow {
                     anchors.rightMargin: 28
                     spacing: 36
                     Label { text: "Protocol  " + appModel.protocol; color: window.textMuted }
-                    Label { text: "Adapter  " + appModel.adapter; color: window.textMuted }
-                    Label { text: "Port  " + appModel.port; color: window.textMuted; elide: Text.ElideMiddle; Layout.maximumWidth: 260 }
+                    Label { visible: window.width >= 1160; text: "Adapter  " + appModel.adapter; color: window.textMuted }
+                    Label { visible: window.width >= 1280; text: "Port  " + appModel.port; color: window.textMuted; elide: Text.ElideMiddle; Layout.maximumWidth: 260 }
                     Label { text: "VIN  " + appModel.vin; color: window.textMuted }
                     Item { Layout.fillWidth: true }
+                    Label { visible: window.width >= 1160; text: "Polling  " + appModel.pollingStatus; color: window.textMuted }
                     Label { text: "Voltage  " + appModel.voltage; color: window.textPrimary; font.bold: true }
                 }
             }

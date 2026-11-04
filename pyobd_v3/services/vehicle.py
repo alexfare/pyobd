@@ -57,12 +57,20 @@ class VehicleService:
         self._connection = None
         self._config = ConnectionConfig()
         self._live_commands = []
+        self._poll_commands = []
+        self._requested_pids = set()
+        self._poll_lock = threading.Lock()
         self._live_index = 0
         self._readings = {}
 
     @property
     def running(self):
         return bool(self._thread and self._thread.is_alive())
+
+    @property
+    def requested_pids(self):
+        with self._poll_lock:
+            return None if self._requested_pids is None else frozenset(self._requested_pids)
 
     def start(self, config: ConnectionConfig):
         if self.running:
@@ -79,9 +87,17 @@ class VehicleService:
 
     def stop(self):
         self._stop_event.set()
-        if self._thread and self._thread.is_alive():
-            self._thread.join(timeout=3.0)
-        self._thread = None
+        thread = self._thread
+        connection = self._connection
+        if connection is not None:
+            try:
+                connection.close()
+            except Exception:
+                pass
+        if thread and thread.is_alive():
+            thread.join(timeout=3.0)
+        if not thread or not thread.is_alive():
+            self._thread = None
         self._publish_connection(ConnectionStatus.DISCONNECTED)
         self._event_sink.publish(AppEvent(EventChannel.VEHICLE_STATE, VehicleState()))
         self._event_sink.publish(AppEvent(EventChannel.SUPPORTED_PIDS, ()))
@@ -90,6 +106,7 @@ class VehicleService:
         self._event_sink.publish(AppEvent(EventChannel.READINESS, ()))
         self._event_sink.publish(AppEvent(EventChannel.MISFIRE, ()))
         self._event_sink.publish(AppEvent(EventChannel.FREEZE_FRAME, ()))
+        return not thread or not thread.is_alive()
 
     def request_diagnostics(self):
         self._operations.put("diagnostics")
@@ -105,6 +122,24 @@ class VehicleService:
 
     def request_misfire(self):
         self._operations.put("misfire")
+
+    def set_poll_pids(self, pids=None):
+        with self._poll_lock:
+            self._requested_pids = None if pids is None else {
+                str(pid).upper() for pid in pids if pid
+            }
+            self._refresh_poll_commands_locked()
+
+    def _refresh_poll_commands_locked(self):
+        if self._requested_pids is None:
+            self._poll_commands = list(self._live_commands)
+        else:
+            self._poll_commands = [
+                command for command in self._live_commands
+                if command.command.decode(errors="ignore").upper()
+                in self._requested_pids
+            ]
+        self._live_index = 0
 
     def _run(self):
         target = self._config.adapter_target()
@@ -140,7 +175,9 @@ class VehicleService:
                 connected_once = True
                 reconnects = 0
                 self._readings.clear()
-                self._live_commands = []
+                with self._poll_lock:
+                    self._live_commands = []
+                    self._poll_commands = []
                 self._live_index = 0
                 self._publish_identity()
                 self._discover_supported_pids()
@@ -233,17 +270,20 @@ class VehicleService:
             if getattr(obd.commands, name) in commands
         ]
         remaining = [command for command in commands if command not in preferred]
-        self._live_commands = preferred + remaining + [obd.commands.ELM_VOLTAGE]
+        with self._poll_lock:
+            self._live_commands = preferred + remaining + [obd.commands.ELM_VOLTAGE]
+            self._refresh_poll_commands_locked()
         supported.append(SupportedPID("ATRV", "Adapter Voltage"))
         if self._stop_event.is_set():
             return
         self._event_sink.publish(AppEvent(EventChannel.SUPPORTED_PIDS, tuple(supported)))
 
     def _poll_next_reading(self):
-        if not self._live_commands:
-            return
-        command = self._live_commands[self._live_index % len(self._live_commands)]
-        self._live_index += 1
+        with self._poll_lock:
+            if not self._poll_commands:
+                return
+            command = self._poll_commands[self._live_index % len(self._poll_commands)]
+            self._live_index += 1
         response = self._connection.query(command)
         if self._stop_event.is_set() or response.value is None:
             return

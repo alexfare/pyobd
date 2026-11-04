@@ -63,6 +63,10 @@ ColumnLayout {
                             Button { text: "Save"; onClicked: appModel.save_poll_interval(Math.round(pollSlider.value).toString()) }
                         }
                         Label { text: "The new polling interval applies on the next connection."; color: "#64748b"; font.pixelSize: 12 }
+                        Label {
+                            text: "Current polling: " + appModel.pollingStatus + "  ·  Vehicle worker: " + appModel.workerStatus
+                            color: "#64748b"
+                        }
                     }
                 }
 

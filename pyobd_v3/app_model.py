@@ -41,6 +41,7 @@ class AppModel(QObject):
     dashboardChanged = Signal()
     graphSelectionChanged = Signal()
     settingsSectionChanged = Signal()
+    performanceChanged = Signal()
     serviceEvent = Signal(object)
 
     def __init__(self):
@@ -125,6 +126,7 @@ class AppModel(QObject):
         self._event_sink.subscribe(self.serviceEvent.emit)
         self.serviceEvent.connect(self._apply_event)
         self._vehicle_service = VehicleService(self._event_sink, self._poll_interval)
+        self._update_poll_scope()
         self._refresh_dashboard_model()
         self._log.info("pyOBD v3 started")
 
@@ -349,6 +351,19 @@ class AppModel(QObject):
     def pollInterval(self):
         return self._poll_interval
 
+    @Property(str, notify=performanceChanged)
+    def pollingStatus(self):
+        requested = self._vehicle_service.requested_pids
+        if requested is None:
+            return "All supported PIDs"
+        if not requested:
+            return "Paused"
+        return "{} PID{}".format(len(requested), "" if len(requested) == 1 else "s")
+
+    @Property(str, notify=stateChanged)
+    def workerStatus(self):
+        return "Running" if self._vehicle_service.running else "Stopped"
+
     @Property(str, notify=stateChanged)
     def connectionStatus(self):
         return self._connection.status.value
@@ -390,6 +405,11 @@ class AppModel(QObject):
         if page == self._page:
             return
         self._page = page
+        self._update_poll_scope()
+        if page == "Live Data":
+            self._rebuild_live_data()
+        elif page == "Dashboard":
+            self._refresh_dashboard_model()
         self.pageChanged.emit()
 
     @Slot(str)
@@ -407,8 +427,12 @@ class AppModel(QObject):
         send_mode, measurement_system,
     ):
         self._operation_error = ""
-        self._vehicle_service.stop()
+        if not self._vehicle_service.stop():
+            self._operation_error = "Previous connection is still shutting down"
+            self.stateChanged.emit()
+            return
         self._vehicle_service = VehicleService(self._event_sink, self._poll_interval)
+        self._update_poll_scope()
         try:
             timeout_value = max(0.5, float(timeout))
             retry_value = max(1, min(10, int(retries)))
@@ -438,7 +462,9 @@ class AppModel(QObject):
 
     @Slot()
     def disconnect_vehicle(self):
-        self._vehicle_service.stop()
+        if not self._vehicle_service.stop():
+            self._operation_error = "Connection is still shutting down"
+            self.stateChanged.emit()
 
     @Slot()
     def quick_connect(self):
@@ -549,6 +575,7 @@ class AppModel(QObject):
             )
             self._recording_status = "Recording to " + path.name
             self._log.info(self._recording_status)
+            self._update_poll_scope()
         except OSError as error:
             self._recording_status = str(error)
             self._log.error(error)
@@ -562,6 +589,7 @@ class AppModel(QObject):
                 self._recording_status = "Saved {} samples".format(result["samples"])
                 self._log.info(self._recording_status)
                 self.refresh_sessions()
+            self._update_poll_scope()
         except OSError as error:
             self._recording_status = str(error)
             self._log.error(error)
@@ -801,6 +829,7 @@ class AppModel(QObject):
             self._graph_pids.append(pid)
             self._current_graph_preset = ""
             self._store.save_graph_pids(self._graph_pids)
+            self._update_poll_scope()
             self.graphSelectionChanged.emit()
 
     @Slot(int)
@@ -809,6 +838,7 @@ class AppModel(QObject):
             self._graph_pids.pop(index)
             self._current_graph_preset = ""
             self._store.save_graph_pids(self._graph_pids)
+            self._update_poll_scope()
             self.graphSelectionChanged.emit()
 
     @Slot(str)
@@ -818,6 +848,7 @@ class AppModel(QObject):
         self._current_graph_preset = name
         self._graph_pids = list(dict.fromkeys(self._graph_presets[name]))
         self._store.save_graph_pids(self._graph_pids)
+        self._update_poll_scope()
         self.graphSelectionChanged.emit()
 
     @Slot(str)
@@ -860,6 +891,7 @@ class AppModel(QObject):
         if changed:
             self._current_graph_preset = ""
             self._store.save_graph_pids(self._graph_pids)
+            self._update_poll_scope()
             self.graphSelectionChanged.emit()
         self.select_page("Graphs")
 
@@ -1083,6 +1115,7 @@ class AppModel(QObject):
             self._dashboard_layouts, self._dashboard_current
         )
         self._refresh_dashboard_model()
+        self._update_poll_scope()
         self.dashboardChanged.emit()
         self.stateChanged.emit()
 
@@ -1212,6 +1245,7 @@ class AppModel(QObject):
         self._vehicle_layout_enabled = enabled
         self._store.set_vehicle_layout_enabled(vin, enabled)
         self._overview_widgets = self._store.overview_widgets(vin, enabled)
+        self._update_poll_scope()
         self.stateChanged.emit()
 
     @Slot()
@@ -1349,6 +1383,7 @@ class AppModel(QObject):
 
     @Slot(object)
     def _apply_event(self, event: AppEvent):
+        emit_state = True
         if event.channel == EventChannel.CONNECTION_STATE:
             self._connection = event.payload
             self._log.info(
@@ -1386,6 +1421,7 @@ class AppModel(QObject):
             self._overview_widgets = self._store.overview_widgets(
                 self._vehicle.vin, self._vehicle_layout_enabled
             )
+            self._update_poll_scope()
             self.profileChanged.emit()
         elif event.channel == EventChannel.TELEMETRY:
             self._readings.update({
@@ -1400,19 +1436,27 @@ class AppModel(QObject):
             except OSError as error:
                 self._recording_status = str(error)
                 self._recording.stop()
+                self._update_poll_scope()
             for reading in event.payload:
                 numeric = self._numeric_value(reading.value)
                 if numeric is not None:
                     self._history[reading.pid].append(numeric)
-            self._rebuild_live_data()
-            self._refresh_dashboard_model()
-            self.graphChanged.emit()
+            if self._page == "Live Data":
+                self._rebuild_live_data()
+            elif self._page == "Dashboard":
+                self._refresh_dashboard_model()
+            if self._page in ("Graphs", "Overview"):
+                self.graphChanged.emit()
+            emit_state = self._page == "Overview" or (
+                self._page == "Live Data" and self._recording.active
+            )
         elif event.channel == EventChannel.SUPPORTED_PIDS:
             self._supported_pids = [item.as_mapping() for item in event.payload]
             self._live_selected.intersection_update(
                 item.get("pid", "") for item in self._supported_pids
             )
-            self._rebuild_live_data()
+            if self._page == "Live Data":
+                self._rebuild_live_data()
         elif event.channel == EventChannel.DIAGNOSTIC_CODES:
             self._diagnostic_codes = [item.as_mapping() for item in event.payload]
             self.diagnosticsChanged.emit()
@@ -1447,7 +1491,37 @@ class AppModel(QObject):
                 self._update_status = "pyOBD {} is up to date".format(APP_VERSION)
         else:
             return
-        self.stateChanged.emit()
+        if emit_state:
+            self.stateChanged.emit()
+
+    def _update_poll_scope(self):
+        service = getattr(self, "_vehicle_service", None)
+        if service is None:
+            return
+        if self._page == "Live Data":
+            pids = None
+        elif self._page == "Dashboard":
+            pids = {
+                pid
+                for widget in self._dashboard_widgets
+                for pid in (widget.get("pid"), widget.get("center_pid"))
+                if pid
+            }
+        elif self._page == "Graphs":
+            pids = set(self._graph_pids)
+        elif self._page == "Overview":
+            pids = {
+                widget.get("pid")
+                for widget in self._overview_widgets
+                if widget.get("type", "pid") in ("pid", "graph")
+                and widget.get("pid")
+            }
+        else:
+            pids = set()
+        if self._recording.active and pids is not None:
+            pids.update(self._recording.selected_pids)
+        service.set_poll_pids(pids)
+        self.performanceChanged.emit()
 
     def _rebuild_live_data(self):
         rows = []
@@ -1477,6 +1551,7 @@ class AppModel(QObject):
             self._vehicle.vin,
             self._vehicle_layout_enabled,
         )
+        self._update_poll_scope()
         self.stateChanged.emit()
 
     def _activate_matching_profile(self):
@@ -1497,6 +1572,7 @@ class AppModel(QObject):
             self.select_dashboard(dashboard)
             if self._page != "Dashboard":
                 self._page = "Dashboard"
+                self._update_poll_scope()
                 self.pageChanged.emit()
 
     @staticmethod
@@ -1524,6 +1600,7 @@ class AppModel(QObject):
             self._dashboard_layouts, self._dashboard_current
         )
         self._refresh_dashboard_model()
+        self._update_poll_scope()
         self.dashboardChanged.emit()
         self.stateChanged.emit()
 

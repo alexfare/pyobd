@@ -77,10 +77,22 @@ Item {
 
     Column {
         visible: root.showDigital
+        width: root.width * 0.72
         anchors.horizontalCenter: parent.horizontalCenter
         anchors.verticalCenter: parent.verticalCenter
         anchors.verticalCenterOffset: -height * 0.45
-        Label { anchors.horizontalCenter: parent.horizontalCenter; text: root.displayValue; font.pixelSize: 28; font.bold: true; color: "#172033" }
-        Label { anchors.horizontalCenter: parent.horizontalCenter; text: root.unit; color: "#64748b" }
+        Label {
+            width: parent.width
+            text: root.displayValue
+            font.pixelSize: 28
+            font.bold: true
+            color: "#172033"
+            horizontalAlignment: Text.AlignHCenter
+            maximumLineCount: 1
+            wrapMode: Text.NoWrap
+            elide: Text.ElideRight
+            clip: true
+        }
+        Label { width: parent.width; text: root.unit; color: "#64748b"; horizontalAlignment: Text.AlignHCenter; elide: Text.ElideRight; clip: true }
     }
 }
