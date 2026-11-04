@@ -11,6 +11,8 @@ ColumnLayout {
     readonly property var graphColours: ["#2878f0", "#16a34a", "#d97706", "#7e22ce", "#0891b2", "#dc2626"]
     spacing: 0
 
+    Label { id: fontProbe; visible: false }
+
     function addGraph(pid) {
         appModel.add_graph_pid(pid)
     }
@@ -232,6 +234,7 @@ ColumnLayout {
                                     }
                                     ctx.stroke()
                                     ctx.fillStyle = "#64748b"
+                                    ctx.font = "12px \"" + fontProbe.font.family + "\""
                                     ctx.fillText(high.toFixed(1), 8, 16)
                                     ctx.fillText(low.toFixed(1), 8, height - 8)
                                 }
