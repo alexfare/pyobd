@@ -29,7 +29,7 @@
 /* Begin PBXFileReference section */
 		1CD4FE17FAF02594D7F5A98B /* PyOBDMobileTests.xctest */ = {isa = PBXFileReference; includeInIndex = 0; lastKnownFileType = wrapper.cfbundle; path = PyOBDMobileTests.xctest; sourceTree = BUILT_PRODUCTS_DIR; };
 		302D888DDFAAD44FDEA7549E /* ContentView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ContentView.swift; sourceTree = "<group>"; };
-		570B1A100B6118DE591BAC7D /* pyOBD Mobile.app */ = {isa = PBXFileReference; includeInIndex = 0; lastKnownFileType = wrapper.application; path = "pyOBD Mobile.app"; sourceTree = BUILT_PRODUCTS_DIR; };
+		570B1A100B6118DE591BAC7D /* pyOBD Mobile.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = "pyOBD Mobile.app"; sourceTree = BUILT_PRODUCTS_DIR; };
 		674ACFDD1A37F1D6735BEB23 /* Info.plist */ = {isa = PBXFileReference; lastKnownFileType = text.plist; path = Info.plist; sourceTree = "<group>"; };
 		6E98F4CA789CA9618A87EDE2 /* Assets.xcassets */ = {isa = PBXFileReference; lastKnownFileType = folder.assetcatalog; path = Assets.xcassets; sourceTree = "<group>"; };
 		92EC36F3024F7ECDE3499E3A /* ConnectionManager.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ConnectionManager.swift; sourceTree = "<group>"; };
@@ -223,12 +223,14 @@
 				DEVELOPMENT_TEAM = GC6DD3L4UQ;
 				GENERATE_INFOPLIST_FILE = NO;
 				INFOPLIST_FILE = PyOBDMobile/Info.plist;
+				INFOPLIST_KEY_CFBundleDisplayName = pyOBD;
 				INFOPLIST_KEY_LSApplicationCategoryType = "public.app-category.utilities";
 				LD_RUNPATH_SEARCH_PATHS = (
 					"$(inherited)",
 					"@executable_path/Frameworks",
 				);
-				PRODUCT_BUNDLE_IDENTIFIER = com.farebros.swiftOBD;
+				MARKETING_VERSION = 2.6;
+				PRODUCT_BUNDLE_IDENTIFIER = com.farebros.swiftobd;
 				PRODUCT_MODULE_NAME = PyOBDMobile;
 				PRODUCT_NAME = "pyOBD Mobile";
 				SDKROOT = iphoneos;
@@ -311,12 +313,14 @@
 				DEVELOPMENT_TEAM = GC6DD3L4UQ;
 				GENERATE_INFOPLIST_FILE = NO;
 				INFOPLIST_FILE = PyOBDMobile/Info.plist;
+				INFOPLIST_KEY_CFBundleDisplayName = pyOBD;
 				INFOPLIST_KEY_LSApplicationCategoryType = "public.app-category.utilities";
 				LD_RUNPATH_SEARCH_PATHS = (
 					"$(inherited)",
 					"@executable_path/Frameworks",
 				);
-				PRODUCT_BUNDLE_IDENTIFIER = com.farebros.swiftOBD;
+				MARKETING_VERSION = 2.6;
+				PRODUCT_BUNDLE_IDENTIFIER = com.farebros.swiftobd;
 				PRODUCT_MODULE_NAME = PyOBDMobile;
 				PRODUCT_NAME = "pyOBD Mobile";
 				SDKROOT = iphoneos;

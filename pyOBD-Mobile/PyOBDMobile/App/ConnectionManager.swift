@@ -54,6 +54,7 @@ enum MobileSection: Hashable {
     case diagnostics
     case readiness
     case freezeFrame
+    case vehicles
     case connection
 }
 
@@ -167,14 +168,51 @@ enum Mode01PIDCatalog {
     }
 }
 
+enum PIDPollingRate: String, CaseIterable, Identifiable {
+    case off = "Off"
+    case slow = "Slow"
+    case normal = "Normal"
+    case fast = "Fast"
+
+    var id: Self { self }
+
+    var interval: TimeInterval? {
+        switch self {
+        case .off: nil
+        case .slow: 2
+        case .normal: 0.5
+        case .fast: 0.15
+        }
+    }
+}
+
 enum StandardPID: String, CaseIterable, Identifiable {
     case engineLoad = "0104"
     case coolantTemperature = "0105"
+    case shortFuelTrimBank1 = "0106"
+    case longFuelTrimBank1 = "0107"
+    case shortFuelTrimBank2 = "0108"
+    case longFuelTrimBank2 = "0109"
+    case fuelPressure = "010A"
+    case intakeManifoldPressure = "010B"
     case engineRPM = "010C"
     case vehicleSpeed = "010D"
+    case timingAdvance = "010E"
     case intakeTemperature = "010F"
+    case massAirFlow = "0110"
     case throttlePosition = "0111"
+    case engineRunTime = "011F"
+    case distanceWithMIL = "0121"
+    case fuelLevel = "012F"
+    case warmupsSinceClear = "0130"
+    case distanceSinceClear = "0131"
+    case barometricPressure = "0133"
+    case catalystTemperature = "013C"
     case controlModuleVoltage = "0142"
+    case ambientTemperature = "0146"
+    case engineOilTemperature = "015C"
+    case fuelInjectionTiming = "015D"
+    case engineFuelRate = "015E"
 
     var id: String { rawValue }
     var number: Int { Int(rawValue.suffix(2), radix: 16) ?? 0 }
@@ -193,12 +231,23 @@ enum StandardPID: String, CaseIterable, Identifiable {
         guard let bytes = OBDParser.payload(in: response, marker: marker) else { return nil }
 
         switch self {
-        case .engineLoad:
+        case .engineLoad, .throttlePosition, .fuelLevel:
             guard let a = bytes.first else { return nil }
             return PIDReading(pid: self, value: Double(a) * 100 / 255, unit: "%")
-        case .coolantTemperature, .intakeTemperature:
+        case .shortFuelTrimBank1, .longFuelTrimBank1,
+             .shortFuelTrimBank2, .longFuelTrimBank2:
+            guard let a = bytes.first else { return nil }
+            return PIDReading(pid: self, value: Double(Int(a) - 128) * 100 / 128, unit: "%")
+        case .coolantTemperature, .intakeTemperature,
+             .ambientTemperature, .engineOilTemperature:
             guard let a = bytes.first else { return nil }
             return PIDReading(pid: self, value: Double(Int(a) - 40), unit: "°C")
+        case .fuelPressure:
+            guard let a = bytes.first else { return nil }
+            return PIDReading(pid: self, value: Double(a) * 3, unit: "kPa")
+        case .intakeManifoldPressure, .barometricPressure:
+            guard let a = bytes.first else { return nil }
+            return PIDReading(pid: self, value: Double(a), unit: "kPa")
         case .engineRPM:
             guard bytes.count >= 2 else { return nil }
             return PIDReading(
@@ -209,17 +258,42 @@ enum StandardPID: String, CaseIterable, Identifiable {
         case .vehicleSpeed:
             guard let a = bytes.first else { return nil }
             return PIDReading(pid: self, value: Double(a), unit: "km/h")
-        case .throttlePosition:
+        case .timingAdvance:
             guard let a = bytes.first else { return nil }
-            return PIDReading(pid: self, value: Double(a) * 100 / 255, unit: "%")
+            return PIDReading(pid: self, value: Double(Int(a) - 128) / 2, unit: "°")
+        case .massAirFlow:
+            guard bytes.count >= 2 else { return nil }
+            return PIDReading(pid: self, value: Double(Self.word(bytes)) / 100, unit: "g/s")
+        case .engineRunTime:
+            guard bytes.count >= 2 else { return nil }
+            return PIDReading(pid: self, value: Double(Self.word(bytes)), unit: "s")
+        case .distanceWithMIL, .distanceSinceClear:
+            guard bytes.count >= 2 else { return nil }
+            return PIDReading(pid: self, value: Double(Self.word(bytes)), unit: "km")
+        case .warmupsSinceClear:
+            guard let a = bytes.first else { return nil }
+            return PIDReading(pid: self, value: Double(a), unit: "")
+        case .catalystTemperature:
+            guard bytes.count >= 2 else { return nil }
+            return PIDReading(pid: self, value: Double(Self.word(bytes)) / 10 - 40, unit: "°C")
         case .controlModuleVoltage:
             guard bytes.count >= 2 else { return nil }
             return PIDReading(
                 pid: self,
-                value: Double(Int(bytes[0]) * 256 + Int(bytes[1])) / 1000,
+                value: Double(Self.word(bytes)) / 1000,
                 unit: "V"
             )
+        case .fuelInjectionTiming:
+            guard bytes.count >= 2 else { return nil }
+            return PIDReading(pid: self, value: Double(Self.word(bytes) - 26_880) / 128, unit: "°")
+        case .engineFuelRate:
+            guard bytes.count >= 2 else { return nil }
+            return PIDReading(pid: self, value: Double(Self.word(bytes)) * 0.05, unit: "L/h")
         }
+    }
+
+    private static func word(_ bytes: [UInt8]) -> Int {
+        Int(bytes[0]) * 256 + Int(bytes[1])
     }
 }
 
@@ -231,9 +305,12 @@ struct PIDReading: Identifiable, Equatable {
     var id: String { pid.id }
     var formattedValue: String {
         switch pid {
-        case .engineRPM, .vehicleSpeed:
+        case .engineRPM, .vehicleSpeed, .engineRunTime,
+             .distanceWithMIL, .warmupsSinceClear, .distanceSinceClear:
             "\(Int(value.rounded())) \(unit)"
-        case .coolantTemperature, .intakeTemperature:
+                .trimmingCharacters(in: .whitespaces)
+        case .coolantTemperature, .intakeTemperature,
+             .ambientTemperature, .engineOilTemperature, .catalystTemperature:
             "\(Int(value.rounded()))\(unit)"
         default:
             "\(value.formatted(.number.precision(.fractionLength(1)))) \(unit)"
@@ -259,6 +336,15 @@ struct ReadinessResult: Identifiable, Equatable {
     let supported: Bool
     let complete: Bool
     var id: String { name }
+}
+
+struct VehicleProfile: Codable, Identifiable, Equatable {
+    let id: UUID
+    var nickname: String
+    var vin: String
+    var visiblePIDNumbers: [Int]
+    var favoritePIDNumbers: [Int]
+    var pollingRates: [String: String]
 }
 
 enum OBDCommandError: LocalizedError {
@@ -335,6 +421,9 @@ final class ConnectionManager: NSObject, ObservableObject {
     @Published private(set) var supportedPIDs: [SupportedPID] = []
     @Published private(set) var liveReadings: [PIDReading] = []
     @Published private(set) var liveHistory: [StandardPID: [PIDSample]] = [:]
+    @Published private(set) var pidPollingRates: [Int: PIDPollingRate] = [:]
+    @Published private(set) var favoritePIDNumbers = Set<Int>()
+    @Published private(set) var visiblePIDNumbers = Set<Int>()
     @Published private(set) var diagnosticCodes: [DiagnosticCode] = []
     @Published private(set) var readinessResults: [ReadinessResult] = []
     @Published private(set) var freezeFrameReadings: [PIDReading] = []
@@ -343,6 +432,14 @@ final class ConnectionManager: NSObject, ObservableObject {
     @Published private(set) var adapterVoltage = "—"
     @Published private(set) var operationMessage: String?
     @Published private(set) var isBusy = false
+    @Published private(set) var isRecording = false
+    @Published private(set) var recordingStartedAt: Date?
+    @Published private(set) var recordedSampleCount = 0
+    @Published private(set) var recordingFileURL: URL?
+    @Published private(set) var recordingError: String?
+    @Published private(set) var vehicleProfiles: [VehicleProfile] = []
+    @Published private(set) var activeVehicleProfileID: UUID?
+    @Published private(set) var lastConnectionError: String?
 
     private struct QueuedCommand {
         let id: UUID
@@ -367,15 +464,27 @@ final class ConnectionManager: NSObject, ObservableObject {
     private var responseBuffer = ""
     private var availablePIDs = StandardPID.allCases
     private var activeSection: MobileSection = .connection
+    private var recordingHandle: FileHandle?
+    private var recordingBuffer = ""
+    private let recordingTimestampFormatter = ISO8601DateFormatter()
+    private var pendingPIDRemovals: [Int] = []
+    private var pidRemovalTask: Task<Void, Never>?
 
     private static let hostKey = "adapter.wifi.host"
     private static let portKey = "adapter.wifi.port"
     private static let peripheralKey = "adapter.bluetooth.peripheral"
+    private static let pollingRatesKey = "liveData.pollingRates"
+    private static let favoritesKey = "liveData.favorites"
+    private static let visiblePIDsKey = "liveData.visiblePIDs"
+    private static let vehicleProfilesKey = "vehicle.profiles"
+    private static let activeVehicleProfileKey = "vehicle.activeProfile"
 
     override init() {
         wifiHost = UserDefaults.standard.string(forKey: Self.hostKey) ?? "192.168.0.10"
         wifiPort = UserDefaults.standard.string(forKey: Self.portKey) ?? "35000"
         super.init()
+        loadPIDPreferences()
+        loadVehicleProfiles()
         let backgroundModes = Bundle.main.object(forInfoDictionaryKey: "UIBackgroundModes") as? [String]
         let options: [String: Any]? = backgroundModes?.contains("bluetooth-central") == true
             ? [CBCentralManagerOptionRestoreIdentifierKey: "com.farebros.pyobd.bluetooth"]
@@ -388,6 +497,7 @@ final class ConnectionManager: NSObject, ObservableObject {
     }
 
     func connect() {
+        lastConnectionError = nil
         shouldReconnect = true
         reconnectTask?.cancel()
 
@@ -411,6 +521,7 @@ final class ConnectionManager: NSObject, ObservableObject {
     }
 
     func disconnect() {
+        stopRecording()
         shouldReconnect = false
         reconnectTask?.cancel()
         reconnectTask = nil
@@ -446,12 +557,232 @@ final class ConnectionManager: NSObject, ObservableObject {
 
     func setActiveSection(_ section: MobileSection) {
         activeSection = section
-        if section == .overview || section == .liveData || section == .graphs {
+        if shouldPollLiveData {
             startLivePollingIfNeeded()
         } else {
             livePollingTask?.cancel()
             livePollingTask = nil
         }
+    }
+
+    func startRecording() {
+        guard state == .connected, !isRecording else { return }
+        do {
+            let directory = try FileManager.default.url(
+                for: .documentDirectory,
+                in: .userDomainMask,
+                appropriateFor: nil,
+                create: true
+            )
+            let formatter = DateFormatter()
+            formatter.locale = Locale(identifier: "en_US_POSIX")
+            formatter.dateFormat = "yyyyMMdd-HHmmss-SSS"
+            let url = directory.appendingPathComponent(
+                "pyOBD-LiveData-\(formatter.string(from: Date())).csv"
+            )
+            guard FileManager.default.createFile(atPath: url.path, contents: nil) else {
+                throw CocoaError(.fileWriteUnknown)
+            }
+            let handle = try FileHandle(forWritingTo: url)
+            try handle.write(contentsOf: Data("timestamp,pid,command,name,value,unit\n".utf8))
+            recordingHandle = handle
+            recordingBuffer = ""
+            recordingFileURL = url
+            recordingStartedAt = Date()
+            recordedSampleCount = 0
+            recordingError = nil
+            isRecording = true
+            startLivePollingIfNeeded()
+        } catch {
+            recordingError = error.localizedDescription
+            recordingHandle = nil
+            isRecording = false
+        }
+    }
+
+    func stopRecording() {
+        guard isRecording || recordingHandle != nil else { return }
+        flushRecordingBuffer()
+        try? recordingHandle?.close()
+        recordingHandle = nil
+        isRecording = false
+        if !shouldPollLiveData {
+            livePollingTask?.cancel()
+            livePollingTask = nil
+        }
+    }
+
+    func clearRecording() {
+        guard !isRecording else { return }
+        if let recordingFileURL {
+            try? FileManager.default.removeItem(at: recordingFileURL)
+        }
+        recordingFileURL = nil
+        recordingStartedAt = nil
+        recordedSampleCount = 0
+        recordingError = nil
+    }
+
+    var activeVehicleProfile: VehicleProfile? {
+        vehicleProfiles.first { $0.id == activeVehicleProfileID }
+    }
+
+    var connectionTargetText: String {
+        switch transport {
+        case .wifi: "\(wifiHost):\(wifiPort)"
+        case .bluetooth: bluetoothPeripheral?.name ?? "No BLE adapter selected"
+        case .demo: "Built-in simulator"
+        }
+    }
+
+    var adapterCompatibilityNote: String {
+        switch transport {
+        case .wifi:
+            "Works with ELM327-compatible Wi-Fi adapters that expose a TCP host and port. The iPhone must remain joined to the adapter's Wi-Fi network."
+        case .bluetooth:
+            "Supports Bluetooth Low Energy adapters with a writable data characteristic. Generic Bluetooth Classic serial adapters are not supported by iOS."
+        case .demo:
+            "Uses simulated vehicle data and does not require an adapter or vehicle."
+        }
+    }
+
+    func createVehicleProfile(nickname: String, vin: String) {
+        let cleanName = nickname.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !cleanName.isEmpty else { return }
+        let profile = VehicleProfile(
+            id: UUID(),
+            nickname: cleanName,
+            vin: Self.normalizedVIN(vin),
+            visiblePIDNumbers: visiblePIDNumbers.sorted(),
+            favoritePIDNumbers: favoritePIDNumbers.sorted(),
+            pollingRates: Self.encodedPollingRates(pidPollingRates)
+        )
+        vehicleProfiles.append(profile)
+        vehicleProfiles.sort { $0.nickname.localizedCaseInsensitiveCompare($1.nickname) == .orderedAscending }
+        activeVehicleProfileID = profile.id
+        saveVehicleProfiles()
+    }
+
+    func selectVehicleProfile(_ id: UUID) {
+        guard let profile = vehicleProfiles.first(where: { $0.id == id }) else { return }
+        activeVehicleProfileID = id
+        applyPIDPreferences(from: profile)
+        saveVehicleProfiles()
+    }
+
+    func deleteVehicleProfile(_ id: UUID) {
+        vehicleProfiles.removeAll { $0.id == id }
+        if activeVehicleProfileID == id {
+            activeVehicleProfileID = nil
+            loadPIDPreferences()
+        }
+        saveVehicleProfiles()
+    }
+
+    var visibleSupportedPIDs: [SupportedPID] {
+        supportedPIDs.filter { visiblePIDNumbers.contains($0.number) }.sorted { lhs, rhs in
+            let lhsFavorite = favoritePIDNumbers.contains(lhs.number)
+            let rhsFavorite = favoritePIDNumbers.contains(rhs.number)
+            if lhsFavorite != rhsFavorite { return lhsFavorite }
+            return lhs.number < rhs.number
+        }
+    }
+
+    func addableSupportedPIDs(matching query: String) -> [SupportedPID] {
+        let normalized = query.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
+        return supportedPIDs.filter { pid in
+            guard isDecodable(pid.number), !visiblePIDNumbers.contains(pid.number) else { return false }
+            return normalized.isEmpty
+                || pid.name.lowercased().contains(normalized)
+                || pid.command.lowercased().contains(normalized)
+                || String(format: "%02X", pid.number).lowercased().contains(normalized)
+        }
+        .sorted { $0.number < $1.number }
+    }
+
+    func selectedSupportedPIDs(matching query: String) -> [SupportedPID] {
+        let normalized = query.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
+        return visibleSupportedPIDs.filter { pid in
+            normalized.isEmpty
+                || pid.name.lowercased().contains(normalized)
+                || pid.command.lowercased().contains(normalized)
+                || String(format: "%02X", pid.number).lowercased().contains(normalized)
+        }
+    }
+
+    func addLivePID(_ number: Int) {
+        guard isDecodable(number), supportedPIDs.contains(where: { $0.number == number }) else { return }
+        visiblePIDNumbers.insert(number)
+        if pollingRate(for: number) == .off {
+            pidPollingRates[number] = .normal
+        }
+        savePIDPreferences()
+    }
+
+    func removeLivePID(_ number: Int) {
+        guard visiblePIDNumbers.contains(number), !pendingPIDRemovals.contains(number) else { return }
+        pendingPIDRemovals.append(number)
+        processPIDRemovalQueue()
+    }
+
+    func pollingRate(for number: Int) -> PIDPollingRate {
+        pidPollingRates[number] ?? .off
+    }
+
+    func isFavorite(_ number: Int) -> Bool {
+        favoritePIDNumbers.contains(number)
+    }
+
+    func isDecodable(_ number: Int) -> Bool {
+        StandardPID(rawValue: String(format: "01%02X", number)) != nil
+    }
+
+    func setPollingRate(_ rate: PIDPollingRate, for number: Int) {
+        guard isDecodable(number) else { return }
+        pidPollingRates[number] = rate
+        if rate == .off,
+           let pid = StandardPID(rawValue: String(format: "01%02X", number)) {
+            liveReadings.removeAll { $0.pid == pid }
+            liveHistory[pid] = nil
+        }
+        savePIDPreferences()
+    }
+
+    func toggleFavorite(_ number: Int) {
+        guard isDecodable(number) else { return }
+        if favoritePIDNumbers.contains(number) {
+            favoritePIDNumbers.remove(number)
+        } else {
+            favoritePIDNumbers.insert(number)
+        }
+        savePIDPreferences()
+    }
+
+    private func processPIDRemovalQueue() {
+        guard pidRemovalTask == nil else { return }
+        pidRemovalTask = Task { [weak self] in
+            guard let self else { return }
+            while !Task.isCancelled, let number = self.pendingPIDRemovals.first {
+                try? await Task.sleep(for: .milliseconds(180))
+                guard !Task.isCancelled else { break }
+                self.pendingPIDRemovals.removeFirst()
+                self.performLivePIDRemoval(number)
+                await Task.yield()
+            }
+            self.pidRemovalTask = nil
+        }
+    }
+
+    private func performLivePIDRemoval(_ number: Int) {
+        guard visiblePIDNumbers.contains(number) else { return }
+        pidPollingRates[number] = .off
+        if let pid = StandardPID(rawValue: String(format: "01%02X", number)) {
+            liveReadings.removeAll { $0.pid == pid }
+            liveHistory[pid] = nil
+        }
+        favoritePIDNumbers.remove(number)
+        visiblePIDNumbers.remove(number)
+        savePIDPreferences()
     }
 
     func refreshDiagnosticCodes() async {
@@ -560,6 +891,7 @@ final class ConnectionManager: NSObject, ObservableObject {
     func scanForBluetoothAdapters() {
         transport = .bluetooth
         guard centralManager.state == .poweredOn else {
+            lastConnectionError = "Bluetooth is unavailable or disabled"
             state = .failed("Bluetooth unavailable")
             return
         }
@@ -590,6 +922,7 @@ final class ConnectionManager: NSObject, ObservableObject {
         guard let rawPort = UInt16(wifiPort),
               let port = NWEndpoint.Port(rawValue: rawPort),
               !wifiHost.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
+            lastConnectionError = "The Wi-Fi adapter address or port is invalid"
             state = .failed("Check Wi-Fi address")
             return
         }
@@ -624,9 +957,11 @@ final class ConnectionManager: NSObject, ObservableObject {
         case .ready:
             receiveWiFiData()
             beginAdapterInitialization()
-        case .waiting:
+        case .waiting(let error):
+            lastConnectionError = error.localizedDescription
             state = .reconnecting
         case .failed(let error):
+            lastConnectionError = error.localizedDescription
             failPendingCommands(with: error)
             state = .failed(error.localizedDescription)
             scheduleReconnect()
@@ -658,6 +993,7 @@ final class ConnectionManager: NSObject, ObservableObject {
 
     private func reconnectBluetoothOrScan() {
         guard centralManager.state == .poweredOn else {
+            lastConnectionError = "Bluetooth is unavailable or disabled"
             state = .failed("Bluetooth unavailable")
             return
         }
@@ -685,6 +1021,7 @@ final class ConnectionManager: NSObject, ObservableObject {
 
     private func scheduleReconnect() {
         guard shouldReconnect else { return }
+        stopRecording()
         reconnectTask?.cancel()
         initializationTask?.cancel()
         livePollingTask?.cancel()
@@ -709,11 +1046,13 @@ final class ConnectionManager: NSObject, ObservableObject {
 
     private func connectDemo() {
         shouldReconnect = false
+        lastConnectionError = nil
         state = .connected
         vehicleVIN = "DEMO0000000000001"
+        activateProfile(matchingVIN: vehicleVIN)
         vehicleProtocol = "Demo OBD-II"
         adapterVoltage = "13.8 V"
-        availablePIDs = StandardPID.allCases
+        availablePIDs = Self.demoPIDs
         supportedPIDs = availablePIDs.map { SupportedPID(number: $0.number, name: $0.name) }
         readinessResults = Self.demoReadiness
         startLivePollingIfNeeded()
@@ -751,6 +1090,7 @@ final class ConnectionManager: NSObject, ObservableObject {
                 return
             } catch {
                 guard self.shouldReconnect, !Task.isCancelled else { return }
+                self.lastConnectionError = error.localizedDescription
                 self.state = .failed(error.localizedDescription)
                 self.scheduleReconnect()
             }
@@ -837,6 +1177,7 @@ final class ConnectionManager: NSObject, ObservableObject {
             let vinResponse = try await sendOBDCommand("0902")
             if let vin = Self.decodeVIN(vinResponse), !vin.isEmpty {
                 vehicleVIN = vin
+                activateProfile(matchingVIN: vin)
             }
         } catch {
             operationMessage = "Connected; some vehicle details are unavailable"
@@ -877,26 +1218,38 @@ final class ConnectionManager: NSObject, ObservableObject {
 
     private func startLivePollingIfNeeded() {
         guard state == .connected,
-              activeSection == .overview || activeSection == .liveData,
+              shouldPollLiveData,
               livePollingTask == nil else { return }
         livePollingTask = Task { [weak self] in
             guard let self else { return }
+            var lastPollDates: [StandardPID: Date] = [:]
             while !Task.isCancelled, self.state == .connected {
                 if self.transport == .demo {
-                    for reading in Self.demoReadings(at: Date()) {
+                    let now = Date()
+                    for reading in Self.demoReadings(at: now) {
+                        guard let interval = self.pollingRate(for: reading.pid.number).interval,
+                              now.timeIntervalSince(lastPollDates[reading.pid] ?? .distantPast) >= interval else {
+                            continue
+                        }
                         self.updateLiveReading(reading)
+                        lastPollDates[reading.pid] = now
                     }
-                    try? await Task.sleep(for: .milliseconds(250))
                 } else {
+                    let now = Date()
                     for pid in self.availablePIDs {
                         guard !Task.isCancelled else { break }
+                        guard let interval = self.pollingRate(for: pid.number).interval,
+                              now.timeIntervalSince(lastPollDates[pid] ?? .distantPast) >= interval else {
+                            continue
+                        }
                         if let response = try? await self.sendOBDCommand(pid.rawValue),
                            let reading = pid.reading(from: response) {
                             self.updateLiveReading(reading)
                         }
+                        lastPollDates[pid] = Date()
                     }
-                    try? await Task.sleep(for: .milliseconds(50))
                 }
+                try? await Task.sleep(for: .milliseconds(25))
             }
             self.livePollingTask = nil
         }
@@ -913,6 +1266,149 @@ final class ConnectionManager: NSObject, ObservableObject {
         samples.append(PIDSample(date: Date(), value: reading.value))
         if samples.count > 180 { samples.removeFirst(samples.count - 180) }
         liveHistory[reading.pid] = samples
+        appendRecording(reading)
+    }
+
+    private var shouldPollLiveData: Bool {
+        isRecording || activeSection == .overview || activeSection == .liveData || activeSection == .graphs
+    }
+
+    private func appendRecording(_ reading: PIDReading) {
+        guard isRecording else { return }
+        let fields = [
+            recordingTimestampFormatter.string(from: Date()),
+            String(format: "%02X", reading.pid.number),
+            reading.pid.rawValue,
+            reading.pid.name,
+            String(
+                format: "%.6f",
+                locale: Locale(identifier: "en_US_POSIX"),
+                arguments: [reading.value]
+            ),
+            reading.unit,
+        ]
+        recordingBuffer += fields.map(Self.csvField).joined(separator: ",") + "\n"
+        recordedSampleCount += 1
+        if recordedSampleCount.isMultiple(of: 25) {
+            flushRecordingBuffer()
+        }
+    }
+
+    private func flushRecordingBuffer() {
+        guard !recordingBuffer.isEmpty, let recordingHandle else { return }
+        do {
+            try recordingHandle.write(contentsOf: Data(recordingBuffer.utf8))
+            recordingBuffer = ""
+        } catch {
+            recordingError = error.localizedDescription
+            recordingBuffer = ""
+            try? recordingHandle.close()
+            self.recordingHandle = nil
+            isRecording = false
+        }
+    }
+
+    private static func csvField(_ value: String) -> String {
+        "\"\(value.replacingOccurrences(of: "\"", with: "\"\""))\""
+    }
+
+    private func loadPIDPreferences() {
+        let storedRates = defaults.dictionary(forKey: Self.pollingRatesKey) as? [String: String]
+        pidPollingRates = storedRates?.reduce(into: [:]) { result, entry in
+            guard let number = Int(entry.key),
+                  let rate = PIDPollingRate(rawValue: entry.value) else { return }
+            result[number] = rate
+        } ?? Dictionary(uniqueKeysWithValues: Self.defaultLivePIDs.map { ($0.number, .normal) })
+
+        let hasStoredFavorites = defaults.object(forKey: Self.favoritesKey) != nil
+        let storedFavorites = defaults.array(forKey: Self.favoritesKey) ?? []
+        favoritePIDNumbers = Set(storedFavorites.compactMap {
+            ($0 as? NSNumber)?.intValue
+        })
+        if !hasStoredFavorites {
+            favoritePIDNumbers = Set([
+                StandardPID.engineRPM,
+                .vehicleSpeed,
+                .coolantTemperature,
+            ].map(\.number))
+        }
+
+        let hasStoredVisiblePIDs = defaults.object(forKey: Self.visiblePIDsKey) != nil
+        let storedVisiblePIDs = defaults.array(forKey: Self.visiblePIDsKey) ?? []
+        visiblePIDNumbers = Set(storedVisiblePIDs.compactMap {
+            ($0 as? NSNumber)?.intValue
+        })
+        if !hasStoredVisiblePIDs {
+            visiblePIDNumbers = Set(Self.defaultLivePIDs.map(\.number))
+        }
+    }
+
+    private func savePIDPreferences() {
+        if let id = activeVehicleProfileID,
+           let index = vehicleProfiles.firstIndex(where: { $0.id == id }) {
+            vehicleProfiles[index].visiblePIDNumbers = visiblePIDNumbers.sorted()
+            vehicleProfiles[index].favoritePIDNumbers = favoritePIDNumbers.sorted()
+            vehicleProfiles[index].pollingRates = Self.encodedPollingRates(pidPollingRates)
+            saveVehicleProfiles()
+            return
+        }
+        defaults.set(
+            Dictionary(uniqueKeysWithValues: pidPollingRates.map {
+                (String($0.key), $0.value.rawValue)
+            }),
+            forKey: Self.pollingRatesKey
+        )
+        defaults.set(favoritePIDNumbers.sorted(), forKey: Self.favoritesKey)
+        defaults.set(visiblePIDNumbers.sorted(), forKey: Self.visiblePIDsKey)
+    }
+
+    private func loadVehicleProfiles() {
+        if let data = defaults.data(forKey: Self.vehicleProfilesKey),
+           let profiles = try? JSONDecoder().decode([VehicleProfile].self, from: data) {
+            vehicleProfiles = profiles
+        }
+        if let rawID = defaults.string(forKey: Self.activeVehicleProfileKey),
+           let id = UUID(uuidString: rawID),
+           let profile = vehicleProfiles.first(where: { $0.id == id }) {
+            activeVehicleProfileID = id
+            applyPIDPreferences(from: profile)
+        }
+    }
+
+    private func saveVehicleProfiles() {
+        if let data = try? JSONEncoder().encode(vehicleProfiles) {
+            defaults.set(data, forKey: Self.vehicleProfilesKey)
+        }
+        defaults.set(activeVehicleProfileID?.uuidString, forKey: Self.activeVehicleProfileKey)
+    }
+
+    private func applyPIDPreferences(from profile: VehicleProfile) {
+        visiblePIDNumbers = Set(profile.visiblePIDNumbers)
+        favoritePIDNumbers = Set(profile.favoritePIDNumbers)
+        pidPollingRates = profile.pollingRates.reduce(into: [:]) { result, entry in
+            guard let number = Int(entry.key),
+                  let rate = PIDPollingRate(rawValue: entry.value) else { return }
+            result[number] = rate
+        }
+    }
+
+    private func activateProfile(matchingVIN vin: String) {
+        let normalized = Self.normalizedVIN(vin)
+        guard !normalized.isEmpty,
+              let profile = vehicleProfiles.first(where: { Self.normalizedVIN($0.vin) == normalized }) else {
+            return
+        }
+        activeVehicleProfileID = profile.id
+        applyPIDPreferences(from: profile)
+        saveVehicleProfiles()
+    }
+
+    private static func normalizedVIN(_ vin: String) -> String {
+        vin.trimmingCharacters(in: .whitespacesAndNewlines).uppercased()
+    }
+
+    private static func encodedPollingRates(_ rates: [Int: PIDPollingRate]) -> [String: String] {
+        Dictionary(uniqueKeysWithValues: rates.map { (String($0.key), $0.value.rawValue) })
     }
 
     private static func demoReadings(at date: Date) -> [PIDReading] {
@@ -920,13 +1416,44 @@ final class ConnectionManager: NSObject, ObservableObject {
         return [
             PIDReading(pid: .engineLoad, value: 31 + sin(phase * 0.8) * 8, unit: "%"),
             PIDReading(pid: .coolantTemperature, value: 91 + sin(phase * 0.08) * 2, unit: "°C"),
+            PIDReading(pid: .shortFuelTrimBank1, value: 1.5 + sin(phase * 0.5) * 2, unit: "%"),
+            PIDReading(pid: .longFuelTrimBank1, value: 2.2, unit: "%"),
+            PIDReading(pid: .shortFuelTrimBank2, value: 0.8 + sin(phase * 0.45) * 1.5, unit: "%"),
+            PIDReading(pid: .longFuelTrimBank2, value: 1.7, unit: "%"),
+            PIDReading(pid: .fuelPressure, value: 360 + sin(phase * 0.3) * 12, unit: "kPa"),
+            PIDReading(pid: .intakeManifoldPressure, value: 42 + sin(phase * 0.7) * 5, unit: "kPa"),
             PIDReading(pid: .engineRPM, value: 820 + sin(phase * 1.4) * 90, unit: "RPM"),
             PIDReading(pid: .vehicleSpeed, value: 42 + sin(phase * 0.35) * 12, unit: "km/h"),
+            PIDReading(pid: .timingAdvance, value: 12 + sin(phase * 0.5) * 3, unit: "°"),
             PIDReading(pid: .intakeTemperature, value: 28 + sin(phase * 0.1), unit: "°C"),
+            PIDReading(pid: .massAirFlow, value: 7.5 + sin(phase * 0.6) * 1.2, unit: "g/s"),
             PIDReading(pid: .throttlePosition, value: 18 + sin(phase * 0.7) * 5, unit: "%"),
+            PIDReading(pid: .engineRunTime, value: phase.truncatingRemainder(dividingBy: 7_200), unit: "s"),
+            PIDReading(pid: .distanceWithMIL, value: 0, unit: "km"),
+            PIDReading(pid: .fuelLevel, value: 64, unit: "%"),
+            PIDReading(pid: .warmupsSinceClear, value: 18, unit: ""),
+            PIDReading(pid: .distanceSinceClear, value: 486, unit: "km"),
+            PIDReading(pid: .barometricPressure, value: 99, unit: "kPa"),
+            PIDReading(pid: .catalystTemperature, value: 540 + sin(phase * 0.12) * 10, unit: "°C"),
             PIDReading(pid: .controlModuleVoltage, value: 13.8 + sin(phase * 0.2) * 0.1, unit: "V"),
+            PIDReading(pid: .ambientTemperature, value: 22, unit: "°C"),
+            PIDReading(pid: .engineOilTemperature, value: 96 + sin(phase * 0.08) * 2, unit: "°C"),
+            PIDReading(pid: .fuelInjectionTiming, value: 4 + sin(phase * 0.3), unit: "°"),
+            PIDReading(pid: .engineFuelRate, value: 2.1 + sin(phase * 0.5) * 0.3, unit: "L/h"),
         ]
     }
+
+    private static let defaultLivePIDs: [StandardPID] = [
+        .engineLoad,
+        .coolantTemperature,
+        .engineRPM,
+        .vehicleSpeed,
+        .intakeTemperature,
+        .throttlePosition,
+        .controlModuleVoltage,
+    ]
+
+    private static let demoPIDs = StandardPID.allCases
 
     private static let demoReadiness = [
         ReadinessResult(name: "Misfire", supported: true, complete: true),
@@ -995,6 +1522,8 @@ extension ConnectionManager: @preconcurrency CBCentralManagerDelegate {
         if central.state == .poweredOn, shouldReconnect, transport == .bluetooth {
             reconnectBluetoothOrScan()
         } else if central.state != .poweredOn, transport == .bluetooth {
+            stopRecording()
+            lastConnectionError = "Bluetooth is unavailable or disabled"
             state = .failed("Bluetooth unavailable")
         }
     }
@@ -1049,7 +1578,9 @@ extension ConnectionManager: @preconcurrency CBCentralManagerDelegate {
         didFailToConnect peripheral: CBPeripheral,
         error: Error?
     ) {
-        state = .failed(error?.localizedDescription ?? "Bluetooth connection failed")
+        let message = error?.localizedDescription ?? "Bluetooth connection failed"
+        lastConnectionError = message
+        state = .failed(message)
         scheduleReconnect()
     }
 
@@ -1060,6 +1591,8 @@ extension ConnectionManager: @preconcurrency CBCentralManagerDelegate {
         isReconnecting: Bool,
         error: Error?
     ) {
+        stopRecording()
+        if let error { lastConnectionError = error.localizedDescription }
         bluetoothWriteCharacteristic = nil
         failPendingCommands(with: error ?? OBDCommandError.notConnected)
         if shouldReconnect {
@@ -1076,6 +1609,7 @@ extension ConnectionManager: @preconcurrency CBCentralManagerDelegate {
 extension ConnectionManager: @preconcurrency CBPeripheralDelegate {
     func peripheral(_ peripheral: CBPeripheral, didDiscoverServices error: Error?) {
         if let error {
+            lastConnectionError = error.localizedDescription
             state = .failed(error.localizedDescription)
             scheduleReconnect()
             return
@@ -1106,6 +1640,7 @@ extension ConnectionManager: @preconcurrency CBPeripheralDelegate {
             Self.bluetoothWritePriority($0) < Self.bluetoothWritePriority($1)
         }
         guard bluetoothWriteCharacteristic != nil else {
+            lastConnectionError = "No compatible Bluetooth data channel found"
             state = .failed("No compatible Bluetooth data channel found")
             return
         }
