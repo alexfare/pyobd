@@ -15,14 +15,16 @@ Item {
     Canvas {
         id: dial
         anchors.fill: parent
+        antialiasing: true
+        onVisibleChanged: if (visible) requestPaint()
         onWidthChanged: requestPaint()
         onHeightChanged: requestPaint()
         onPaint: {
             const ctx = getContext("2d")
             ctx.reset()
             const cx = width / 2
-            const cy = height * 0.58
-            const radius = Math.min(width * 0.42, height * 0.48)
+            const cy = height / 2
+            const radius = Math.min(width, height) * 0.42
             const start = Math.PI * 0.75
             const end = Math.PI * 2.25
             ctx.lineCap = "round"
@@ -35,12 +37,26 @@ Item {
             ctx.lineCap = "butt"
             ctx.strokeStyle = "#64748b"
             ctx.lineWidth = 1
+            ctx.fillStyle = "#64748b"
+            ctx.font = Math.max(9, radius * 0.09) + "px sans-serif"
+            ctx.textAlign = "center"
+            ctx.textBaseline = "middle"
+            const labelStep = Math.max(1, Math.ceil(root.divisions / 5))
             for (let step = 0; step <= root.divisions; ++step) {
                 const tickAngle = start + (end - start) * step / root.divisions
                 ctx.beginPath()
                 ctx.moveTo(cx + Math.cos(tickAngle) * radius * 0.84, cy + Math.sin(tickAngle) * radius * 0.84)
                 ctx.lineTo(cx + Math.cos(tickAngle) * radius * 0.97, cy + Math.sin(tickAngle) * radius * 0.97)
                 ctx.stroke()
+                if (step % labelStep === 0 || step === root.divisions) {
+                    const tickValue = root.minimum + (root.maximum - root.minimum) * step / root.divisions
+                    const label = Math.abs(tickValue) >= 100 ? Math.round(tickValue).toString() : tickValue.toFixed(Math.abs(tickValue) < 10 ? 1 : 0)
+                    ctx.fillText(
+                        label,
+                        cx + Math.cos(tickAngle) * radius * 0.68,
+                        cy + Math.sin(tickAngle) * radius * 0.68
+                    )
+                }
             }
             const angle = start + (end - start) * ratio
             ctx.strokeStyle = "#172033"
@@ -48,11 +64,6 @@ Item {
             ctx.beginPath(); ctx.moveTo(cx, cy); ctx.lineTo(cx + Math.cos(angle) * radius * 0.82, cy + Math.sin(angle) * radius * 0.82); ctx.stroke()
             ctx.fillStyle = "#172033"
             ctx.beginPath(); ctx.arc(cx, cy, 6, 0, Math.PI * 2); ctx.fill()
-            ctx.font = "11px \"" + appModel.systemFontFamily + "\""
-            ctx.fillStyle = "#64748b"
-            ctx.fillText(root.minimum.toFixed(0), cx - radius, cy + 28)
-            ctx.textAlign = "right"
-            ctx.fillText(root.maximum.toFixed(0), cx + radius, cy + 28)
         }
         Connections {
             target: root
@@ -68,7 +79,7 @@ Item {
         visible: root.showDigital
         anchors.horizontalCenter: parent.horizontalCenter
         anchors.verticalCenter: parent.verticalCenter
-        anchors.verticalCenterOffset: height * 0.25
+        anchors.verticalCenterOffset: -height * 0.45
         Label { anchors.horizontalCenter: parent.horizontalCenter; text: root.displayValue; font.pixelSize: 28; font.bold: true; color: "#172033" }
         Label { anchors.horizontalCenter: parent.horizontalCenter; text: root.unit; color: "#64748b" }
     }

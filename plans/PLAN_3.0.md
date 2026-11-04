@@ -69,6 +69,17 @@ headless diagnostics.
 - [ ] Make the Qt application the default desktop entry point.
 - [ ] Retire wxPython after the final compatibility release.
 
+### Phase 7 — v2.6 parity audit
+
+- [x] Inventory every v2.6 page, action, setting, and persisted data type.
+- [x] Restore DTC category summaries and searchable code lookup.
+- [x] Restore graph presets, pause/resume, and combined/separate views.
+- [x] Match connection defaults and advanced configuration fields.
+- [x] Confirm vehicle profiles, dashboard layouts, recordings, replay, Mode 06,
+  freeze frame, readiness, updates, support, and activity logs are represented.
+- [x] Document intentional Qt UX differences.
+- [ ] Complete connected-vehicle and cross-platform parity validation.
+
 ## First migration order
 
 1. Application state and event boundary

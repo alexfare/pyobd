@@ -15,14 +15,18 @@ class ConnectionStatus(str, Enum):
 
 @dataclass(frozen=True)
 class ConnectionConfig:
-    transport: str = "Wi-Fi"
+    transport: str = "Auto detect"
     address: str = "192.168.0.10"
     port: str = "35000"
     baudrate: str = "AUTO"
-    timeout: float = 2.0
-    retries: int = 3
+    timeout: float = 1.0
+    retries: int = 5
+    send_mode: str = "NORMAL"
+    measurement_system: str = "IMPERIAL"
 
     def adapter_target(self) -> str:
+        if self.transport == "Auto detect":
+            return "AUTO"
         if self.transport == "Demo":
             return "DEMO"
         if self.transport == "Wi-Fi":
@@ -46,7 +50,7 @@ class ConnectionConfig:
 @dataclass(frozen=True)
 class ConnectionState:
     status: ConnectionStatus = ConnectionStatus.DISCONNECTED
-    transport: str = "Wi-Fi"
+    transport: str = "Auto detect"
     adapter: str = "----"
     port: str = "----"
     protocol: str = "----"
@@ -101,6 +105,16 @@ class ReadinessMonitor:
     name: str
     status: str
     supported: bool
+
+    def as_mapping(self) -> Dict[str, Any]:
+        return asdict(self)
+
+
+@dataclass(frozen=True)
+class MisfireResult:
+    cylinder: int
+    result: str
+    count: int
 
     def as_mapping(self) -> Dict[str, Any]:
         return asdict(self)

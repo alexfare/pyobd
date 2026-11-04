@@ -43,21 +43,42 @@ ColumnLayout {
 
     Rectangle {
         Layout.fillWidth: true
-        Layout.preferredHeight: 64
-        Layout.minimumHeight: 64
+        Layout.preferredHeight: root.editing ? 108 : 64
+        Layout.minimumHeight: root.editing ? 108 : 64
         color: "#f3f6fa"
-        RowLayout {
+        ColumnLayout {
             anchors.fill: parent
             anchors.leftMargin: 18
             anchors.rightMargin: 18
-            Button { text: root.editing ? "Done" : "Edit Dashboard"; onClicked: root.editing = !root.editing }
-            Button { text: "Add gauge"; visible: root.editing; onClicked: addDialog.open() }
-            Button { text: "Import"; visible: root.editing; onClicked: importDialog.open() }
-            Button { text: "Export"; visible: root.editing; onClicked: exportDialog.open() }
-            Button { text: "Restore"; visible: root.editing; onClicked: appModel.restore_dashboard() }
-            Label { visible: root.editing; text: "Drag gauges to move · drag edges to resize"; color: "#64748b" }
-            Item { Layout.fillWidth: true }
-            Label { text: appModel.dashboardMessage; color: "#64748b" }
+            anchors.topMargin: 10
+            anchors.bottomMargin: 10
+            spacing: 6
+            RowLayout {
+                Layout.fillWidth: true
+                ComboBox {
+                    Layout.preferredWidth: 210
+                    model: appModel.dashboardNames
+                    currentIndex: Math.max(0, appModel.dashboardNames.indexOf(appModel.currentDashboard))
+                    onActivated: appModel.select_dashboard(currentText)
+                }
+                Button { text: "New"; onClicked: newDashboardDialog.open() }
+                Button { text: "Rename"; onClicked: { renameDashboardName.text = appModel.currentDashboard; renameDashboardDialog.open() } }
+                Button { text: "Delete"; enabled: appModel.dashboardNames.length > 1; onClicked: deleteDashboardDialog.open() }
+                Button { text: root.editing ? "Done" : "Edit Dashboard"; onClicked: root.editing = !root.editing }
+                Item { Layout.fillWidth: true }
+                Label { text: appModel.dashboardMessage; color: "#64748b"; elide: Text.ElideRight }
+            }
+            RowLayout {
+                visible: root.editing
+                Layout.fillWidth: true
+                Button { text: "Add gauge"; onClicked: addDialog.open() }
+                Button { text: "Clear all"; enabled: appModel.dashboardWidgets.length > 0; onClicked: clearDashboardDialog.open() }
+                Button { text: "Import"; onClicked: importDialog.open() }
+                Button { text: "Export"; onClicked: exportDialog.open() }
+                Button { text: "Restore"; onClicked: appModel.restore_dashboard() }
+                Item { Layout.fillWidth: true }
+                Label { text: "Drag to move · use the blue corner to resize"; color: "#64748b" }
+            }
         }
     }
 
@@ -109,7 +130,9 @@ ColumnLayout {
                     width: widgetWidth
                     height: widgetHeight
                     z: layerValue
-                    radius: shape === "circle" ? Math.min(width, height) / 2 : (shape === "rounded" ? 18 : 0)
+                    radius: shape === "circle" && !root.editing
+                            ? Math.min(width, height) / 2
+                            : (shape === "rectangle" ? 0 : 18)
                     color: "white"
                     border.width: root.editing ? 2 : 1
                     border.color: root.editing ? accent : "#dce3ec"
@@ -126,16 +149,32 @@ ColumnLayout {
 
                     ColumnLayout {
                         anchors.fill: parent
-                        anchors.margins: 14
+                        anchors.leftMargin: 14
+                        anchors.rightMargin: 14
+                        anchors.topMargin: 14
+                        anchors.bottomMargin: 14
                         spacing: 6
                         RowLayout {
+                            visible: card.shape !== "circle" || root.editing
                             Layout.fillWidth: true
-                            Label { text: card.title; font.bold: true; color: "#172033"; Layout.fillWidth: true; elide: Text.ElideRight }
-                            Label { text: card.pid; color: "#64748b"; font.pixelSize: 11 }
-                            Button {
+                            Label { visible: card.shape !== "circle"; text: card.title; font.bold: true; color: "#172033"; Layout.fillWidth: true; elide: Text.ElideRight }
+                            Label { visible: card.shape !== "circle"; text: card.pid; color: "#64748b"; font.pixelSize: 11 }
+                            Item { visible: card.shape === "circle"; Layout.fillWidth: true }
+                            ToolButton {
                                 visible: root.editing
-                                text: "Properties"
+                                text: "Edit"
+                                Layout.preferredWidth: 52
+                                ToolTip.visible: hovered
+                                ToolTip.text: "Gauge properties"
                                 onClicked: root.openProperties(card)
+                            }
+                            ToolButton {
+                                visible: root.editing
+                                text: "×"
+                                Layout.preferredWidth: 34
+                                ToolTip.visible: hovered
+                                ToolTip.text: "Delete gauge"
+                                onClicked: appModel.remove_dashboard_widget(card.widgetId)
                             }
                         }
 
@@ -164,9 +203,22 @@ ColumnLayout {
 
                     }
 
+                    Label {
+                        visible: card.shape === "circle"
+                        width: card.width * 0.62
+                        anchors.horizontalCenter: parent.horizontalCenter
+                        anchors.bottom: parent.bottom
+                        anchors.bottomMargin: 20
+                        text: card.title
+                        font.bold: true
+                        color: "#172033"
+                        horizontalAlignment: Text.AlignHCenter
+                        elide: Text.ElideRight
+                    }
+
                     Rectangle {
                         id: rightResizeHandle
-                        visible: root.editing
+                        visible: root.editing && card.shape !== "circle"
                         width: 10
                         height: parent.height - 28
                         anchors.right: parent.right
@@ -186,16 +238,16 @@ ColumnLayout {
                                 }
                             }
                             onActiveTranslationChanged: {
-                                const size = Math.max(120, rightResizeHandle.startWidth + activeTranslation.x)
+                                const minimum = card.style === "digital" ? 120 : 240
+                                const size = Math.max(minimum, rightResizeHandle.startWidth + activeTranslation.x)
                                 card.width = size
-                                if (card.shape === "circle") card.height = size
                             }
                         }
                     }
 
                     Rectangle {
                         id: bottomResizeHandle
-                        visible: root.editing
+                        visible: root.editing && card.shape !== "circle"
                         width: parent.width - 28
                         height: 10
                         anchors.bottom: parent.bottom
@@ -215,9 +267,9 @@ ColumnLayout {
                                 }
                             }
                             onActiveTranslationChanged: {
-                                const size = Math.max(100, bottomResizeHandle.startHeight + activeTranslation.y)
+                                const minimum = card.style === "digital" ? 100 : 240
+                                const size = Math.max(minimum, bottomResizeHandle.startHeight + activeTranslation.y)
                                 card.height = size
-                                if (card.shape === "circle") card.width = size
                             }
                         }
                     }
@@ -246,12 +298,14 @@ ColumnLayout {
                             }
                             onActiveTranslationChanged: {
                                 if (card.shape === "circle") {
-                                    const size = Math.max(120, cornerResizeHandle.startWidth + Math.max(activeTranslation.x, activeTranslation.y))
+                                    const delta = Math.abs(activeTranslation.x) >= Math.abs(activeTranslation.y) ? activeTranslation.x : activeTranslation.y
+                                    const minimum = card.style === "digital" ? 120 : 240
+                                    const size = Math.max(minimum, cornerResizeHandle.startWidth + delta)
                                     card.width = size
                                     card.height = size
                                 } else {
-                                    card.width = Math.max(120, cornerResizeHandle.startWidth + activeTranslation.x)
-                                    card.height = Math.max(100, cornerResizeHandle.startHeight + activeTranslation.y)
+                                    card.width = Math.max(card.style === "digital" ? 120 : 240, cornerResizeHandle.startWidth + activeTranslation.x)
+                                    card.height = Math.max(card.style === "digital" ? 100 : 240, cornerResizeHandle.startHeight + activeTranslation.y)
                                 }
                             }
                         }
@@ -259,6 +313,46 @@ ColumnLayout {
                 }
             }
         }
+    }
+
+    Dialog {
+        id: newDashboardDialog
+        anchors.centerIn: Overlay.overlay
+        title: "New dashboard"
+        modal: true
+        standardButtons: Dialog.Save | Dialog.Cancel
+        onAccepted: appModel.create_dashboard(newDashboardName.text)
+        TextField { id: newDashboardName; width: 360; placeholderText: "Dashboard name" }
+    }
+
+    Dialog {
+        id: renameDashboardDialog
+        anchors.centerIn: Overlay.overlay
+        title: "Rename dashboard"
+        modal: true
+        standardButtons: Dialog.Save | Dialog.Cancel
+        onAccepted: appModel.rename_dashboard(renameDashboardName.text)
+        TextField { id: renameDashboardName; width: 360 }
+    }
+
+    Dialog {
+        id: deleteDashboardDialog
+        anchors.centerIn: Overlay.overlay
+        title: "Delete dashboard?"
+        modal: true
+        standardButtons: Dialog.Yes | Dialog.No
+        onAccepted: appModel.delete_dashboard()
+        Label { text: "Delete “" + appModel.currentDashboard + "”?" }
+    }
+
+    Dialog {
+        id: clearDashboardDialog
+        anchors.centerIn: Overlay.overlay
+        title: "Clear dashboard?"
+        modal: true
+        standardButtons: Dialog.Yes | Dialog.No
+        onAccepted: appModel.clear_dashboard()
+        Label { text: "Remove every gauge from “" + appModel.currentDashboard + "”?" }
     }
 
     Dialog {
@@ -305,9 +399,9 @@ ColumnLayout {
             Label { text: "Colour" }
             ComboBox { id: colourChoice; Layout.fillWidth: true; model: ["blue", "green", "orange", "red", "purple", "cyan"] }
             Label { text: "Width" }
-            SpinBox { id: widthSpin; Layout.fillWidth: true; from: 120; to: 800; editable: true }
+            SpinBox { id: widthSpin; Layout.fillWidth: true; from: displayChoice.currentText === "digital" ? 120 : 240; to: 800; editable: true }
             Label { text: "Height" }
-            SpinBox { id: heightSpin; Layout.fillWidth: true; from: 100; to: 600; editable: true }
+            SpinBox { id: heightSpin; Layout.fillWidth: true; from: displayChoice.currentText === "digital" ? 100 : 240; to: 600; editable: true }
             Label { text: "Dial minimum"; visible: displayChoice.currentText !== "digital" }
             TextField { id: minimumField; visible: displayChoice.currentText !== "digital"; Layout.fillWidth: true }
             Label { text: "Dial maximum"; visible: displayChoice.currentText !== "digital" }

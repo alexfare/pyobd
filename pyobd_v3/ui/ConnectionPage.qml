@@ -4,6 +4,13 @@ import QtQuick.Layouts
 
 ScrollView {
     id: root
+    function connectionAddress() {
+        if (transport.currentText === "Wi-Fi") return wifiAddress.text
+        if (transport.currentText === "USB / Serial") return serialAddress.text
+        if (transport.currentText === "Bluetooth") return bluetoothAddress.text
+        if (transport.currentText === "Custom URL") return customAddress.text
+        return ""
+    }
     clip: true
     contentWidth: availableWidth
     ScrollBar.horizontal.policy: ScrollBar.AlwaysOff
@@ -11,11 +18,16 @@ ScrollView {
     Component.onCompleted: {
         const saved = appModel.saved_connection()
         transport.currentIndex = Math.max(0, transport.model.indexOf(saved.transport))
-        address.text = saved.address
+        if (saved.transport === "Wi-Fi") wifiAddress.text = saved.address
+        else if (saved.transport === "USB / Serial") serialAddress.text = saved.address
+        else if (saved.transport === "Bluetooth") bluetoothAddress.text = saved.address
+        else if (saved.transport === "Custom URL") customAddress.text = saved.address
         port.text = saved.port
         baudrate.currentIndex = Math.max(0, baudrate.model.indexOf(saved.baudrate))
         timeout.text = saved.timeout
         retries.value = Number(saved.retries)
+        sendMode.currentIndex = Math.max(0, sendMode.model.indexOf(saved.send_mode))
+        measurements.currentIndex = Math.max(0, measurements.model.indexOf(saved.measurement_system))
     }
 
     ColumnLayout {
@@ -38,26 +50,35 @@ ScrollView {
                 ComboBox {
                     id: transport
                     Layout.fillWidth: true
-                    model: ["Wi-Fi", "USB / Serial", "Bluetooth", "Custom URL", "Demo"]
+                    model: ["Auto detect", "Demo", "USB / Serial", "Wi-Fi", "Bluetooth", "Custom URL"]
                     onCurrentTextChanged: {
-                        if (currentText === "Wi-Fi" && address.text.trim().length === 0)
-                            address.text = "192.168.0.10"
+                        if (currentText === "Wi-Fi" && wifiAddress.text.trim().length === 0)
+                            wifiAddress.text = "192.168.0.10"
                     }
                 }
                 TextField {
-                    id: address
+                    id: wifiAddress
                     Layout.fillWidth: true
-                    visible: transport.currentText !== "Demo"
-                    placeholderText: transport.currentText === "Wi-Fi" ? "Adapter IP address" : transport.currentText === "Bluetooth" ? "RFCOMM address or COM port" : "Serial port or connection URL"
+                    visible: transport.currentText === "Wi-Fi"
+                    placeholderText: "Adapter IP address"
+                    text: "192.168.0.10"
                 }
+                TextField { id: serialAddress; Layout.fillWidth: true; visible: transport.currentText === "USB / Serial"; placeholderText: "COM port or serial device (blank scans automatically)" }
+                TextField { id: bluetoothAddress; Layout.fillWidth: true; visible: transport.currentText === "Bluetooth"; placeholderText: "RFCOMM address or COM port" }
+                TextField { id: customAddress; Layout.fillWidth: true; visible: transport.currentText === "Custom URL"; placeholderText: "Connection URL" }
                 TextField { id: port; Layout.fillWidth: true; visible: transport.currentText === "Wi-Fi"; placeholderText: "Port"; text: "35000" }
-                ComboBox { id: baudrate; Layout.fillWidth: true; visible: transport.currentText !== "Wi-Fi" && transport.currentText !== "Demo"; model: ["AUTO", "38400", "9600", "115200"] }
+                ComboBox {
+                    id: baudrate
+                    Layout.fillWidth: true
+                    visible: transport.currentText !== "Wi-Fi" && transport.currentText !== "Demo"
+                    model: ["AUTO", "38400", "9600", "115200", "57600", "19200", "14400", "3000000", "2000000", "1000000", "250000", "230400", "128000", "500000", "460800", "576000", "921600", "1152000", "1500000", "2500000", "3500000", "4000000"]
+                }
                 RowLayout {
                     Layout.fillWidth: true
                     visible: transport.currentText !== "Demo"
-                    TextField { id: timeout; Layout.fillWidth: true; placeholderText: "Connection timeout (seconds)"; text: "2.0" }
+                    TextField { id: timeout; Layout.fillWidth: true; placeholderText: "Connection timeout (seconds)"; text: "1.0" }
                     Label { text: "Reconnect attempts"; color: "#64748b" }
-                    SpinBox { id: retries; from: 1; to: 10; value: 3; editable: true }
+                    SpinBox { id: retries; from: 1; to: 10; value: 5; editable: true }
                 }
                 ColumnLayout {
                     Layout.fillWidth: true
@@ -74,7 +95,7 @@ ScrollView {
                             required property var modelData
                             Layout.fillWidth: true
                             text: (modelData.connected ? "✓ Connected  " : "") + modelData.label
-                            onClicked: address.text = modelData.target
+                            onClicked: serialAddress.text = modelData.target
                         }
                     }
                 }
@@ -97,23 +118,51 @@ ScrollView {
                             required property var modelData
                             Layout.fillWidth: true
                             text: (modelData.connected ? "✓ Connected  " : "") + modelData.label
-                            onClicked: address.text = modelData.target
+                            onClicked: bluetoothAddress.text = modelData.target
                         }
                     }
                 }
                 RowLayout {
                     Layout.fillWidth: true
+                    Label { text: "Send mode"; color: "#64748b" }
+                    ComboBox { id: sendMode; Layout.fillWidth: true; model: ["FAST", "NORMAL"]; currentIndex: 1 }
+                    Label { text: "Measurements"; color: "#64748b" }
+                    ComboBox { id: measurements; Layout.fillWidth: true; model: ["IMPERIAL", "METRIC"] }
+                }
+                CheckBox { text: "Auto-connect"; enabled: false }
+                RowLayout {
+                    Layout.fillWidth: true
+                    Button {
+                        text: "Save settings"
+                        onClicked: appModel.save_connection_settings(
+                            transport.currentText, root.connectionAddress(), port.text,
+                            baudrate.currentText, timeout.text, retries.value.toString(),
+                            sendMode.currentText, measurements.currentText
+                        )
+                    }
                     Button {
                         text: appModel.connected ? "Reconnect" : "Connect"
                         highlighted: true
                         onClicked: appModel.connect_vehicle(
-                            transport.currentText, address.text, port.text,
-                            baudrate.currentText, timeout.text, retries.value.toString()
+                            transport.currentText, root.connectionAddress(), port.text,
+                            baudrate.currentText, timeout.text, retries.value.toString(),
+                            sendMode.currentText, measurements.currentText
                         )
                     }
                     Button { text: "Disconnect"; enabled: appModel.connectionStatus !== "Disconnected"; onClicked: appModel.disconnect_vehicle() }
                     Item { Layout.fillWidth: true }
                     Label { text: appModel.connectionStatus; font.bold: true; color: appModel.connected ? "#18864b" : "#64748b" }
+                }
+                RowLayout {
+                    Layout.fillWidth: true
+                    Button { text: "Order OBD adapter"; onClicked: appModel.open_app_link("adapter") }
+                    Item { Layout.fillWidth: true }
+                    Label { text: "Changes apply on the next connection"; color: "#64748b" }
+                }
+                Label {
+                    visible: transport.currentText === "Custom URL"
+                    text: "Examples: socket://192.168.0.10:35000 or rfc2217://host:port"
+                    color: "#64748b"
                 }
             }
         }

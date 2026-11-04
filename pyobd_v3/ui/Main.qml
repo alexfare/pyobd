@@ -48,14 +48,14 @@ ApplicationWindow {
                     Layout.fillHeight: true
                     clip: true
                     spacing: 8
-                    model: ["Overview", "Dashboard", "Live Data", "Graphs", "Diagnostics", "Readiness", "Freeze Frame", "Vehicles", "Connection", "Settings", "About"]
+                    model: ["Overview", "Dashboard", "Live Data", "Graphs", "Diagnostics", "Readiness", "Freeze Frame", "Vehicles", "Sessions", "Settings"]
                     delegate: Button {
                         required property string modelData
                         width: navigationList.width
                         height: 44
                         text: modelData
                         flat: true
-                        onClicked: appModel.select_page(modelData)
+                        onClicked: modelData === "Settings" ? appModel.open_settings("General") : appModel.select_page(modelData)
                         contentItem: Text {
                             text: parent.text
                             color: appModel.page === parent.text ? "white" : "#b9c7d8"
@@ -103,7 +103,16 @@ ApplicationWindow {
                         Label { text: "Vehicle diagnostics and live data"; color: window.textMuted; font.pixelSize: 14 }
                     }
                     Item { Layout.fillWidth: true }
+                    Label {
+                        visible: appModel.activeVehicleName.length > 0
+                        text: appModel.activeVehicleName
+                        color: appModel.connectionTransport === "Demo" ? "#c2410c" : window.textMuted
+                        font.bold: appModel.connectionTransport === "Demo"
+                        elide: Text.ElideRight
+                        Layout.maximumWidth: 180
+                    }
                     Rectangle {
+                        id: connectionPill
                         width: 132
                         height: 40
                         radius: 12
@@ -114,8 +123,12 @@ ApplicationWindow {
                             Rectangle { width: 10; height: 10; radius: 5; color: appModel.connected ? "#22a35a" : "#ef4444" }
                             Label { text: appModel.connectionStatus; color: appModel.connected ? "#17653b" : "#991b1b"; font.bold: true }
                         }
+                        TapHandler { onTapped: appModel.quick_connect() }
+                        ToolTip.visible: connectionHover.hovered
+                        ToolTip.text: appModel.connected ? "Disconnect" : "Connect using saved settings"
+                        HoverHandler { id: connectionHover; cursorShape: Qt.PointingHandCursor }
                     }
-                    Button { text: "Configure"; onClicked: appModel.select_page("Connection") }
+                    Button { text: "Configure"; onClicked: appModel.open_settings("Connection") }
                 }
             }
 
@@ -127,14 +140,13 @@ ApplicationWindow {
                     if (appModel.page === "Overview") return overviewPage
                     if (appModel.page === "Dashboard") return dashboardPage
                     if (appModel.page === "Graphs") return graphsPage
-                    if (appModel.page === "Connection") return connectionPage
                     if (appModel.page === "Live Data") return liveDataPage
                     if (appModel.page === "Diagnostics") return diagnosticsPage
                     if (appModel.page === "Readiness") return readinessPage
                     if (appModel.page === "Freeze Frame") return freezeFramePage
                     if (appModel.page === "Vehicles") return vehiclesPage
+                    if (appModel.page === "Sessions") return sessionsPage
                     if (appModel.page === "Settings") return settingsPage
-                    if (appModel.page === "About") return aboutPage
                     return placeholderPage
                 }
             }
@@ -170,6 +182,8 @@ ApplicationWindow {
     Component { id: readinessPage; ReadinessPage {} }
     Component { id: freezeFramePage; FreezeFramePage {} }
     Component { id: vehiclesPage; VehiclesPage {} }
+    Component { id: sessionsPage; SessionsPage {} }
+    Component { id: tracePage; TracePage {} }
     Component { id: settingsPage; SettingsPage {} }
     Component { id: aboutPage; AboutPage {} }
     Component {

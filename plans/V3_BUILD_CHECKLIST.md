@@ -19,11 +19,16 @@
 - [x] Live Data completed.
 - [x] Diagnostics and DTC lookup completed.
 - [x] Readiness completed.
+- [x] Mode 06 misfire results completed.
 - [x] Freeze Frame completed.
 - [x] Graphs completed.
 - [x] Dashboard completed.
 - [x] Vehicle profiles completed.
+- [x] Recorded sessions and replay completed.
+- [x] Trace/log viewer completed.
 - [x] Settings, updates, About, and support completed.
+- [x] DTC lookup and category summaries completed.
+- [x] Graph presets, pause, and combined/separate views completed.
 
 ## Behavior parity
 
@@ -58,8 +63,8 @@
 
 ## Release gate
 
-- [ ] v2.6 feature parity documented.
-- [ ] Accepted differences documented.
+- [x] v2.6 feature parity documented.
+- [x] Accepted differences documented.
 - [ ] Real-vehicle regression checklist completed.
 - [ ] Installers launch without requiring Python or pip.
 - [ ] v3 becomes the default application entry point.
