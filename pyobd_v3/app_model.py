@@ -41,6 +41,7 @@ class AppModel(QObject):
     dashboardChanged = Signal()
     graphSelectionChanged = Signal()
     settingsSectionChanged = Signal()
+    performanceChanged = Signal()
     serviceEvent = Signal(object)
 
     def __init__(self):
@@ -350,6 +351,19 @@ class AppModel(QObject):
     def pollInterval(self):
         return self._poll_interval
 
+    @Property(str, notify=performanceChanged)
+    def pollingStatus(self):
+        requested = self._vehicle_service.requested_pids
+        if requested is None:
+            return "All supported PIDs"
+        if not requested:
+            return "Paused"
+        return "{} PID{}".format(len(requested), "" if len(requested) == 1 else "s")
+
+    @Property(str, notify=stateChanged)
+    def workerStatus(self):
+        return "Running" if self._vehicle_service.running else "Stopped"
+
     @Property(str, notify=stateChanged)
     def connectionStatus(self):
         return self._connection.status.value
@@ -413,7 +427,10 @@ class AppModel(QObject):
         send_mode, measurement_system,
     ):
         self._operation_error = ""
-        self._vehicle_service.stop()
+        if not self._vehicle_service.stop():
+            self._operation_error = "Previous connection is still shutting down"
+            self.stateChanged.emit()
+            return
         self._vehicle_service = VehicleService(self._event_sink, self._poll_interval)
         self._update_poll_scope()
         try:
@@ -445,7 +462,9 @@ class AppModel(QObject):
 
     @Slot()
     def disconnect_vehicle(self):
-        self._vehicle_service.stop()
+        if not self._vehicle_service.stop():
+            self._operation_error = "Connection is still shutting down"
+            self.stateChanged.emit()
 
     @Slot()
     def quick_connect(self):
@@ -1502,6 +1521,7 @@ class AppModel(QObject):
         if self._recording.active and pids is not None:
             pids.update(self._recording.selected_pids)
         service.set_poll_pids(pids)
+        self.performanceChanged.emit()
 
     def _rebuild_live_data(self):
         rows = []

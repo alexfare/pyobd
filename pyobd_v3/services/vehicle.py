@@ -67,6 +67,11 @@ class VehicleService:
     def running(self):
         return bool(self._thread and self._thread.is_alive())
 
+    @property
+    def requested_pids(self):
+        with self._poll_lock:
+            return None if self._requested_pids is None else frozenset(self._requested_pids)
+
     def start(self, config: ConnectionConfig):
         if self.running:
             return False
@@ -82,9 +87,17 @@ class VehicleService:
 
     def stop(self):
         self._stop_event.set()
-        if self._thread and self._thread.is_alive():
-            self._thread.join(timeout=3.0)
-        self._thread = None
+        thread = self._thread
+        connection = self._connection
+        if connection is not None:
+            try:
+                connection.close()
+            except Exception:
+                pass
+        if thread and thread.is_alive():
+            thread.join(timeout=3.0)
+        if not thread or not thread.is_alive():
+            self._thread = None
         self._publish_connection(ConnectionStatus.DISCONNECTED)
         self._event_sink.publish(AppEvent(EventChannel.VEHICLE_STATE, VehicleState()))
         self._event_sink.publish(AppEvent(EventChannel.SUPPORTED_PIDS, ()))
@@ -93,6 +106,7 @@ class VehicleService:
         self._event_sink.publish(AppEvent(EventChannel.READINESS, ()))
         self._event_sink.publish(AppEvent(EventChannel.MISFIRE, ()))
         self._event_sink.publish(AppEvent(EventChannel.FREEZE_FRAME, ()))
+        return not thread or not thread.is_alive()
 
     def request_diagnostics(self):
         self._operations.put("diagnostics")
