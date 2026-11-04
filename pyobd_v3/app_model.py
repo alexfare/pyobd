@@ -10,7 +10,7 @@ import urllib.request
 from uuid import uuid4
 
 from PySide6.QtCore import Property, QObject, QUrl, Signal, Slot
-from PySide6.QtGui import QDesktopServices
+from PySide6.QtGui import QDesktopServices, QFontDatabase
 
 from event_sink import AppEvent, CallbackEventSink, EventChannel
 from pyobd_v3.app_info import (
@@ -240,6 +240,10 @@ class AppModel(QObject):
     def appVersion(self):
         return APP_VERSION
 
+    @Property(str, constant=True)
+    def systemFontFamily(self):
+        return QFontDatabase.systemFont(QFontDatabase.GeneralFont).family()
+
     @Property(str, notify=stateChanged)
     def updateStatus(self):
         return self._update_status
@@ -247,6 +251,10 @@ class AppModel(QObject):
     @Property(str, constant=True)
     def logPath(self):
         return str(self._log.path)
+
+    @Property(str, constant=True)
+    def recordingsPath(self):
+        return str(self._recording.directory)
 
     @Property(float, notify=stateChanged)
     def pollInterval(self):
@@ -428,10 +436,13 @@ class AppModel(QObject):
 
     @Slot(str)
     def open_app_link(self, name):
+        if name == "recordings":
+            self._recording.directory.mkdir(parents=True, exist_ok=True)
         urls = {
             "project": PROJECT_URL, "releases": RELEASES_URL,
             "issues": ISSUES_URL, "support": SUPPORT_URL,
             "license": LICENSE_URL, "logs": self._log.path.parent.as_uri(),
+            "recordings": self._recording.directory.as_uri(),
         }
         self.open_url(str(urls.get(name, "")))
 

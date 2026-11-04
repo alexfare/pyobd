@@ -48,7 +48,7 @@ Item {
             ctx.beginPath(); ctx.moveTo(cx, cy); ctx.lineTo(cx + Math.cos(angle) * radius * 0.82, cy + Math.sin(angle) * radius * 0.82); ctx.stroke()
             ctx.fillStyle = "#172033"
             ctx.beginPath(); ctx.arc(cx, cy, 6, 0, Math.PI * 2); ctx.fill()
-            ctx.font = "11px sans-serif"
+            ctx.font = "11px \"" + appModel.systemFontFamily + "\""
             ctx.fillStyle = "#64748b"
             ctx.fillText(root.minimum.toFixed(0), cx - radius, cy + 28)
             ctx.textAlign = "right"

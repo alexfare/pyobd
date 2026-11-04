@@ -136,7 +136,7 @@ ColumnLayout {
                                     }
                                     ctx.stroke()
                                     ctx.fillStyle = "#64748b"
-                                    ctx.font = "12px sans-serif"
+                                    ctx.font = "12px \"" + appModel.systemFontFamily + "\""
                                     ctx.fillText(high.toFixed(1), 8, 16)
                                     ctx.fillText(low.toFixed(1), 8, height - 8)
                                 }

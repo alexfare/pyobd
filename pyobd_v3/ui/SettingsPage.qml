@@ -60,6 +60,12 @@ ScrollView {
                     Label { text: appModel.logPath; color: "#64748b"; elide: Text.ElideMiddle; Layout.fillWidth: true }
                     Button { text: "Open log folder"; onClicked: appModel.open_app_link("logs") }
                 }
+                Label { text: "Recordings"; font.bold: true }
+                RowLayout {
+                    Layout.fillWidth: true
+                    Label { text: appModel.recordingsPath; color: "#64748b"; elide: Text.ElideMiddle; Layout.fillWidth: true }
+                    Button { text: "Open recordings folder"; onClicked: appModel.open_app_link("recordings") }
+                }
             }
         }
         Item { Layout.preferredHeight: 24 }
