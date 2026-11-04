@@ -373,13 +373,10 @@ ColumnLayout {
 
     Dialog {
         id: propertiesDialog
-        anchors.centerIn: Overlay.overlay
-        width: 560
-        height: 650
-        modal: true
-        title: "Gauge properties"
-        standardButtons: Dialog.Save | Dialog.Cancel
-        onAccepted: {
+        property bool cancelled: false
+        property bool saved: false
+
+        function saveChanges() {
             const pid = mainPidChoice.currentValue || "010C"
             const centerPid = sameCenterPid.checked ? "" : (centerPidChoice.currentValue || pid)
             appModel.update_dashboard_properties(
@@ -389,7 +386,19 @@ ColumnLayout {
                 maximumField.text, divisionsSpin.value
             )
             appModel.resize_dashboard_widget(root.selectedWidgetId, widthSpin.value, heightSpin.value)
+            saved = true
         }
+
+        anchors.centerIn: Overlay.overlay
+        width: 560
+        height: 650
+        modal: true
+        title: "Gauge properties"
+        standardButtons: Dialog.Save | Dialog.Cancel
+        onOpened: { cancelled = false; saved = false }
+        onAccepted: saveChanges()
+        onRejected: cancelled = true
+        onClosed: if (!cancelled && !saved) saveChanges()
 
         GridLayout {
             anchors.fill: parent
