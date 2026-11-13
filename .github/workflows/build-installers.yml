@@ -28,7 +28,8 @@ jobs:
         run: >-
           pyinstaller --noconfirm --clean --windowed --onedir
           --name pyOBD --icon assets/pyobd.ico
-          --add-data "assets/pyobd.png:assets" --add-data "COPYING:." --add-data "pyproject.toml:."
+          --add-data "assets/pyobd.png:assets" --add-data "pyobd_v3/ui:pyobd_v3/ui"
+          --add-data "COPYING:." --add-data "pyproject.toml:."
           --add-data "THIRD_PARTY_NOTICES.md:." --add-data "third-party-licenses:third-party-licenses"
           pyobd.py
       - name: Build installer
@@ -93,7 +94,8 @@ jobs:
             --name pyOBD --icon assets/pyobd.icns \
             --osx-bundle-identifier com.farebrothers.pyobd \
             --codesign-identity "$MACOS_SIGNING_IDENTITY" \
-            --add-data "assets/pyobd.png:assets" --add-data "COPYING:." --add-data "pyproject.toml:." \
+            --add-data "assets/pyobd.png:assets" --add-data "pyobd_v3/ui:pyobd_v3/ui" \
+            --add-data "COPYING:." --add-data "pyproject.toml:." \
             --add-data "THIRD_PARTY_NOTICES.md:." --add-data "third-party-licenses:third-party-licenses" \
             pyobd.py
           codesign --verify --deep --strict --verbose=2 dist/pyOBD.app
@@ -144,10 +146,10 @@ jobs:
       - name: Install system dependencies
         run: |
           sudo apt-get update
-          sudo apt-get install --yes python3-venv python3-wxgtk4.0
+          sudo apt-get install --yes python3-venv
       - name: Install build dependencies
         run: |
-          /usr/bin/python3 -m venv --system-site-packages .venv-build
+          /usr/bin/python3 -m venv .venv-build
           .venv-build/bin/python -m pip install -r requirements/requirements-ubuntu.txt -r requirements/requirements-build.txt
       - name: Collect third-party licenses
         run: .venv-build/bin/python packaging/collect_third_party_licenses.py
@@ -155,7 +157,8 @@ jobs:
         run: >-
           .venv-build/bin/pyinstaller --noconfirm --clean --windowed --onedir
           --name pyOBD --icon assets/pyobd.png
-          --add-data "assets/pyobd.png:assets" --add-data "COPYING:." --add-data "pyproject.toml:."
+          --add-data "assets/pyobd.png:assets" --add-data "pyobd_v3/ui:pyobd_v3/ui"
+          --add-data "COPYING:." --add-data "pyproject.toml:."
           --add-data "THIRD_PARTY_NOTICES.md:." --add-data "third-party-licenses:third-party-licenses"
           pyobd.py
       - name: Build installer

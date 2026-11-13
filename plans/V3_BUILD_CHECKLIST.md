@@ -2,15 +2,15 @@
 
 ## Foundation
 
-- [x] Parallel `pyobd_v3` package created.
-- [x] PySide6 dependency isolated from the v2 application.
+- [x] `pyobd_v3` package created.
+- [x] PySide6 is the primary desktop UI dependency.
 - [x] Qt/QML shell created.
 - [x] Initial visual theme created.
 - [x] Overview prototype created with Demo data.
 - [x] Framework-neutral application models created.
 - [x] UI-neutral event sink replaces direct wx event posting.
 - [x] Connection and polling services run without a UI.
-- [x] Demo service supplies the same models as a real connection.
+- [x] Demo mode supplies the same models as a real connection.
 
 ## Screen migration
 
@@ -67,5 +67,5 @@
 - [x] Accepted differences documented.
 - [ ] Real-vehicle regression checklist completed.
 - [ ] Installers launch without requiring Python or pip.
-- [ ] v3 becomes the default application entry point.
-- [ ] wxPython retirement is approved.
+- [x] v3 becomes the default application entry point.
+- [x] wxPython is retired from the main branch.

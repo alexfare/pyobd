@@ -5,8 +5,8 @@
 Replace wxPython with a modern PySide6 and Qt/QML interface while preserving the
 working Python OBD engine and all supported desktop platforms.
 
-The v2.6 application remains available and unchanged until v3 reaches feature
-parity.
+Version 3 is the primary desktop application. The retired wxPython interface
+remains available through earlier release tags.
 
 ## Architecture
 
@@ -66,8 +66,8 @@ headless diagnostics.
 - [ ] Validate macOS, Windows, and Linux packages.
 - [ ] Validate USB, Wi-Fi, Bluetooth, and Demo connections.
 - [ ] Complete real-vehicle regression testing.
-- [ ] Make the Qt application the default desktop entry point.
-- [ ] Retire wxPython after the final compatibility release.
+- [x] Make the Qt application the default desktop entry point.
+- [x] Retire wxPython after the final compatibility release.
 
 ### Phase 7 — v2.6 parity audit
 
