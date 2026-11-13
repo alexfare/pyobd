@@ -2,7 +2,7 @@
 
 ## Foundation
 
-- [x] `pyobd_v3` package created.
+- [x] Primary `pyobd_app` package created.
 - [x] PySide6 is the primary desktop UI dependency.
 - [x] Qt/QML shell created.
 - [x] Initial visual theme created.

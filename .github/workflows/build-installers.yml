@@ -28,7 +28,7 @@ jobs:
         run: >-
           pyinstaller --noconfirm --clean --windowed --onedir
           --name pyOBD --icon assets/pyobd.ico
-          --add-data "assets/pyobd.png:assets" --add-data "pyobd_v3/ui:pyobd_v3/ui"
+          --add-data "assets/pyobd.png:assets" --add-data "pyobd_app/ui:pyobd_app/ui"
           --add-data "COPYING:." --add-data "pyproject.toml:."
           --add-data "THIRD_PARTY_NOTICES.md:." --add-data "third-party-licenses:third-party-licenses"
           pyobd.py
@@ -94,7 +94,7 @@ jobs:
             --name pyOBD --icon assets/pyobd.icns \
             --osx-bundle-identifier com.farebrothers.pyobd \
             --codesign-identity "$MACOS_SIGNING_IDENTITY" \
-            --add-data "assets/pyobd.png:assets" --add-data "pyobd_v3/ui:pyobd_v3/ui" \
+            --add-data "assets/pyobd.png:assets" --add-data "pyobd_app/ui:pyobd_app/ui" \
             --add-data "COPYING:." --add-data "pyproject.toml:." \
             --add-data "THIRD_PARTY_NOTICES.md:." --add-data "third-party-licenses:third-party-licenses" \
             pyobd.py
@@ -157,7 +157,7 @@ jobs:
         run: >-
           .venv-build/bin/pyinstaller --noconfirm --clean --windowed --onedir
           --name pyOBD --icon assets/pyobd.png
-          --add-data "assets/pyobd.png:assets" --add-data "pyobd_v3/ui:pyobd_v3/ui"
+          --add-data "assets/pyobd.png:assets" --add-data "pyobd_app/ui:pyobd_app/ui"
           --add-data "COPYING:." --add-data "pyproject.toml:."
           --add-data "THIRD_PARTY_NOTICES.md:." --add-data "third-party-licenses:third-party-licenses"
           pyobd.py

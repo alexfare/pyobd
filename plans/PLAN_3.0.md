@@ -11,7 +11,7 @@ remains available through earlier release tags.
 ## Architecture
 
 ```text
-pyobd_v3/
+pyobd_app/
   app.py                 Qt application startup
   models/                framework-neutral application state
   services/              connection, polling, diagnostics, recording
@@ -28,7 +28,7 @@ headless diagnostics.
 
 ### Phase 1 — Foundation
 
-- [x] Create the parallel `pyobd_v3` application package.
+- [x] Create the desktop application package.
 - [x] Create the Qt/QML application shell and visual theme.
 - [x] Create the first Overview screen using Demo data.
 - [x] Add framework-neutral connection and vehicle-state models.

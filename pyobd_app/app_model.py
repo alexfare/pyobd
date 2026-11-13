@@ -16,18 +16,18 @@ from PySide6.QtGui import QDesktopServices
 
 from event_sink import AppEvent, CallbackEventSink, EventChannel
 from obd2_codes import pcodes
-from pyobd_v3.app_info import (
+from pyobd_app.app_info import (
     ADAPTER_URL, APP_VERSION, ISSUES_URL, LICENSE_URL, PROJECT_URL, RELEASE_API_URL,
     RELEASES_URL, SUPPORT_URL,
 )
-from pyobd_v3.dashboard_model import DashboardListModel
-from pyobd_v3.live_data_model import LiveDataListModel
-from pyobd_v3.models import ConnectionConfig, ConnectionState, VehicleState
-from pyobd_v3.services import (
+from pyobd_app.dashboard_model import DashboardListModel
+from pyobd_app.live_data_model import LiveDataListModel
+from pyobd_app.models import ConnectionConfig, ConnectionState, VehicleState
+from pyobd_app.services import (
     AppLog, RecordingService, SettingsStore, VehicleService,
     bluetooth_adapters, serial_adapters,
 )
-from pyobd_v3.services.settings import DEFAULT_DASHBOARD_WIDGETS, DEFAULT_WIDGETS
+from pyobd_app.services.settings import DEFAULT_DASHBOARD_WIDGETS, DEFAULT_WIDGETS
 
 
 class AppModel(QObject):

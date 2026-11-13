@@ -17,10 +17,10 @@ license = "GPL-2.0-only"
 requires-python = ">=3.8"
 
 [project.gui-scripts]
-pyobd = "pyobd_v3.app:main"
+pyobd = "pyobd_app.app:main"
 
 [tool.setuptools.package-data]
-pyobd_v3 = ["ui/*.qml"]
+pyobd_app = ["ui/*.qml"]
 
 [build-system]
 requires = ["setuptools", "wheel"]
