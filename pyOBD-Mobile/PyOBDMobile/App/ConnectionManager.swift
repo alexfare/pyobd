@@ -414,7 +414,9 @@ enum OBDParser {
 @MainActor
 final class ConnectionManager: NSObject, ObservableObject {
     @Published var transport: AdapterTransport = .wifi
-    @Published private(set) var state: AdapterConnectionState = .disconnected
+    @Published private(set) var state: AdapterConnectionState = .disconnected {
+        didSet { updateIdleTimer() }
+    }
     @Published var wifiHost: String
     @Published var wifiPort: String
     @Published private(set) var discoveredAdapters: [DiscoveredAdapter] = []
@@ -469,6 +471,7 @@ final class ConnectionManager: NSObject, ObservableObject {
     private let recordingTimestampFormatter = ISO8601DateFormatter()
     private var pendingPIDRemovals: [Int] = []
     private var pidRemovalTask: Task<Void, Never>?
+    private var sceneIsActive = true
 
     private static let hostKey = "adapter.wifi.host"
     private static let portKey = "adapter.wifi.port"
@@ -907,15 +910,25 @@ final class ConnectionManager: NSObject, ObservableObject {
     func scenePhaseChanged(_ phase: ScenePhase) {
         switch phase {
         case .background:
+            sceneIsActive = false
+            updateIdleTimer()
             beginBackgroundTask()
         case .active:
+            sceneIsActive = true
+            updateIdleTimer()
             endBackgroundTask()
             restoreConnectionIfNeeded()
         case .inactive:
+            sceneIsActive = false
+            updateIdleTimer()
             break
         @unknown default:
             break
         }
+    }
+
+    private func updateIdleTimer() {
+        UIApplication.shared.isIdleTimerDisabled = sceneIsActive && state == .connected
     }
 
     private func connectWiFi() {
