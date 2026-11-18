@@ -509,16 +509,18 @@ def encoded_string(length):
 
 
 def decode_encoded_string(messages, length):
-    d = messages[0].data[2:]
+    d = bytes(messages[0].data[2:])
+
+    # Mode 09 strings may include a leading message index and trailing NUL
+    # padding. Remove only those control bytes so valid ASCII digits in values
+    # such as VINs are preserved.
+    d = d.lstrip(b'\x00\x01\x02').rstrip(b'\x00')
 
     if len(d) < length:
         logger.debug("Invalid string {}. Discarding...", d)
         return None
 
-    # Encoded strings come in bundles of messages with leading null values to
-    # pad out the string to the next full message size. We strip off the
-    # leading null characters here and return the resulting string.
-    return d.strip().strip(b'\x00' b'\x01' b'\x02' b'\\x00' b'\\x01' b'\\x02')
+    return d[:length]
 
 
 def cvn(messages):
