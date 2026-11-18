@@ -8,7 +8,7 @@ import obd
 from obd_io import OBDConnection
 from obd.utils import OBDStatus
 from event_sink import AppEvent, EventChannel, EventSink
-from pyobd_v3.models import (
+from pyobd_app.models import (
     ConnectionConfig,
     ConnectionState,
     ConnectionStatus,

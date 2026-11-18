@@ -7,7 +7,7 @@ versions and complete license files for each packaged build are included in the
 | Component | License | Project |
 | --- | --- | --- |
 | Python | Python Software Foundation License 2.0 and component-specific licenses | https://www.python.org/ |
-| wxPython / wxWidgets | LGPL-2.0-or-later with wxWindows Library License Exception 3.1 | https://wxpython.org/ |
+| PySide6 / Qt | LGPL-3.0-only or GPL-2.0-or-later / GPL-3.0-only, depending on component | https://www.qt.io/qt-for-python |
 | NumPy | BSD-3-Clause and licenses for bundled components | https://numpy.org/ |
 | Pint | BSD-3-Clause | https://github.com/hgrecco/pint |
 | pySerial | BSD-3-Clause | https://github.com/pyserial/pyserial |

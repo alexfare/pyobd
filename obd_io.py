@@ -34,10 +34,6 @@ import time
 from math import ceil
 import re
 
-import obd_sensors
-
-from obd_sensors import hex_to_int
-
 import obd
 import decimal
 import math
@@ -477,9 +473,6 @@ class OBDConnection:
          (Sensor Name (string), Sensor Value (string), Sensor Unit (string) ) """
         ###for command in self.connection.supported_commands[1].name
         pass
-        #sensor = obd_sensors.SENSORS[sensor_index]
-        #r = self.get_sensor_value(sensor)
-        #return (sensor.name,r, sensor.unit)
 
     def clear_dtc(self):
         """Clears all DTCs and freeze frame data"""
