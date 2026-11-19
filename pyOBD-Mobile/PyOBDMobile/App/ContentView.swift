@@ -751,9 +751,48 @@ private struct ConnectionView: View {
                         }
                     }
                 }
+
+                Section("About") {
+                    LabeledContent("Version", value: appVersion)
+                    NavigationLink("Privacy") {
+                        PrivacyView()
+                    }
+                    Link(
+                        "Support",
+                        destination: URL(string: "https://farebros.com/module.php?module=app_directory&page=support&slug=pyobd")!
+                    )
+                }
             }
             .navigationTitle("Connection")
         }
+    }
+
+    private var appVersion: String {
+        Bundle.main.object(forInfoDictionaryKey: "CFBundleShortVersionString") as? String ?? "—"
+    }
+}
+
+private struct PrivacyView: View {
+    var body: some View {
+        List {
+            Section("Your data") {
+                Text("pyOBD Mobile does not require an account and does not send personal data, vehicle data, diagnostics, or usage analytics to Fare Brothers.")
+                Text("Connection settings, vehicle profiles, PID preferences, and recordings remain on your device unless you choose to export or share them.")
+            }
+
+            Section("Adapter connections") {
+                Text("The app uses Bluetooth or your local Wi-Fi network only to communicate with the vehicle adapter you select.")
+            }
+
+            Section {
+                Link(
+                    "View full privacy policy",
+                    destination: URL(string: "https://github.com/alexfare/pyobd/blob/main/pyOBD-Mobile/PRIVACY_POLICY.md")!
+                )
+            }
+        }
+        .navigationTitle("Privacy")
+        .navigationBarTitleDisplayMode(.inline)
     }
 }
 
