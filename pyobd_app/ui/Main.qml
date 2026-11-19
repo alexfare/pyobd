@@ -9,7 +9,7 @@ ApplicationWindow {
     height: 900
     minimumWidth: 1050
     minimumHeight: 680
-    title: "pyOBD v" + appModel.appVersion
+    title: "pyOBD v" + appModel.appVersion + " - Modified by Fare Brothers, LLC"
     color: "#f3f6fa"
 
     readonly property color navy: "#122337"
