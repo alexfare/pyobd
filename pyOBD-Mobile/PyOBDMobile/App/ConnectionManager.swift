@@ -471,6 +471,7 @@ final class ConnectionManager: NSObject, ObservableObject {
     private let recordingTimestampFormatter = ISO8601DateFormatter()
     private var pendingPIDRemovals: [Int] = []
     private var pidRemovalTask: Task<Void, Never>?
+    private var graphPIDNumbers = Set<Int>()
     private var sceneIsActive = true
 
     private static let hostKey = "adapter.wifi.host"
@@ -742,13 +743,36 @@ final class ConnectionManager: NSObject, ObservableObject {
 
     func setPollingRate(_ rate: PIDPollingRate, for number: Int) {
         guard isDecodable(number) else { return }
-        pidPollingRates[number] = rate
-        if rate == .off,
+        let effectiveRate: PIDPollingRate = rate == .off && graphPIDNumbers.contains(number) ? .normal : rate
+        pidPollingRates[number] = effectiveRate
+        if effectiveRate == .off,
            let pid = StandardPID(rawValue: String(format: "01%02X", number)) {
             liveReadings.removeAll { $0.pid == pid }
             liveHistory[pid] = nil
         }
         savePIDPreferences()
+    }
+
+    func setGraphPIDEnabled(_ enabled: Bool, number: Int) {
+        guard isDecodable(number) else { return }
+        if enabled {
+            graphPIDNumbers.insert(number)
+            if pollingRate(for: number) == .off {
+                pidPollingRates[number] = .normal
+            }
+        } else {
+            graphPIDNumbers.remove(number)
+            if !visiblePIDNumbers.contains(number) {
+                pidPollingRates[number] = .off
+            }
+        }
+        savePIDPreferences()
+    }
+
+    func clearGraphHistory(for pids: Set<StandardPID>) {
+        for pid in pids {
+            liveHistory[pid] = nil
+        }
     }
 
     func toggleFavorite(_ number: Int) {
@@ -778,10 +802,14 @@ final class ConnectionManager: NSObject, ObservableObject {
 
     private func performLivePIDRemoval(_ number: Int) {
         guard visiblePIDNumbers.contains(number) else { return }
-        pidPollingRates[number] = .off
-        if let pid = StandardPID(rawValue: String(format: "01%02X", number)) {
-            liveReadings.removeAll { $0.pid == pid }
-            liveHistory[pid] = nil
+        if graphPIDNumbers.contains(number) {
+            pidPollingRates[number] = .normal
+        } else {
+            pidPollingRates[number] = .off
+            if let pid = StandardPID(rawValue: String(format: "01%02X", number)) {
+                liveReadings.removeAll { $0.pid == pid }
+                liveHistory[pid] = nil
+            }
         }
         favoritePIDNumbers.remove(number)
         visiblePIDNumbers.remove(number)
@@ -1240,7 +1268,8 @@ final class ConnectionManager: NSObject, ObservableObject {
                 if self.transport == .demo {
                     let now = Date()
                     for reading in Self.demoReadings(at: now) {
-                        guard let interval = self.pollingRate(for: reading.pid.number).interval,
+                        guard self.shouldPollPID(reading.pid.number),
+                              let interval = self.pollingRate(for: reading.pid.number).interval,
                               now.timeIntervalSince(lastPollDates[reading.pid] ?? .distantPast) >= interval else {
                             continue
                         }
@@ -1251,7 +1280,8 @@ final class ConnectionManager: NSObject, ObservableObject {
                     let now = Date()
                     for pid in self.availablePIDs {
                         guard !Task.isCancelled else { break }
-                        guard let interval = self.pollingRate(for: pid.number).interval,
+                        guard self.shouldPollPID(pid.number),
+                              let interval = self.pollingRate(for: pid.number).interval,
                               now.timeIntervalSince(lastPollDates[pid] ?? .distantPast) >= interval else {
                             continue
                         }
@@ -1284,6 +1314,16 @@ final class ConnectionManager: NSObject, ObservableObject {
 
     private var shouldPollLiveData: Bool {
         isRecording || activeSection == .overview || activeSection == .liveData || activeSection == .graphs
+    }
+
+    private func shouldPollPID(_ number: Int) -> Bool {
+        if isRecording && visiblePIDNumbers.contains(number) {
+            return true
+        }
+        if activeSection == .graphs {
+            return graphPIDNumbers.contains(number)
+        }
+        return visiblePIDNumbers.contains(number)
     }
 
     private func appendRecording(_ reading: PIDReading) {
