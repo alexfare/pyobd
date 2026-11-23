@@ -11,6 +11,7 @@ versions and complete license files for each packaged build are included in the
 | NumPy | BSD-3-Clause and licenses for bundled components | https://numpy.org/ |
 | Pint | BSD-3-Clause | https://github.com/hgrecco/pint |
 | pySerial | BSD-3-Clause | https://github.com/pyserial/pyserial |
+| cryptography | Apache-2.0 OR BSD-3-Clause | https://cryptography.io/ |
 | flexcache | BSD-3-Clause | https://github.com/hgrecco/flexcache |
 | flexparser | BSD-3-Clause | https://github.com/hgrecco/flexparser |
 | platformdirs | MIT | https://github.com/tox-dev/platformdirs |

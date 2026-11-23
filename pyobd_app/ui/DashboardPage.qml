@@ -123,6 +123,8 @@ ColumnLayout {
                     required property string unit
                     required property string centerUnit
                     required property real numericValue
+                    required property bool locked
+                    required property string lockReason
                     readonly property color accent: root.colourValue(colour)
 
                     x: xPosition
@@ -228,6 +230,40 @@ ColumnLayout {
                         wrapMode: Text.NoWrap
                         elide: Text.ElideRight
                         clip: true
+                    }
+
+                    Rectangle {
+                        anchors.fill: parent
+                        visible: card.locked && !root.editing
+                        radius: card.radius
+                        color: "#f8fafc"
+                        border.width: 1
+                        border.color: "#dce3ec"
+                        Column {
+                            anchors.centerIn: parent
+                            width: Math.max(120, parent.width - 40)
+                            spacing: 8
+                            Label {
+                                anchors.horizontalCenter: parent.horizontalCenter
+                                text: "Locked"
+                                font.pixelSize: 18
+                                font.bold: true
+                            }
+                            Label {
+                                width: parent.width
+                                text: card.title
+                                font.bold: true
+                                horizontalAlignment: Text.AlignHCenter
+                                elide: Text.ElideRight
+                            }
+                            Label {
+                                width: parent.width
+                                text: card.lockReason
+                                color: "#64748b"
+                                wrapMode: Text.WordWrap
+                                horizontalAlignment: Text.AlignHCenter
+                            }
+                        }
                     }
 
                     Rectangle {
@@ -477,7 +513,7 @@ ColumnLayout {
         id: importDialog
         title: "Import dashboard"
         fileMode: FileDialog.OpenFile
-        nameFilters: ["pyOBD Dashboard (*.pyOBD)", "JSON files (*.json)"]
+        nameFilters: ["pyOBD Dashboard (*.pyOBD)"]
         onAccepted: appModel.import_dashboard(selectedFile.toString())
     }
     FileDialog {
