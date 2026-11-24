@@ -9,6 +9,7 @@ class DashboardListModel(QAbstractListModel):
         "minimum", "maximum", "divisions",
         "xPosition", "yPosition", "widgetWidth", "widgetHeight", "layerValue",
         "readingValue", "centerReadingValue", "unit", "centerUnit", "numericValue",
+        "locked", "lockReason",
     )
     ROLE_MAP = {
         Qt.UserRole + index + 1: name.encode()

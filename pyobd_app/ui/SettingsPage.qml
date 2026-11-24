@@ -1,5 +1,6 @@
 import QtQuick
 import QtQuick.Controls
+import QtQuick.Dialogs
 import QtQuick.Layouts
 
 ColumnLayout {
@@ -102,12 +103,61 @@ ColumnLayout {
                         }
                     }
                 }
+
+                Rectangle {
+                    Layout.fillWidth: true
+                    implicitHeight: packsContent.implicitHeight + 40
+                    radius: 16
+                    color: "white"
+                    border.color: "#dce3ec"
+                    ColumnLayout {
+                        id: packsContent
+                        anchors.fill: parent
+                        anchors.margins: 20
+                        Label { text: "Manufacturer PID packs"; font.pixelSize: 20; font.bold: true; color: "#172033" }
+                        Label {
+                            text: "Install signed Fare Brothers pack and license files. Shared dashboards keep unavailable manufacturer gauges locked."
+                            color: "#64748b"
+                            wrapMode: Text.WordWrap
+                            Layout.fillWidth: true
+                        }
+                        RowLayout {
+                            Button { text: "Install pack"; onClicked: packDialog.open() }
+                            Button { text: "Install license"; onClicked: licenseDialog.open() }
+                            Item { Layout.fillWidth: true }
+                            Label { text: appModel.manufacturerPackStatus; color: "#64748b"; elide: Text.ElideRight }
+                        }
+                        Label { text: "Installation ID"; font.bold: true }
+                        TextField {
+                            text: appModel.packDeviceId
+                            readOnly: true
+                            selectByMouse: true
+                            Layout.fillWidth: true
+                        }
+                    }
+                }
                 Item { Layout.preferredHeight: 24 }
             }
         }
 
         TracePage {}
         AboutPage {}
+    }
+
+    FileDialog {
+        id: packDialog
+        title: "Install manufacturer PID pack"
+        fileMode: FileDialog.OpenFile
+        nameFilters: ["pyOBD Manufacturer Pack (*.pyobd-pack)"]
+        onAccepted: appModel.import_manufacturer_pack(selectedFile.toString())
+    }
+
+    FileDialog {
+        id: licenseDialog
+        title: "Install manufacturer pack license"
+        fileMode: FileDialog.OpenFile
+        nameFilters: ["pyOBD Pack License (*.pyobd-license)"]
+        onAccepted: appModel.import_pack_license(selectedFile.toString())
     }
 }
 

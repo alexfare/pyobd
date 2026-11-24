@@ -24,7 +24,7 @@ from pyobd_app.dashboard_model import DashboardListModel
 from pyobd_app.live_data_model import LiveDataListModel
 from pyobd_app.models import ConnectionConfig, ConnectionState, VehicleState
 from pyobd_app.services import (
-    AppLog, RecordingService, SettingsStore, VehicleService,
+    AppLog, ManufacturerPackRegistry, RecordingService, SettingsStore, VehicleService,
     bluetooth_adapters, serial_adapters,
 )
 from pyobd_app.services.settings import DEFAULT_DASHBOARD_WIDGETS, DEFAULT_WIDGETS
@@ -68,6 +68,10 @@ class AppModel(QObject):
         self._bluetooth_adapters = bluetooth_adapters()
         self._serial_adapters = serial_adapters()
         self._store = SettingsStore()
+        self._packs = ManufacturerPackRegistry()
+        self._manufacturer_pack_status = "{} active manufacturer pack(s)".format(
+            len(self._packs.owned_pack_ids)
+        )
         self._preferences = self._store.preferences()
         try:
             self._poll_interval = max(
@@ -210,11 +214,14 @@ class AppModel(QObject):
         widgets = []
         for widget in self._dashboard_widgets:
             item = dict(widget)
-            reading = self._readings.get(item.get("pid", ""), {})
+            lock_reason = self._dashboard_lock_reason(item)
+            reading = {} if lock_reason else self._readings.get(item.get("pid", ""), {})
             item.update({
-                "value": reading.get("value", "---"),
+                "value": "Locked" if lock_reason else reading.get("value", "---"),
                 "unit": reading.get("unit", ""),
                 "numericValue": self._numeric_value(reading.get("value")),
+                "locked": bool(lock_reason),
+                "lockReason": lock_reason,
             })
             widgets.append(item)
         return widgets
@@ -226,6 +233,14 @@ class AppModel(QObject):
     @Property(str, notify=stateChanged)
     def dashboardMessage(self):
         return self._dashboard_message
+
+    @Property(str, notify=stateChanged)
+    def manufacturerPackStatus(self):
+        return self._manufacturer_pack_status
+
+    @Property(str, constant=True)
+    def packDeviceId(self):
+        return self._packs.device_id
 
     @Property("QStringList", notify=dashboardChanged)
     def dashboardNames(self):
@@ -1042,6 +1057,14 @@ class AppModel(QObject):
             "maximum": upper,
             "divisions": max(2, min(20, divisions)),
         })
+        manufacturer_pids = [
+            value for value in (widget["pid"], widget["center_pid"])
+            if ":" in value
+        ]
+        new_pack_id = manufacturer_pids[0].split(":", 1)[0] if manufacturer_pids else ""
+        if new_pack_id != widget.get("pack_id", ""):
+            widget["pack_version"] = ""
+        widget["pack_id"] = new_pack_id
         if style in ("dial", "combined"):
             widget["width"] = max(240.0, widget["width"])
             widget["height"] = max(240.0, widget["height"])
@@ -1177,9 +1200,11 @@ class AppModel(QObject):
             path = path.with_suffix(".pyOBD")
         try:
             path.write_text(json.dumps({
-                "format": "pyobd-dashboard-layouts",
-                "version": 1,
+                "format": "pyobd-dashboard",
+                "version": 2,
+                "name": self._dashboard_current,
                 "current": self._dashboard_current,
+                "requires": self._dashboard_requirements(self._dashboard_widgets),
                 "layouts": {
                     self._dashboard_current: {
                         "widgets": self._dashboard_widgets
@@ -1197,19 +1222,39 @@ class AppModel(QObject):
         if path is None:
             return
         try:
+            if path.stat().st_size > 1024 * 1024:
+                raise ValueError("Dashboard file is too large")
             payload = json.loads(path.read_text(encoding="utf-8"))
             if not isinstance(payload, dict):
                 raise ValueError("Invalid dashboard layout")
+            file_format = payload.get("format")
+            if file_format not in (None, "pyobd-dashboard", "pyobd-dashboard-layouts"):
+                raise ValueError("Unsupported dashboard format")
+            try:
+                version = int(payload.get("version", 1))
+            except (TypeError, ValueError) as error:
+                raise ValueError("Invalid dashboard version") from error
+            if version < 1 or version > 2:
+                raise ValueError("Unsupported dashboard version")
             layouts = payload.get("layouts")
+            imported_widgets = []
             if isinstance(layouts, dict):
+                if len(layouts) > 20:
+                    raise ValueError("Dashboard file contains too many layouts")
                 imported = {}
                 for name, layout in layouts.items():
                     if not isinstance(layout, dict) or not isinstance(layout.get("widgets"), list):
                         continue
+                    if len(layout["widgets"]) > 200:
+                        raise ValueError("Dashboard contains too many gauges")
                     imported[str(name)] = {"widgets": [
                         self._normalized_dashboard_widget(item)
                         for item in layout["widgets"]
                     ]}
+                    self._apply_declared_dashboard_requirements(
+                        imported[str(name)]["widgets"], payload.get("requires", [])
+                    )
+                    imported_widgets.extend(imported[str(name)]["widgets"])
                 if not imported:
                     raise ValueError("Invalid dashboard layout")
                 for name, layout in imported.items():
@@ -1228,14 +1273,56 @@ class AppModel(QObject):
                 widgets = payload.get("widgets")
                 if not isinstance(widgets, list):
                     raise ValueError("Invalid dashboard layout")
+                if len(widgets) > 200:
+                    raise ValueError("Dashboard contains too many gauges")
                 self._dashboard_widgets = [
                     self._normalized_dashboard_widget(item) for item in widgets
                 ]
-            self._dashboard_message = "Dashboard imported"
+                self._apply_declared_dashboard_requirements(
+                    self._dashboard_widgets, payload.get("requires", [])
+                )
+                imported_widgets.extend(self._dashboard_widgets)
+            missing = self._missing_dashboard_packs(
+                imported_widgets, payload.get("requires", [])
+            )
+            if missing:
+                self._dashboard_message = "Dashboard imported; locked packs: {}".format(
+                    ", ".join(missing)
+                )
+            else:
+                self._dashboard_message = "Dashboard imported"
             self._save_dashboard()
         except (OSError, ValueError, TypeError) as error:
             self._dashboard_message = str(error)
             self.stateChanged.emit()
+
+    @Slot(str)
+    def import_manufacturer_pack(self, url):
+        path = self._local_path(url)
+        if path is None:
+            return
+        try:
+            pack_id = self._packs.install_pack(path)
+            self._manufacturer_pack_status = "Installed manufacturer pack: {}".format(pack_id)
+        except (OSError, ValueError) as error:
+            self._manufacturer_pack_status = str(error)
+        self._refresh_dashboard_model()
+        self._update_poll_scope()
+        self.stateChanged.emit()
+
+    @Slot(str)
+    def import_pack_license(self, url):
+        path = self._local_path(url)
+        if path is None:
+            return
+        try:
+            pack_id = self._packs.install_license(path)
+            self._manufacturer_pack_status = "Activated manufacturer pack: {}".format(pack_id)
+        except (OSError, ValueError) as error:
+            self._manufacturer_pack_status = str(error)
+        self._refresh_dashboard_model()
+        self._update_poll_scope()
+        self.stateChanged.emit()
 
     @Slot(bool)
     def set_vehicle_layout_enabled(self, enabled):
@@ -1505,7 +1592,7 @@ class AppModel(QObject):
                 pid
                 for widget in self._dashboard_widgets
                 for pid in (widget.get("pid"), widget.get("center_pid"))
-                if pid
+                if pid and not self._dashboard_lock_reason(widget)
             }
         elif self._page == "Graphs":
             pids = set(self._graph_pids)
@@ -1632,6 +1719,8 @@ class AppModel(QObject):
                     item.get("center_pid") or item.get("pid", ""), {}
                 ).get("unit", ""),
                 "numericValue": item.get("numericValue") or 0.0,
+                "locked": bool(item.get("locked")),
+                "lockReason": item.get("lockReason", ""),
             })
         self._dashboard_model.update_rows(rows)
 
@@ -1659,9 +1748,15 @@ class AppModel(QObject):
     def _normalized_dashboard_widget(self, item):
         if not isinstance(item, dict):
             raise ValueError("Invalid dashboard widget")
-        pid = str(item.get("pid", "")).upper()
+        pid = self._normalized_dashboard_pid(item.get("pid", ""))
         if not pid:
             raise ValueError("Dashboard widget is missing a PID")
+        center_pid = self._normalized_dashboard_pid(item.get("center_pid", ""))
+        pack_id = str(item.get("pack_id", "")).strip().lower()
+        if not pack_id and ":" in pid:
+            pack_id = pid.split(":", 1)[0]
+        if pack_id and not self._valid_pack_id(pack_id):
+            raise ValueError("Dashboard widget has an invalid manufacturer pack")
         style = str(item.get("style", item.get("type", "combined"))).lower()
         if style not in ("digital", "dial", "combined"):
             style = "combined"
@@ -1674,7 +1769,9 @@ class AppModel(QObject):
         return {
             "id": str(item.get("id") or uuid4().hex),
             "pid": pid,
-            "center_pid": str(item.get("center_pid", "")).upper(),
+            "center_pid": center_pid,
+            "pack_id": pack_id,
+            "pack_version": str(item.get("pack_version", "")).strip(),
             "title": str(item.get("title") or pid),
             "style": style,
             "shape": shape,
@@ -1688,6 +1785,97 @@ class AppModel(QObject):
             "height": max(100.0, float(item.get("height", 260.0))),
             "z": max(0, int(item.get("z", 1))),
         }
+
+    @staticmethod
+    def _normalized_dashboard_pid(value):
+        value = str(value).strip()
+        return value.lower() if ":" in value else value.upper()
+
+    @staticmethod
+    def _valid_pack_id(value):
+        return bool(value) and len(value) <= 128 and all(
+            character in "abcdefghijklmnopqrstuvwxyz0123456789._-"
+            for character in value
+        )
+
+    def _dashboard_widget_packs(self, widget):
+        packs = set()
+        explicit = str(widget.get("pack_id", "")).strip().lower()
+        if explicit:
+            packs.add(explicit)
+        for pid in (widget.get("pid", ""), widget.get("center_pid", "")):
+            if ":" in str(pid):
+                packs.add(str(pid).split(":", 1)[0].lower())
+        return packs
+
+    def _dashboard_lock_reason(self, widget):
+        minimum = str(widget.get("pack_version", "")).strip()
+        missing = sorted(
+            pack_id
+            for pack_id in self._dashboard_widget_packs(widget)
+            if not self._packs.is_entitled(pack_id, minimum)
+        )
+        return "Requires manufacturer pack: {}".format(", ".join(missing)) if missing else ""
+
+    def _dashboard_requirements(self, widgets):
+        requirements = {}
+        for widget in widgets:
+            for pack_id in self._dashboard_widget_packs(widget):
+                minimum = str(widget.get("pack_version", "")).strip()
+                current = requirements.get(pack_id, "")
+                if self._version_numbers(minimum) > self._version_numbers(current):
+                    requirements[pack_id] = minimum
+                else:
+                    requirements.setdefault(pack_id, current)
+        return [
+            {"pack": pack_id, "minimum_version": minimum}
+            for pack_id, minimum in sorted(requirements.items())
+        ]
+
+    def _missing_dashboard_packs(self, widgets, declared_requirements):
+        requirements = {
+            item["pack"]: item.get("minimum_version", "")
+            for item in self._dashboard_requirements(widgets)
+        }
+        if isinstance(declared_requirements, list):
+            for item in declared_requirements:
+                if not isinstance(item, dict):
+                    continue
+                pack_id = str(item.get("pack", "")).strip().lower()
+                if not self._valid_pack_id(pack_id):
+                    continue
+                minimum = str(item.get("minimum_version", "")).strip()
+                current = requirements.get(pack_id, "")
+                if self._version_numbers(minimum) > self._version_numbers(current):
+                    requirements[pack_id] = minimum
+                else:
+                    requirements.setdefault(pack_id, current)
+        return sorted(
+            pack_id
+            for pack_id, minimum in requirements.items()
+            if not self._packs.is_entitled(pack_id, minimum)
+        )
+
+    def _apply_declared_dashboard_requirements(self, widgets, declared_requirements):
+        if not isinstance(declared_requirements, list):
+            return
+        versions = {}
+        for item in declared_requirements:
+            if not isinstance(item, dict):
+                continue
+            pack_id = str(item.get("pack", "")).strip().lower()
+            if self._valid_pack_id(pack_id):
+                versions[pack_id] = str(item.get("minimum_version", "")).strip()
+        for widget in widgets:
+            required = [
+                versions[pack_id]
+                for pack_id in self._dashboard_widget_packs(widget)
+                if versions.get(pack_id)
+            ]
+            if required:
+                widget["pack_version"] = max(
+                    required, key=self._version_numbers
+                )
 
     @staticmethod
     def _local_path(url):

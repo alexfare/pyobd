@@ -2,11 +2,12 @@
 
 from .adapter_discovery import bluetooth_adapters, serial_adapters
 from .logging_service import AppLog
+from .manufacturer_packs import ManufacturerPackRegistry
 from .recording import RecordingService
 from .settings import SettingsStore
 from .vehicle import VehicleService
 
 __all__ = [
-    "AppLog", "RecordingService", "SettingsStore",
+    "AppLog", "ManufacturerPackRegistry", "RecordingService", "SettingsStore",
     "VehicleService", "bluetooth_adapters", "serial_adapters",
 ]
