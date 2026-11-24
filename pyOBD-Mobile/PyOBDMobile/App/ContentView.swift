@@ -48,51 +48,226 @@ struct ContentView: View {
 
 private struct GraphsView: View {
     @EnvironmentObject private var connection: ConnectionManager
-    @State private var selectedPID = StandardPID.engineRPM
+    @State private var selectedPIDs: Set<StandardPID>
+    @State private var showingPIDSelection = false
+    @State private var isPaused = false
+    @State private var pausedHistory: [StandardPID: [PIDSample]] = [:]
+    @AppStorage("graphs.timeRange") private var timeRangeRaw = GraphTimeRange.thirtySeconds.rawValue
 
-    private var samples: [PIDSample] {
-        connection.liveHistory[selectedPID] ?? []
+    init() {
+        let defaults = UserDefaults.standard
+        let stored = defaults.stringArray(forKey: "graphs.selectedPIDs") ?? []
+        let selected = Set(stored.compactMap(StandardPID.init(rawValue:)))
+        _selectedPIDs = State(
+            initialValue: defaults.object(forKey: "graphs.selectedPIDs") == nil ? [.engineRPM] : selected
+        )
+    }
+
+    private var timeRange: GraphTimeRange {
+        GraphTimeRange(rawValue: timeRangeRaw) ?? .thirtySeconds
     }
 
     var body: some View {
         NavigationStack {
-            VStack(spacing: 16) {
-                Picker("PID", selection: $selectedPID) {
-                    ForEach(StandardPID.allCases) { pid in
-                        Text(pid.name).tag(pid)
-                    }
-                }
-                .pickerStyle(.menu)
-                .frame(maxWidth: .infinity, alignment: .leading)
-
-                if samples.isEmpty {
+            Group {
+                if selectedPIDs.isEmpty {
                     ContentUnavailableView(
-                        connection.state == .connected ? "Waiting for data" : "Not connected",
+                        "No graph PIDs selected",
                         systemImage: "chart.xyaxis.line",
-                        description: Text("Connect an adapter or Demo mode to graph live data.")
+                        description: Text("Use Select PIDs to choose values to graph.")
                     )
                 } else {
-                    Chart(samples) { sample in
-                        LineMark(
-                            x: .value("Time", sample.date),
-                            y: .value(selectedPID.name, sample.value)
-                        )
-                        .interpolationMethod(.catmullRom)
-                        .foregroundStyle(.blue)
-                    }
-                    .chartXAxis(.hidden)
-                    .frame(maxHeight: .infinity)
-
-                    if let reading = connection.liveReadings.first(where: { $0.pid == selectedPID }) {
-                        Text(reading.formattedValue)
-                            .font(.largeTitle.bold())
-                            .monospacedDigit()
+                    ScrollView {
+                        LazyVStack(spacing: 14) {
+                            ForEach(selectedPIDs.sorted { $0.number < $1.number }) { pid in
+                                GraphCard(
+                                    pid: pid,
+                                    samples: filteredSamples(for: pid),
+                                    reading: connection.liveReadings.first { $0.pid == pid }
+                                )
+                            }
+                        }
+                        .padding()
                     }
                 }
             }
-            .padding()
+            .background(Color(.systemGroupedBackground))
             .navigationTitle("Graphs")
-            .toolbar { ConnectionStatusLabel() }
+            .toolbar {
+                ToolbarItemGroup(placement: .topBarTrailing) {
+                    Menu {
+                        Button(isPaused ? "Resume" : "Pause", systemImage: isPaused ? "play.fill" : "pause.fill") {
+                            togglePause()
+                        }
+                        Button("Clear graphs", systemImage: "trash", role: .destructive) {
+                            connection.clearGraphHistory(for: selectedPIDs)
+                            pausedHistory = pausedHistory.filter { !selectedPIDs.contains($0.key) }
+                        }
+                        Menu("Time range") {
+                            Picker("Time range", selection: $timeRangeRaw) {
+                                ForEach(GraphTimeRange.allCases) { range in
+                                    Text(range.title).tag(range.rawValue)
+                                }
+                            }
+                        }
+                    } label: {
+                        Image(systemName: "ellipsis.circle")
+                    }
+
+                    Button("Select PIDs", systemImage: "slider.horizontal.3") {
+                        showingPIDSelection = true
+                    }
+                }
+                ConnectionStatusLabel()
+            }
+            .sheet(isPresented: $showingPIDSelection) {
+                GraphPIDSelectionView(selectedPIDs: $selectedPIDs)
+            }
+            .onAppear { applyGraphSelection() }
+            .onChange(of: selectedPIDs) { oldValue, newValue in
+                UserDefaults.standard.set(newValue.map(\.rawValue).sorted(), forKey: "graphs.selectedPIDs")
+                for pid in oldValue.subtracting(newValue) {
+                    connection.setGraphPIDEnabled(false, number: pid.number)
+                }
+                applyGraphSelection()
+            }
+            .onChange(of: connection.supportedPIDs) { _, _ in applyGraphSelection() }
+        }
+    }
+
+    private func filteredSamples(for pid: StandardPID) -> [PIDSample] {
+        let samples = isPaused ? pausedHistory[pid] ?? [] : connection.liveHistory[pid] ?? []
+        guard let seconds = timeRange.seconds else { return samples }
+        let end = isPaused ? samples.last?.date ?? Date() : Date()
+        return samples.filter { $0.date >= end.addingTimeInterval(-seconds) }
+    }
+
+    private func applyGraphSelection() {
+        for pid in selectedPIDs {
+            connection.setGraphPIDEnabled(true, number: pid.number)
+        }
+    }
+
+    private func togglePause() {
+        if isPaused {
+            pausedHistory.removeAll()
+        } else {
+            pausedHistory = connection.liveHistory
+        }
+        isPaused.toggle()
+    }
+}
+
+private enum GraphTimeRange: Double, CaseIterable, Identifiable {
+    case fifteenSeconds = 15
+    case thirtySeconds = 30
+    case oneMinute = 60
+    case all = 0
+
+    var id: Double { rawValue }
+    var seconds: TimeInterval? { self == .all ? nil : rawValue }
+
+    var title: String {
+        switch self {
+        case .fifteenSeconds: "15 seconds"
+        case .thirtySeconds: "30 seconds"
+        case .oneMinute: "1 minute"
+        case .all: "All"
+        }
+    }
+}
+
+private struct GraphCard: View {
+    let pid: StandardPID
+    let samples: [PIDSample]
+    let reading: PIDReading?
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 10) {
+            HStack(alignment: .firstTextBaseline) {
+                Text(pid.name).font(.headline)
+                Spacer()
+                Text(reading?.formattedValue ?? "—")
+                    .font(.title3.bold())
+                    .monospacedDigit()
+            }
+
+            if samples.isEmpty {
+                ContentUnavailableView("Waiting for data", systemImage: "chart.xyaxis.line")
+                    .frame(height: 150)
+            } else {
+                Chart(samples) { sample in
+                    LineMark(
+                        x: .value("Time", sample.date),
+                        y: .value(pid.name, sample.value)
+                    )
+                    .interpolationMethod(.catmullRom)
+                    .foregroundStyle(.blue)
+                }
+                .chartXAxis {
+                    AxisMarks(values: .automatic(desiredCount: 4)) {
+                        AxisGridLine()
+                        AxisValueLabel(format: .dateTime.minute().second())
+                    }
+                }
+                .frame(height: 190)
+            }
+        }
+        .mobileCard()
+    }
+}
+
+private struct GraphPIDSelectionView: View {
+    @Environment(\.dismiss) private var dismiss
+    @EnvironmentObject private var connection: ConnectionManager
+    @Binding var selectedPIDs: Set<StandardPID>
+    @State private var searchText = ""
+
+    private var availablePIDs: [StandardPID] {
+        let supported = connection.supportedPIDs.compactMap {
+            StandardPID(rawValue: String(format: "01%02X", $0.number))
+        }
+        let source = supported.isEmpty
+            ? StandardPID.allCases
+            : Array(Set(supported).union(selectedPIDs))
+        let query = searchText.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
+        return source.filter {
+            query.isEmpty || $0.name.lowercased().contains(query) || $0.rawValue.lowercased().contains(query)
+        }
+        .sorted { $0.number < $1.number }
+    }
+
+    var body: some View {
+        NavigationStack {
+            List(availablePIDs) { pid in
+                Button {
+                    if selectedPIDs.contains(pid) {
+                        selectedPIDs.remove(pid)
+                    } else {
+                        selectedPIDs.insert(pid)
+                    }
+                } label: {
+                    HStack {
+                        VStack(alignment: .leading, spacing: 3) {
+                            Text(pid.name).foregroundStyle(.primary)
+                            Text(pid.rawValue).font(.caption.monospaced()).foregroundStyle(.secondary)
+                        }
+                        Spacer()
+                        Image(systemName: selectedPIDs.contains(pid) ? "checkmark.circle.fill" : "circle")
+                    }
+                }
+            }
+            .searchable(text: $searchText, prompt: "PID or name")
+            .navigationTitle("Graph PIDs")
+            .navigationBarTitleDisplayMode(.inline)
+            .toolbar {
+                ToolbarItem(placement: .cancellationAction) {
+                    Button("Clear") { selectedPIDs.removeAll() }
+                }
+                ToolbarItem(placement: .confirmationAction) {
+                    Button("Done") { dismiss() }
+                }
+            }
         }
     }
 }
