@@ -98,7 +98,10 @@ ScrollView {
                             }
                             Connections {
                                 target: appModel
-                                function onGraphChanged() { compactGraph.requestPaint() }
+                                function onGraphSamplesChanged(pids) {
+                                    if (compactGraph.visible && pids.indexOf(modelData.pid) !== -1) compactGraph.requestPaint()
+                                }
+                                function onGraphHistoryCleared() { if (compactGraph.visible) compactGraph.requestPaint() }
                             }
                         }
 
