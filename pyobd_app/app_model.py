@@ -715,7 +715,9 @@ class AppModel(QObject):
                 "value": row["value"], "unit": row["unit"],
                 "progress": 0.0,
             }
-            self._history[row["pid"]].append(row["number"])
+            self._history[row["pid"]].append((
+                self._replay_started + row["elapsed"], row["number"],
+            ))
             changed_pids.add(row["pid"])
         if changed_pids:
             self._rebuild_live_data()
@@ -814,7 +816,11 @@ class AppModel(QObject):
 
     @Slot(str, result="QVariantList")
     def graph_points(self, pid):
-        return list(self._history.get(pid, ()))
+        return [value for _, value in self._history.get(pid, ())]
+
+    @Slot(str, result="QVariantList")
+    def graph_samples(self, pid):
+        return [list(sample) for sample in self._history.get(pid, ())]
 
     @Property("QStringList", notify=graphSelectionChanged)
     def graphPids(self):
@@ -1429,6 +1435,7 @@ class AppModel(QObject):
             self._update_poll_scope()
             self.profileChanged.emit()
         elif event.channel == EventChannel.TELEMETRY:
+            sample_time = time.monotonic()
             self._readings.update({
                 reading.pid: reading.as_mapping() for reading in event.payload
             })
@@ -1446,7 +1453,7 @@ class AppModel(QObject):
             for reading in event.payload:
                 numeric = self._numeric_value(reading.value)
                 if numeric is not None:
-                    self._history[reading.pid].append(numeric)
+                    self._history[reading.pid].append((sample_time, numeric))
                     graph_pids.add(reading.pid)
             if self._page == "Live Data":
                 self._rebuild_live_data()
