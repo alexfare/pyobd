@@ -33,7 +33,8 @@ from pyobd_app.services.settings import DEFAULT_DASHBOARD_WIDGETS, DEFAULT_WIDGE
 class AppModel(QObject):
     pageChanged = Signal()
     stateChanged = Signal()
-    graphChanged = Signal()
+    graphSamplesChanged = Signal("QStringList", arguments=["pids"])
+    graphHistoryCleared = Signal()
     profileChanged = Signal()
     diagnosticsChanged = Signal()
     sessionsChanged = Signal()
@@ -676,6 +677,7 @@ class AppModel(QObject):
         self._replay_started = time.monotonic()
         self._readings = {}
         self._history.clear()
+        self.graphHistoryCleared.emit()
         pids = list(dict.fromkeys(row["pid"] for row in rows))
         names = {row["pid"]: row["sensor"] for row in rows}
         self._supported_pids = [
@@ -702,6 +704,7 @@ class AppModel(QObject):
             self.stop_session_replay()
             return
         elapsed = time.monotonic() - self._replay_started
+        changed_pids = set()
         while self._replay_index < len(self._replay_rows):
             row = self._replay_rows[self._replay_index]
             if row["elapsed"] > elapsed:
@@ -712,11 +715,15 @@ class AppModel(QObject):
                 "value": row["value"], "unit": row["unit"],
                 "progress": 0.0,
             }
-            self._history[row["pid"]].append(row["number"])
-        self._rebuild_live_data()
-        self._refresh_dashboard_model()
-        self.graphChanged.emit()
-        self.stateChanged.emit()
+            self._history[row["pid"]].append((
+                self._replay_started + row["elapsed"], row["number"],
+            ))
+            changed_pids.add(row["pid"])
+        if changed_pids:
+            self._rebuild_live_data()
+            self._refresh_dashboard_model()
+            self.graphSamplesChanged.emit(list(changed_pids))
+            self.stateChanged.emit()
         if self._replay_index >= len(self._replay_rows):
             self._replay_timer.stop()
             self._replay_status = "Replay complete"
@@ -809,7 +816,11 @@ class AppModel(QObject):
 
     @Slot(str, result="QVariantList")
     def graph_points(self, pid):
-        return list(self._history.get(pid, ()))
+        return [value for _, value in self._history.get(pid, ())]
+
+    @Slot(str, result="QVariantList")
+    def graph_samples(self, pid):
+        return [list(sample) for sample in self._history.get(pid, ())]
 
     @Property("QStringList", notify=graphSelectionChanged)
     def graphPids(self):
@@ -1397,7 +1408,7 @@ class AppModel(QObject):
                 self._readings = {}
                 self._history.clear()
                 self._refresh_dashboard_model()
-                self.graphChanged.emit()
+                self.graphHistoryCleared.emit()
                 self._supported_pids = []
                 self._live_data = []
                 self._live_data_model.update_rows([])
@@ -1424,6 +1435,7 @@ class AppModel(QObject):
             self._update_poll_scope()
             self.profileChanged.emit()
         elif event.channel == EventChannel.TELEMETRY:
+            sample_time = time.monotonic()
             self._readings.update({
                 reading.pid: reading.as_mapping() for reading in event.payload
             })
@@ -1437,16 +1449,18 @@ class AppModel(QObject):
                 self._recording_status = str(error)
                 self._recording.stop()
                 self._update_poll_scope()
+            graph_pids = set()
             for reading in event.payload:
                 numeric = self._numeric_value(reading.value)
                 if numeric is not None:
-                    self._history[reading.pid].append(numeric)
+                    self._history[reading.pid].append((sample_time, numeric))
+                    graph_pids.add(reading.pid)
             if self._page == "Live Data":
                 self._rebuild_live_data()
             elif self._page == "Dashboard":
                 self._refresh_dashboard_model()
-            if self._page in ("Graphs", "Overview"):
-                self.graphChanged.emit()
+            if graph_pids and self._page in ("Graphs", "Overview"):
+                self.graphSamplesChanged.emit(list(graph_pids))
             emit_state = self._page == "Overview" or (
                 self._page == "Live Data" and self._recording.active
             )
